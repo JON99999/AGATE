@@ -1,0 +1,6 @@
+{
+  "name": "Minute-Sync Scheduler v0.1",
+  "description": "Version 0.1. Real-time MP3 scheduler with recurring hourly, daily, and one-time events.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
