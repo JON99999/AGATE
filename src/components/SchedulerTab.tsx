@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, ShieldAlert, Copy, Check, XCircle, FolderOpen, Music, Search, Play, Square } from 'lucide-react';
 import { Schedule, ScheduleType, ScheduleMetadata } from '../types';
-import { cn, getMP3Status, mockFiles, formatDuration } from '../lib/utils';
+import { cn, getMP3Status, formatDuration } from '../lib/utils';
+import { getPlayableUrl, DRIVE_FOLDERS } from '../lib/driveService';
 
 interface SchedulerTabProps {
   schedules: Schedule[];
@@ -9,9 +10,11 @@ interface SchedulerTabProps {
   isAdmin: boolean;
   onAdminToggle: (val: boolean) => void;
   now: Date;
+  driveMP3s?: any[];
+  isDriveActive?: boolean;
 }
 
-export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle, now }: SchedulerTabProps) {
+export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle, now, driveMP3s = [], isDriveActive = false }: SchedulerTabProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Schedule>>({});
   const [isPickerOpen, setIsPickerOpen] = useState(false);
@@ -34,7 +37,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
     const isVerified = status.exists && status.valid;
 
     if (isVerified && formData.mp3Url) {
-      const audio = new Audio(formData.mp3Url);
+      const audio = new Audio(getPlayableUrl(formData.mp3Url));
       const handleLoadedMetadata = () => {
         const d = audio.duration;
         if (!isNaN(d) && d > 0) {
@@ -67,7 +70,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
         audioRef.current.src = "";
       }
       
-      const audio = new Audio(url);
+      const audio = new Audio(getPlayableUrl(url));
       audioRef.current = audio;
       audio.play().catch(err => {
         console.error("Preview failed", err);
@@ -80,7 +83,8 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
     }
   };
 
-  const filteredFiles = mockFiles.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const soundLibrary = driveMP3s;
+  const filteredFiles = soundLibrary.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const startEdit = (s: Schedule) => {
     setEditingId(s.id);
@@ -757,7 +761,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                         type="text" 
                         value={formData.mp3Url || ''} 
                         onChange={e => setFormData({...formData, mp3Url: e.target.value})}
-                        placeholder="/src/MP3 Storage/filename.mp3"
+                        placeholder="https://www.googleapis.com/drive/v3/files/... or select from browse"
                         className={cn(
                           "w-full px-3 py-2 rounded border font-mono text-[8px] outline-none transition-all pr-12",
                           formData.mp3Url && !getMP3Status(formData.mp3Url).exists 
@@ -1102,8 +1106,12 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                   <FolderOpen className="w-4 h-4 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">MP3 Storage</h3>
-                  <p className="text-[7px] text-slate-400 font-bold uppercase">Source: Local / Mapped Drive</p>
+                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">
+                    {isDriveActive ? "google drive mp3library folder" : "local chime library"}
+                  </h3>
+                  <p className="text-[7px] text-slate-400 font-bold uppercase">
+                    Source: {isDriveActive ? `Google Drive mp3library folder (${DRIVE_FOLDERS.mp3s})` : 'Bundled Local Audio Assets'}
+                  </p>
                 </div>
               </div>
               <button onClick={() => setIsPickerOpen(false)} className="text-slate-400 hover:text-slate-600">
@@ -1160,19 +1168,28 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                   </button>
                 )) : (
                   <div className="py-12 text-center">
-                    <AlertCircle className="w-8 h-8 text-slate-200 mx-auto mb-2" />
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">No matching resources</p>
+                    <AlertCircle className="w-8 h-8 text-amber-500/60 mx-auto mb-2" />
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                      {isDriveActive ? "No files inside Drive folder" : "No matching resources"}
+                    </p>
+                    {isDriveActive && (
+                      <p className="text-[8px] text-slate-400 mt-2 max-w-[225px] mx-auto leading-relaxed uppercase font-bold">
+                        Please upload your custom .mp3 files into the Google Drive "mp3library" folder!
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
             </div>
             
-            <div className="p-3 bg-slate-50 border-t border-slate-100 text-center">
-              <p className="text-[7px] text-slate-400 font-bold uppercase italic leading-relaxed">
-                * Real-time sync with "MP3 Storage" folder enabled.<br/>
-                Drive Mapping: G:\My Drive\Broadcaster\MP3 Storage
-              </p>
-            </div>
+            {isDriveActive && (
+              <div className="p-3 bg-slate-50 border-t border-slate-100 text-center">
+                <p className="text-[7px] text-slate-400 font-bold uppercase italic leading-relaxed">
+                  * Real-time sync with default folder "google drive mp3library folder" enabled.<br/>
+                  Drive Location Target: google drive mp3library folder (ID: {DRIVE_FOLDERS.mp3s})
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}

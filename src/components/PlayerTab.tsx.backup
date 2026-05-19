@@ -12,20 +12,9 @@ interface PlayerTabProps {
   now: Date;
   syncTime: Date;
   scrollTrigger: number;
-  playMode?: 'Live' | 'Prerecord';
-  prerecordDate?: Date | null;
 }
 
-export default function PlayerTab({ 
-  schedules, 
-  logs, 
-  onLog, 
-  now, 
-  syncTime, 
-  scrollTrigger,
-  playMode = 'Live',
-  prerecordDate = null
-}: PlayerTabProps) {
+export default function PlayerTab({ schedules, logs, onLog, now, syncTime, scrollTrigger }: PlayerTabProps) {
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
   const playingAudioRef = useRef<HTMLAudioElement | null>(null);
   const [playingSlotKey, setPlayingSlotKey] = useState<string | null>(null);
@@ -91,28 +80,17 @@ export default function PlayerTab({
   }, [playingAudio]);
 
   const timeline = useMemo(() => {
-    if (playMode === 'Prerecord' && prerecordDate) {
-      const slots = [];
-      let current = startOfMinute(prerecordDate);
-      const end = addMinutes(current, 240); // 4 hours
-      while (isBefore(current, end)) {
-        slots.push(new Date(current));
-        current = addMinutes(current, 1);
-      }
-      return slots;
-    } else {
-      const start = subMinutes(syncTime, 120);
-      const end = addMinutes(syncTime, 120);
-      const slots = [];
-      
-      let current = startOfMinute(start);
-      while (isBefore(current, end)) {
-        slots.push(new Date(current));
-        current = addMinutes(current, 1);
-      }
-      return slots;
+    const start = subMinutes(syncTime, 120);
+    const end = addMinutes(syncTime, 120);
+    const slots = [];
+    
+    let current = startOfMinute(start);
+    while (isBefore(current, end)) {
+      slots.push(new Date(current));
+      current = addMinutes(current, 1);
     }
-  }, [syncTime, playMode, prerecordDate]);
+    return slots;
+  }, [syncTime]);
 
   const getSchedulesForSlot = (slot: Date) => {
     const day = slot.getDay();
@@ -214,35 +192,24 @@ export default function PlayerTab({
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto space-y-2 pb-4 scroll-smooth"
       >
-        {timeline.map((slot, index) => {
+        {timeline.map((slot) => {
           const sForSlot = getSchedulesForSlot(slot);
-          const isPre = playMode === 'Prerecord';
-          const isPresent = !isPre && isSameMinute(slot, now);
+          const isPresent = isSameMinute(slot, now);
           
-          if (sForSlot.length === 0 && !isPresent && !(isPre && index === 0)) return null;
+          if (sForSlot.length === 0 && !isPresent) return null;
 
-          const isPast = !isPre && isBefore(slot, now) && !isPresent;
-          const diffSeconds = !isPre ? Math.abs(differenceInSeconds(now, slot)) : 0;
+          const isPast = isBefore(slot, now) && !isPresent;
+          const diffSeconds = Math.abs(differenceInSeconds(now, slot));
 
           return (
             <div key={slot.toISOString()} className="space-y-2">
-              {isPre && index === 0 && (
-                <div 
-                  ref={activeItemRef}
-                  className="bg-purple-600 h-6 flex items-center justify-center rounded shadow-sm border border-purple-500 mx-1"
-                  id="prerecord-start-indicator"
-                >
-                  <span className="text-[10px] font-black uppercase text-white tracking-widest font-sans">Prerecord Start</span>
-                </div>
-              )}
-
               {isPresent && (
                 <div 
                   ref={activeItemRef}
                   className="bg-blue-600 h-6 flex items-center justify-center rounded shadow-sm border border-blue-500 mx-1"
                   id="now-indicator"
                 >
-                  <span className="text-[10px] font-black uppercase text-white tracking-widest font-sans">now</span>
+                  <span className="text-[10px] font-black uppercase text-white tracking-widest">now</span>
                 </div>
               )}
               
@@ -269,13 +236,11 @@ export default function PlayerTab({
                     key={`${slot.toISOString()}-${s.id}-${idx}`}
                     className={cn(
                       "bg-white rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5",
-                      isCurrentlyPlaying || isUpcoming 
-                        ? (isPre ? "border-purple-500 ring-1 ring-purple-500/20" : "border-blue-500 ring-1 ring-blue-500/20") 
-                        : "border-slate-200",
-                      isUpcoming ? (isPre ? "bg-purple-50/20" : "bg-blue-50/20") : "",
+                      isCurrentlyPlaying || isUpcoming ? "border-blue-500 ring-1 ring-blue-500/20" : "border-slate-200",
+                      isUpcoming ? "bg-blue-50/20" : "",
                       ((isPast && !isCurrentlyPlaying && !played) || isMissedOld) && !isUpcoming ? "opacity-60 grayscale-[0.5]" : "",
                       isMissedRecent && !isCurrentlyPlaying ? "bg-orange-50 border-orange-200" : "",
-                      isPresent && !isCurrentlyPlaying ? (isPre ? "bg-purple-50/30 border-purple-200" : "bg-blue-50/30 border-blue-200") : "",
+                      isPresent && !isCurrentlyPlaying ? "bg-blue-50/30 border-blue-200" : "",
                       !isVerified ? "border-red-100 bg-red-50/10" : ""
                     )}
                   >
@@ -287,23 +252,20 @@ export default function PlayerTab({
                     </span>
                     <span className={cn(
                       "text-[10px] font-mono font-black",
-                      isMissedRecent && !isCurrentlyPlaying ? "text-orange-900" : (isPresent || isCurrentlyPlaying || isUpcoming) ? (isPre ? "text-purple-600" : "text-blue-600") : "text-slate-900"
+                      isMissedRecent && !isCurrentlyPlaying ? "text-orange-900" : (isPresent || isCurrentlyPlaying || isUpcoming) ? "text-blue-600" : "text-slate-900"
                     )}>
                       {format(slot, 'HH:mm')}
                     </span>
                   </div>
                   {isCurrentlyPlaying ? (
-                    <div className={cn(
-                      "flex items-center gap-1 text-[8px] font-black uppercase animate-pulse",
-                      isPre ? "text-purple-600" : "text-blue-600"
-                    )}>
-                      <div className={cn("w-1.5 h-1.5 rounded-full", isPre ? "bg-purple-600" : "bg-blue-600")}></div>
-                      {isPre ? "Prerecord" : "Live"}
+                    <div className="flex items-center gap-1 text-[8px] font-black uppercase text-blue-600 animate-pulse">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
+                      Live
                     </div>
                   ) : isPresent ? (
-                    <span className={cn("text-[8px] text-white px-1 py-0.5 rounded font-black uppercase leading-none", isPre ? "bg-purple-600" : "bg-blue-600")}>Next</span>
+                    <span className="text-[8px] bg-blue-600 text-white px-1 py-0.5 rounded font-black uppercase leading-none">Next</span>
                   ) : isUpcoming ? (
-                    <span className={cn("text-[8px] text-white px-1 py-0.5 rounded font-black uppercase leading-none shadow-sm animate-pulse", isPre ? "bg-purple-500 shadow-purple-200" : "bg-blue-500 shadow-blue-200")}>Upcoming</span>
+                    <span className="text-[8px] bg-blue-500 text-white px-1 py-0.5 rounded font-black uppercase leading-none shadow-sm animate-pulse">Upcoming</span>
                   ) : null}
                 </div>
 
@@ -311,7 +273,7 @@ export default function PlayerTab({
                 <div className="flex items-center justify-between gap-2">
                   <div className={cn(
                     "text-[10px] font-bold leading-tight break-words line-clamp-2 flex-1",
-                    isCurrentlyPlaying ? (isPre ? "text-purple-700" : "text-blue-700") : "text-slate-800"
+                    isCurrentlyPlaying ? "text-blue-700" : "text-slate-800"
                   )}>
                     {s.name}
                   </div>
@@ -324,7 +286,7 @@ export default function PlayerTab({
                       isCurrentlyPlaying ? "bg-slate-900 text-white" :
                       played ? "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-600 transition-colors" :
                       isMissedRecent ? "bg-orange-600 text-white" :
-                      isPresent || isUpcoming ? (isPre ? "bg-purple-600 text-white shadow-md shadow-purple-200" : "bg-blue-600 text-white shadow-md shadow-blue-200") :
+                      isPresent || isUpcoming ? "bg-blue-600 text-white shadow-md shadow-blue-200" :
                       "bg-slate-700 text-white hover:bg-slate-900"
                     )}
                     title={!isVerified ? "Invalid or missing file" : played ? "Play Again" : undefined}
@@ -366,7 +328,7 @@ export default function PlayerTab({
                         )}
                       </div>
                       <div className="flex items-center gap-1 opacity-80 leading-none py-0.5">
-                        <div className={cn("w-1 h-1 rounded-full shrink-0", mp3BlobCache.has(s.mp3Url) ? "bg-emerald-500" : (isPre ? "bg-purple-400 animate-pulse" : "bg-blue-400 animate-pulse"))} />
+                        <div className={cn("w-1 h-1 rounded-full shrink-0", mp3BlobCache.has(s.mp3Url) ? "bg-emerald-500" : "bg-blue-400 animate-pulse")} />
                         <span className="text-[6.5px] font-black text-slate-400 uppercase tracking-tighter leading-none">
                           {mp3BlobCache.has(s.mp3Url) ? "Cached" : "Caching..."}
                         </span>
@@ -382,7 +344,7 @@ export default function PlayerTab({
                   )}
                   
                   {isCurrentlyPlaying ? (
-                    <div className={cn("flex items-center gap-1 text-[8px] font-mono font-bold leading-none", isPre ? "text-purple-600" : "text-blue-600")}>
+                    <div className="flex items-center gap-1 text-[8px] font-mono font-bold text-blue-600 leading-none">
                       <span>{formatTime(currentTime)}</span>
                       <span className="opacity-30">/</span>
                       <span>{formatTime(duration)}</span>
@@ -400,10 +362,6 @@ export default function PlayerTab({
           );
         })}
       </div>
-
-      {/* No Playback Error Overlay as per user request */}
     </div>
   );
 }
-
-

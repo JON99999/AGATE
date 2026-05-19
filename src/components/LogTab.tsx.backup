@@ -11,8 +11,7 @@ import {
   Music, 
   Hash, 
   FileText,
-  Filter,
-  Play
+  Filter
 } from 'lucide-react';
 import { LogEntry } from '../types';
 import { cn, getMP3Status } from '../lib/utils';
@@ -21,7 +20,7 @@ interface LogTabProps {
   logs: LogEntry[];
 }
 
-type SortField = 'timestamp' | 'mp3Name' | 'scheduleName' | 'scheduleId' | 'playMode' | 'logTimeStamp';
+type SortField = 'timestamp' | 'mp3Name' | 'scheduleName' | 'scheduleId';
 type SortOrder = 'asc' | 'desc';
 
 export default function LogTab({ logs }: LogTabProps) {
@@ -47,21 +46,11 @@ export default function LogTab({ logs }: LogTabProps) {
     // Filter
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      result = result.filter(l => {
-        try {
-          const scheduleNameMatch = l.scheduleName.toLowerCase().includes(q);
-          const filenameMatch = getMP3Status(l.mp3Name).filename.toLowerCase().includes(q);
-          const idMatch = l.scheduleId.toLowerCase().includes(q);
-          const playModeMatch = l.playMode && l.playMode.toLowerCase().includes(q);
-          
-          const timestampMatch = format(new Date(l.timestamp), 'yyyy-MM-dd HH:mm:ss').includes(q);
-          const actualTimestampMatch = l.logTimeStamp && format(new Date(l.logTimeStamp), 'yyyy-MM-dd HH:mm:ss').includes(q);
-          
-          return scheduleNameMatch || filenameMatch || idMatch || playModeMatch || timestampMatch || actualTimestampMatch;
-        } catch (e) {
-          return l.scheduleName.toLowerCase().includes(q) || l.scheduleId.toLowerCase().includes(q);
-        }
-      });
+      result = result.filter(l => 
+        l.scheduleName.toLowerCase().includes(q) ||
+        getMP3Status(l.mp3Name).filename.toLowerCase().includes(q) ||
+        l.scheduleId.toLowerCase().includes(q)
+      );
     }
 
     // Sort
@@ -69,21 +58,13 @@ export default function LogTab({ logs }: LogTabProps) {
       let valA: any = a[sortField];
       let valB: any = b[sortField];
 
-      // Handle custom sorting fields specifically
-      if (sortField === 'timestamp' || sortField === 'logTimeStamp') {
-        const timeA = valA ? new Date(valA).getTime() : 0;
-        const timeB = valB ? new Date(valB).getTime() : 0;
-        valA = timeA;
-        valB = timeB;
+      // Handle timestamp sorting specifically
+      if (sortField === 'timestamp') {
+        valA = new Date(valA).getTime();
+        valB = new Date(valB).getTime();
       } else if (sortField === 'mp3Name') {
         valA = getMP3Status(a.mp3Name).filename.toLowerCase();
         valB = getMP3Status(b.mp3Name).filename.toLowerCase();
-      } else if (sortField === 'playMode') {
-        valA = (valA || 'Live').toLowerCase();
-        valB = (valB || 'Live').toLowerCase();
-      } else {
-        valA = (valA || '').toString().toLowerCase();
-        valB = (valB || '').toString().toLowerCase();
       }
 
       if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
@@ -152,8 +133,6 @@ export default function LogTab({ logs }: LogTabProps) {
             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sort By:</span>
           </div>
           <SortButton field="timestamp" label="Date/Time" icon={Clock} />
-          <SortButton field="logTimeStamp" label="Actual Time" icon={Clock} />
-          <SortButton field="playMode" label="Play Mode" icon={Play} />
           <SortButton field="scheduleName" label="Schedule Name" icon={FileText} />
           <SortButton field="mp3Name" label="MP3 File" icon={Music} />
           <SortButton field="scheduleId" label="ID" icon={Hash} />
@@ -179,34 +158,15 @@ export default function LogTab({ logs }: LogTabProps) {
                   i % 2 === 0 ? "bg-white" : "bg-slate-50/20"
                 )}
               >
-                <div className="w-[140px] text-[11px] font-mono font-bold text-slate-900 tabular-nums leading-none flex flex-col gap-0.5">
-                  <div className="flex items-center">
-                    <span>{format(new Date(log.timestamp), 'yyyy-MM-dd')}</span>
-                    <span className="text-slate-400 font-medium ml-1.5">{format(new Date(log.timestamp), 'HH:mm:ss')}</span>
-                  </div>
-                  {log.logTimeStamp && (
-                    <span className="text-[8px] font-mono font-medium text-slate-400 tracking-tighter leading-none mt-0.5">
-                      ACTUAL: {format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss')}
-                    </span>
-                  )}
+                <div className="w-[140px] text-[11px] font-mono font-bold text-slate-900 tabular-nums leading-none">
+                  <span>{format(new Date(log.timestamp), 'yyyy-MM-dd')}</span>
+                  <span className="text-slate-400 font-medium ml-1.5">{format(new Date(log.timestamp), 'HH:mm:ss')}</span>
                 </div>
                 
-                <div className="w-[180px] pr-4 flex flex-col">
+                <div className="w-[180px] pr-4">
                   <span className="text-[11px] font-bold text-slate-800 line-clamp-2 leading-tight">
                     {log.scheduleName}
                   </span>
-                  {log.playMode && (
-                    <div className="mt-0.5">
-                      <span className={cn(
-                        "inline-block text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none",
-                        log.playMode === 'Prerecord' 
-                          ? "bg-purple-100 text-purple-700 border border-purple-200" 
-                          : "bg-blue-50 text-blue-600 border border-blue-100"
-                      )}>
-                        {log.playMode} Mode
-                      </span>
-                    </div>
-                  )}
                 </div>
                 
                 <div className="flex-1 min-w-0 pr-4">

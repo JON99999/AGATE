@@ -1,41 +1,55 @@
-# Minute-Sync Scheduler v0.1
+# Minute-Sync Scheduler
 
-A real-time MP3 scheduler with recurring hourly, daily, and one-time events.
+A cross-platform desktop MP3 scheduler designed for professional audio orchestration.
 
-## Local Setup
+## Primary Environment Priorities
 
-To run this application on your own computer, follow these steps:
+1.  **MacOS Silicon (arm64)**: Optimized for Apple M1/M2/M3 chips.
+2.  **MacOS Intel (x64)**: Fully compatible with older Intel-based Macs.
+3.  **Windows 10/11 (x64)**: Native support for modern Windows environments.
+
+---
+
+## Getting Started
 
 ### 1. Prerequisites
-Ensure you have [Node.js](https://nodejs.org/) installed (version 18 or higher is recommended).
+- [Node.js](https://nodejs.org/) (v18+)
+- [Git](https://git-scm.com/)
 
-### 2. Install Dependencies
-Open your terminal in this folder and run:
+### 2. Setup
 ```bash
+git clone <repository-url>
+cd MinuteSync-Scheduler
 npm install
 ```
 
-### 3. Environment Variables
-Create a `.env` file in the root directory and add any necessary keys. You can use `.env.example` as a template.
-Note: For the mock files to play, ensure you have an active internet connection as they are currently hosted remotely.
-
-### 4. Running the App
-To start the development server:
+### 3. Development
+To launch the application in development mode (HMR enabled for frontend):
 ```bash
 npm run dev
 ```
-The app will be available at `http://localhost:3000`.
-
-### 5. Building for Production
-To create a production-ready bundle:
+Note: This runs the backend and frontend in your default browser. To see it in the Electron container during development, use:
 ```bash
-npm run build
-npm start
+npm run desktop
 ```
 
+### 4. Building for Distribution
+To generate the native applications for your current platform:
+```bash
+npm run dist
+```
+The output will be located in the `release/` directory:
+- **Mac**: `.dmg` and `.zip` (supporting Silicon or Intel depending on your build target).
+- **Windows**: `.exe` (Installer and Portable).
+
+---
+
+## Environment Guidelines
+- **Desktop Focus**: The web version is secondary; all development prioritizes features within the Electron desktop wrapper.
+- **Platform Parity**: If a feature required for Windows or Intel Mac significantly compromises the performance or experience on Apple Silicon, users are notified for decision-making.
+
 ## Features
-- **Real-time Synchronization**: The "now" indicator moves precisely with your system clock.
-- **Efficient Rendering**: Timeline mapping only recalculates on sync events (refresh/load) to save resources.
-- **Metadata Fetching**: Automatically detects MP3 duration when adding new schedules.
-- **Flexible Scheduling**: Supports Hourly, Daily (fixed time), and One-Time date/time events.
-- **Verification System**: Validates MP3 URLs and paths before saving.
+- **Real-time Synchronization**: Precision system clock tracking.
+- **Hardware-Aware Rendering**: Optimized for low CPU usage on Silicon chips.
+- **Flexible Scheduling**: Hourly, Daily, and Date-specific one-time events.
+- **Audio Verification**: Pre-flight checks for MP3 accessibility and metadata.

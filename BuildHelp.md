@@ -1,0 +1,37 @@
+# How to Build and Download the Desktop App
+
+To get the "double-click" versions (`.exe` for Windows or `.dmg` for Mac) without building them yourself, follow these steps using GitHub:
+
+## 1. Connect to GitHub
+Use the **Share** or **Settings** menu in this interface to sync this project to your GitHub account. Ensure the repository name is what you expect (e.g., `MinuteSync-Scheduler`).
+
+## 2. Trigger an Automatic Build
+I have configured a "GitHub Action" that builds the app for you whenever you create a version tag.
+1. Go to your repository on GitHub.com.
+2. Click on **Releases** (usually on the right side of the page).
+3. Click **Create a new release** (or "Draft a new release").
+4. Click **Choose a tag** and type `v0.1.0` (it must start with a `v`).
+5. Click **Create new tag** when prompted.
+6. Give the release a title (e.g., "Version 0.1 First Build").
+7. Click **Publish release**.
+
+## 3. Wait for the Build
+1. Go to the **Actions** tab at the top of your GitHub repository.
+2. You will see a workflow named "Build/Release Electron App" starting.
+3. It will take about 5-10 minutes to finish building for both Windows and Mac.
+
+## 4. Download your Files
+1. Once the Action finishes (green checkmark), go back to your **Releases** page.
+2. You will now see "Assets" listed at the bottom of your version `v0.1.0`.
+3. Download the `Minute-Sync-Scheduler-0.1.0.exe` (Windows) or `.dmg` (Mac).
+4. These are "Portable" versions—you can move them anywhere on your computer and double-click to run!
+
+---
+
+### If you want to build locally instead:
+If you prefer to build on your own machine:
+1. Install [Node.js](https://nodejs.org/).
+2. Download your code and open a terminal in that folder.
+3. Run `npm install`.
+4. Run `npm run dist`.
+5. Your files will be in the `release/` folder.

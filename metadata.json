@@ -1,6 +1,6 @@
 {
-  "name": "Minute-Sync Scheduler v0.1",
-  "description": "Version 0.1. Real-time MP3 scheduler with recurring hourly, daily, and one-time events.",
+  "name": "Minute-Sync Scheduler",
+  "description": "Cross-platform Desktop MP3 Scheduler optimized for MacOS (Silicon/Intel) and Windows 10/11.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
