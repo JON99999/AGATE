@@ -16,7 +16,7 @@
     "lint": "tsc --noEmit",
     "start": "node dist/server.cjs",
     "desktop": "npm run build && electron .",
-    "dist": "node build-apps.js"
+    "dist": "node build-apps.cjs"
   },
   "build": {
     "appId": "com.minutesync.scheduler",
