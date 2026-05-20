@@ -30,3 +30,25 @@
   animation: slide-in-from-top 0.3s ease-out;
 }
 
+@media (max-width: 340px) {
+  .hide-app-name {
+    display: none !important;
+  }
+}
+@media (max-width: 290px) {
+  .hide-log-name {
+    display: none !important;
+  }
+}
+@media (max-width: 250px) {
+  .hide-scheduler-name {
+    display: none !important;
+  }
+}
+@media (max-width: 210px) {
+  .hide-player-name {
+    display: none !important;
+  }
+}
+
+

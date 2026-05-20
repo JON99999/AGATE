@@ -3,7 +3,7 @@ import { format, addMinutes, subMinutes, isSameMinute, isBefore, isAfter, startO
 import { Play, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X } from 'lucide-react';
 import { Schedule, ScheduleType, LogEntry } from '../types';
 import { cn, getMP3Status } from '../lib/utils';
-import { mp3BlobCache, getPlayableUrl } from '../lib/driveService';
+import { mp3BlobCache, getPlayableUrl, mp3DurationCache } from '../lib/driveService';
 
 interface PlayerTabProps {
   schedules: Schedule[];
@@ -14,6 +14,7 @@ interface PlayerTabProps {
   scrollTrigger: number;
   playMode?: 'Live' | 'Prerecord';
   prerecordDate?: Date | null;
+  prerecordLengthMinutes?: number;
 }
 
 export default function PlayerTab({ 
@@ -24,7 +25,8 @@ export default function PlayerTab({
   syncTime, 
   scrollTrigger,
   playMode = 'Live',
-  prerecordDate = null
+  prerecordDate = null,
+  prerecordLengthMinutes = 240
 }: PlayerTabProps) {
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
   const playingAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -94,7 +96,7 @@ export default function PlayerTab({
     if (playMode === 'Prerecord' && prerecordDate) {
       const slots = [];
       let current = startOfMinute(prerecordDate);
-      const end = addMinutes(current, 240); // 4 hours
+      const end = addMinutes(current, prerecordLengthMinutes);
       while (isBefore(current, end)) {
         slots.push(new Date(current));
         current = addMinutes(current, 1);
@@ -112,7 +114,7 @@ export default function PlayerTab({
       }
       return slots;
     }
-  }, [syncTime, playMode, prerecordDate]);
+  }, [syncTime, playMode, prerecordDate, prerecordLengthMinutes]);
 
   const getSchedulesForSlot = (slot: Date) => {
     const day = slot.getDay();
@@ -267,14 +269,19 @@ export default function PlayerTab({
                 return (
                   <div 
                     key={`${slot.toISOString()}-${s.id}-${idx}`}
+                    onClick={() => isVerified ? handlePlay(s, slot) : null}
                     className={cn(
-                      "bg-white rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5",
+                      "bg-white rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 select-none cursor-pointer hover:shadow hover:border-slate-300 active:scale-[99.5%] active:bg-slate-50/30",
                       isCurrentlyPlaying || isUpcoming 
                         ? (isPre ? "border-purple-500 ring-1 ring-purple-500/20" : "border-blue-500 ring-1 ring-blue-500/20") 
                         : "border-slate-200",
                       isUpcoming ? (isPre ? "bg-purple-50/20" : "bg-blue-50/20") : "",
-                      ((isPast && !isCurrentlyPlaying && !played) || isMissedOld) && !isUpcoming ? "opacity-60 grayscale-[0.5]" : "",
-                      isMissedRecent && !isCurrentlyPlaying ? "bg-orange-50 border-orange-200" : "",
+                      // Highlight missed items (both old and recent) with a muted, less prominent color scheme
+                      (isMissedRecent || isMissedOld) && !isCurrentlyPlaying
+                        ? "bg-amber-50/20 border-amber-200/50 opacity-75 shadow-none"
+                        : (isPast && played && !isCurrentlyPlaying)
+                          ? "opacity-50" // Only successfully played past items get muted
+                          : "",
                       isPresent && !isCurrentlyPlaying ? (isPre ? "bg-purple-50/30 border-purple-200" : "bg-blue-50/30 border-blue-200") : "",
                       !isVerified ? "border-red-100 bg-red-50/10" : ""
                     )}
@@ -287,7 +294,7 @@ export default function PlayerTab({
                     </span>
                     <span className={cn(
                       "text-[10px] font-mono font-black",
-                      isMissedRecent && !isCurrentlyPlaying ? "text-orange-900" : (isPresent || isCurrentlyPlaying || isUpcoming) ? (isPre ? "text-purple-600" : "text-blue-600") : "text-slate-900"
+                      isMissedRecent && !isCurrentlyPlaying ? "text-amber-800" : (isPresent || isCurrentlyPlaying || isUpcoming) ? (isPre ? "text-purple-600" : "text-blue-600") : "text-slate-900"
                     )}>
                       {format(slot, 'HH:mm')}
                     </span>
@@ -317,13 +324,16 @@ export default function PlayerTab({
                   </div>
                   
                   <button 
-                    onClick={() => isVerified ? handlePlay(s, slot) : null}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isVerified) handlePlay(s, slot);
+                    }}
                     className={cn(
                       "shrink-0 p-1 rounded-full transition-all shadow-sm",
                       !isVerified ? "bg-red-50 text-red-300 cursor-not-allowed" :
                       isCurrentlyPlaying ? "bg-slate-900 text-white" :
                       played ? "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-600 transition-colors" :
-                      isMissedRecent ? "bg-orange-600 text-white" :
+                      isMissedRecent ? "bg-slate-500 text-white hover:bg-slate-600" :
                       isPresent || isUpcoming ? (isPre ? "bg-purple-600 text-white shadow-md shadow-purple-200" : "bg-blue-600 text-white shadow-md shadow-blue-200") :
                       "bg-slate-700 text-white hover:bg-slate-900"
                     )}
@@ -389,7 +399,7 @@ export default function PlayerTab({
                     </div>
                   ) : isVerified ? (
                     <span className="text-[8px] font-mono font-bold text-slate-400 leading-none">
-                      {s.duration || '--:--'}
+                      {mp3DurationCache.get(s.mp3Url) || s.duration || '--:--'}
                     </span>
                   ) : null}
                 </div>

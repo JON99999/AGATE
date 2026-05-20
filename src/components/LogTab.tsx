@@ -1,18 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { motion } from 'motion/react';
 import { format } from 'date-fns';
 import { 
-  History, 
   Search, 
-  ArrowUpDown, 
-  ArrowUp, 
-  ArrowDown, 
-  Clock, 
-  Music, 
-  Hash, 
-  FileText,
-  Filter,
-  Play
+  Music
 } from 'lucide-react';
 import { LogEntry } from '../types';
 import { cn, getMP3Status } from '../lib/utils';
@@ -69,7 +59,6 @@ export default function LogTab({ logs }: LogTabProps) {
       let valA: any = a[sortField];
       let valB: any = b[sortField];
 
-      // Handle custom sorting fields specifically
       if (sortField === 'timestamp' || sortField === 'logTimeStamp') {
         const timeA = valA ? new Date(valA).getTime() : 0;
         const timeB = valB ? new Date(valB).getTime() : 0;
@@ -94,123 +83,166 @@ export default function LogTab({ logs }: LogTabProps) {
     return result.slice(0, DISPLAY_LIMIT);
   }, [logs, searchQuery, sortField, sortOrder]);
 
-  const SortButton = ({ field, label, icon: Icon }: { field: SortField, label: string, icon: any }) => (
-    <button
-      onClick={() => toggleSort(field)}
-      className={cn(
-        "flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all",
-        sortField === field 
-          ? "bg-blue-600 text-white border-blue-500 shadow-sm" 
-          : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
-      )}
-    >
-      <Icon className="w-3 h-3" />
-      <span className="text-[10px] font-black uppercase tracking-tighter">{label}</span>
-      <div className="ml-1 border-l border-white/20 pl-1">
-        {sortField === field ? (
-          sortOrder === 'asc' ? <ArrowUp className="w-2.5 h-2.5" /> : <ArrowDown className="w-2.5 h-2.5" />
-        ) : (
-          <ArrowUpDown className="w-2.5 h-2.5 opacity-30" />
-        )}
-      </div>
-    </button>
-  );
+  // Sort Arrow component that renders both Up/Down arrows and bolds the active direction
+  const SortArrow = ({ field }: { field: SortField }) => {
+    const isActive = sortField === field;
+    const isAsc = isActive && sortOrder === 'asc';
+    const isDesc = isActive && sortOrder === 'desc';
+    
+    return (
+      <span className="inline-flex flex-col ml-1 shrink-0 select-none leading-none -space-y-0.5">
+        <span className={cn(
+          "text-[7px] leading-none transition-all",
+          isAsc 
+            ? "text-blue-600 font-black scale-125" 
+            : "text-slate-300 font-normal opacity-50"
+        )}>▲</span>
+        <span className={cn(
+          "text-[7px] leading-none transition-all",
+          isDesc 
+            ? "text-blue-600 font-black scale-125" 
+            : "text-slate-300 font-normal opacity-50"
+        )}>▼</span>
+      </span>
+    );
+  };
 
   return (
-    <div className="flex flex-col h-full space-y-4">
-      {/* Search & Stats Header */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Filter logs by name, URL, or ID..." 
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            />
-          </div>
-          <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
-            <History className="w-4 h-4 text-slate-400" />
-            <div className="flex flex-col">
-              <span className="text-[10px] font-black text-slate-400 uppercase leading-none">Total Records</span>
-              <span className="text-xs font-black text-slate-900 tabular-nums">{logs.length}</span>
-            </div>
-            {logs.length > DISPLAY_LIMIT && (
-              <div className="ml-2 border-l border-slate-200 pl-2">
-                <span className="text-[8px] font-black text-blue-500 uppercase bg-blue-50 px-1.5 py-0.5 rounded">Showing Last {DISPLAY_LIMIT}</span>
-              </div>
-            )}
-          </div>
+    <div className="flex flex-col h-full space-y-3">
+      {/* Tidy Search & Record Count on Same Line */}
+      <div className="bg-white rounded-xl border border-slate-200 p-2.5 shadow-sm shrink-0 flex items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+          <input 
+            type="text" 
+            placeholder="Filter logs by name, playback, or ID..." 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200/80 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500/80 transition-all font-sans"
+          />
         </div>
-
-        {/* Sorting Row */}
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 mr-2">
-            <Filter className="w-3.5 h-3.5 text-slate-300" />
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Sort By:</span>
-          </div>
-          <SortButton field="timestamp" label="Date/Time" icon={Clock} />
-          <SortButton field="logTimeStamp" label="Actual Time" icon={Clock} />
-          <SortButton field="playMode" label="Play Mode" icon={Play} />
-          <SortButton field="scheduleName" label="Schedule Name" icon={FileText} />
-          <SortButton field="mp3Name" label="MP3 File" icon={Music} />
-          <SortButton field="scheduleId" label="ID" icon={Hash} />
+        
+        {/* Count Label placed inline */}
+        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 shrink-0 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100">
+          <span>Count:</span>
+          <span className="text-xs font-black text-slate-900 tabular-nums">{logs.length}</span>
+          {logs.length > DISPLAY_LIMIT && (
+            <span className="text-[8px] font-black text-blue-500 bg-blue-50 px-1 py-0.5 rounded ml-1 tracking-normal">Last {DISPLAY_LIMIT}</span>
+          )}
         </div>
       </div>
 
       {/* Logs Table */}
       <div className="flex-1 overflow-y-auto min-h-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-        <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-center text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0">
-          <div className="w-[140px]">Timestamp</div>
-          <div className="w-[180px]">Schedule</div>
-          <div className="flex-1">mp3 name</div>
-          <div className="w-[80px] text-right">ID</div>
+        
+        {/* Header containing the dynamic incorporated sorts with 2 row headers */}
+        <div className="bg-slate-50 border-b border-slate-200 px-4 py-2 flex items-stretch text-[9px] font-black text-slate-400 uppercase tracking-wider shrink-0 select-none">
+          
+          {/* 1st Column: Timestamp (2 rows: Scheduled & Actual) */}
+          <div className="w-[150px] flex flex-col justify-center gap-1.5 border-r border-slate-200/50 pr-2">
+            <button 
+              onClick={() => toggleSort('timestamp')}
+              className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-700 transition-colors"
+            >
+              <span>Scheduled Time</span>
+              <SortArrow field="timestamp" />
+            </button>
+            <button 
+              onClick={() => toggleSort('logTimeStamp')}
+              className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-700 transition-colors"
+            >
+              <span>Actual Time</span>
+              <SortArrow field="logTimeStamp" />
+            </button>
+          </div>
+
+          {/* 2nd Column: Schedule (2 rows: Title & Play Mode) */}
+          <div className="w-[180px] flex flex-col justify-center gap-1.5 border-r border-slate-200/50 px-2">
+            <button 
+              onClick={() => toggleSort('scheduleName')}
+              className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-700 transition-colors"
+            >
+              <span>Schedule Name</span>
+              <SortArrow field="scheduleName" />
+            </button>
+            <button 
+              onClick={() => toggleSort('playMode')}
+              className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-700 transition-colors"
+            >
+              <span>Play Mode</span>
+              <SortArrow field="playMode" />
+            </button>
+          </div>
+
+          {/* 3rd Column: MP3 file path */}
+          <div className="flex-1 flex flex-col justify-center gap-1.5 border-r border-slate-200/50 px-2">
+            <button 
+              onClick={() => toggleSort('mp3Name')}
+              className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-700 transition-colors"
+            >
+              <span>MP3 File</span>
+              <SortArrow field="mp3Name" />
+            </button>
+          </div>
+
+          {/* 4th Column: Schedule ID */}
+          <div className="w-[80px] flex flex-col justify-center gap-1.5 pl-2 text-right items-end">
+            <button 
+              onClick={() => toggleSort('scheduleId')}
+              className="flex items-center gap-1 cursor-pointer group hover:text-slate-700 transition-colors justify-end"
+            >
+              <span>ID</span>
+              <SortArrow field="scheduleId" />
+            </button>
+          </div>
         </div>
         
+        {/* Rows viewport */}
         <div className="flex-1 overflow-y-auto">
           {filteredAndSortedLogs.length > 0 ? (
             filteredAndSortedLogs.map((log, i) => (
               <div 
                 key={`${log.scheduleId}-${log.timestamp}-${i}`}
                 className={cn(
-                  "px-4 py-3 flex items-center border-b border-slate-50 hover:bg-slate-50 transition-colors last:border-0",
+                  "px-4 py-2.5 flex items-center border-b border-slate-100 hover:bg-slate-50 transition-colors last:border-0",
                   i % 2 === 0 ? "bg-white" : "bg-slate-50/20"
                 )}
               >
-                <div className="w-[140px] text-[11px] font-mono font-bold text-slate-900 tabular-nums leading-none flex flex-col gap-0.5">
+                {/* Timestamp cell mapped to Schedule/Actual */}
+                <div className="w-[150px] text-[11px] font-mono font-bold text-slate-900 tabular-nums leading-none flex flex-col gap-1.5 pr-2">
                   <div className="flex items-center">
                     <span>{format(new Date(log.timestamp), 'yyyy-MM-dd')}</span>
                     <span className="text-slate-400 font-medium ml-1.5">{format(new Date(log.timestamp), 'HH:mm:ss')}</span>
                   </div>
-                  {log.logTimeStamp && (
-                    <span className="text-[8px] font-mono font-medium text-slate-400 tracking-tighter leading-none mt-0.5">
-                      ACTUAL: {format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss')}
+                  {log.logTimeStamp ? (
+                    <span className="text-[8px] font-mono font-medium text-slate-400 tracking-tighter leading-none">
+                      ACTL: {format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss')}
                     </span>
+                  ) : (
+                    <span className="text-[8px] font-mono font-medium text-slate-300 leading-none">-</span>
                   )}
                 </div>
                 
-                <div className="w-[180px] pr-4 flex flex-col">
+                {/* Schedule details cell mapped to Name/PlayMode */}
+                <div className="w-[180px] pr-2 flex flex-col gap-1">
                   <span className="text-[11px] font-bold text-slate-800 line-clamp-2 leading-tight">
                     {log.scheduleName}
                   </span>
-                  {log.playMode && (
-                    <div className="mt-0.5">
-                      <span className={cn(
-                        "inline-block text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none",
-                        log.playMode === 'Prerecord' 
-                          ? "bg-purple-100 text-purple-700 border border-purple-200" 
-                          : "bg-blue-50 text-blue-600 border border-blue-100"
-                      )}>
-                        {log.playMode} Mode
-                      </span>
-                    </div>
-                  )}
+                  <div>
+                    <span className={cn(
+                      "inline-block text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none border",
+                      log.playMode === 'Prerecord' 
+                        ? "bg-purple-50 text-purple-600 border-purple-100" 
+                        : "bg-blue-50 text-blue-600 border-blue-100"
+                    )}>
+                      {log.playMode || 'Live'} Mode
+                    </span>
+                  </div>
                 </div>
                 
-                <div className="flex-1 min-w-0 pr-4">
-                  <div className="flex items-center gap-2">
+                {/* MP3 path cell */}
+                <div className="flex-1 min-w-0 pr-2">
+                  <div className="flex items-center gap-1.5">
                     <Music className="w-3 h-3 text-slate-300 shrink-0" />
                     <span className="text-[10px] font-mono text-slate-500 truncate" title={log.mp3Name}>
                       {getMP3Status(log.mp3Name).filename}
@@ -218,6 +250,7 @@ export default function LogTab({ logs }: LogTabProps) {
                   </div>
                 </div>
                 
+                {/* ID cell */}
                 <div className="w-[80px] text-right">
                   <span className="text-[9px] font-black text-slate-300 uppercase">
                     #{log.scheduleId}
@@ -227,8 +260,7 @@ export default function LogTab({ logs }: LogTabProps) {
             ))
           ) : (
             <div className="flex flex-col items-center justify-center p-12 text-center">
-              <History className="w-12 h-12 text-slate-200 mb-4" />
-              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">No logs found</p>
+              <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">No logs found</span>
               <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or wait for events to trigger</p>
             </div>
           )}

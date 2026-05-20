@@ -1,7 +1,21 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, screen } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 let mainWindow;
+let appMode = 'Admin';
+
+try {
+  const configPath = path.join(__dirname, 'dist', 'app-config.json');
+  if (fs.existsSync(configPath)) {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    if (config.mode) {
+      appMode = config.mode;
+    }
+  }
+} catch (e) {
+  console.log('Using default App Mode: Admin');
+}
 
 function startServer() {
   // Set environment for the server
@@ -20,16 +34,35 @@ function startServer() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  let windowOptions = {
     width: 1280,
     height: 800,
-    title: "Minute-Sync Scheduler v0.1",
+    title: appMode === 'Player' ? "Interstitial-er Player" : "Interstitial-er Admin",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
     },
-    // Optional: add a custom icon here later
-  });
+  };
+
+  if (appMode === 'Player') {
+    try {
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const { height } = primaryDisplay.workAreaSize;
+      windowOptions.width = 200;
+      windowOptions.height = height;
+      windowOptions.x = 0;
+      windowOptions.y = 0;
+      windowOptions.minWidth = 200;
+      windowOptions.maxWidth = 200;
+    } catch (e) {
+      windowOptions.width = 200;
+      windowOptions.height = 800;
+      windowOptions.minWidth = 200;
+      windowOptions.maxWidth = 200;
+    }
+  }
+
+  mainWindow = new BrowserWindow(windowOptions);
 
   // Small delay to ensure server is bounded to port 3000
   setTimeout(() => {

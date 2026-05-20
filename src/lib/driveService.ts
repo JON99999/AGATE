@@ -15,26 +15,61 @@ let cachedAccessToken: string | null = null;
 let currentAuthUser: User | null = null;
 let isSigningIn = false;
 
+export interface LocationSettings {
+  mode: 'Local' | 'Drive' | 'Demo';
+  localPathMP3s: string;
+  localPathLogs: string;
+  localPathSchedules: string;
+  driveFolderLogs: string;
+  driveFolderMP3s: string;
+  driveFolderPreferences: string;
+}
+
+export const DEFAULT_SETTINGS: LocationSettings = {
+  mode: 'Demo',
+  localPathMP3s: '',
+  localPathLogs: '',
+  localPathSchedules: '',
+  driveFolderLogs: '',
+  driveFolderMP3s: '',
+  driveFolderPreferences: '',
+};
+
+export const getSavedSettings = (): LocationSettings => {
+  if (typeof window === 'undefined') return DEFAULT_SETTINGS;
+  try {
+    const raw = localStorage.getItem('interstitialer_location_settings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULT_SETTINGS, ...parsed };
+    }
+  } catch (e) {
+    console.error('Failed to load settings from localStorage', e);
+  }
+  return DEFAULT_SETTINGS;
+};
+
+export const saveSettings = (settings: LocationSettings) => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('interstitialer_location_settings', JSON.stringify(settings));
+};
+
 // Folders
-let activeDriveFolders = {
-  logs: '1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx',
-  mp3s: '11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch',
-  preferences: '1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED'
-};
-
-export const setDriveFoldersConfig = (config: { logs: string; mp3s: string; preferences: string }) => {
-  activeDriveFolders = { ...config };
-};
-
 export const DRIVE_FOLDERS = {
   get logs() {
-    return activeDriveFolders.logs;
+    const settings = getSavedSettings();
+    if (settings.mode === 'Demo') return '1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx';
+    return settings.driveFolderLogs || '';
   },
   get mp3s() {
-    return activeDriveFolders.mp3s;
+    const settings = getSavedSettings();
+    if (settings.mode === 'Demo') return '11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch';
+    return settings.driveFolderMP3s || '';
   },
   get preferences() {
-    return activeDriveFolders.preferences;
+    const settings = getSavedSettings();
+    if (settings.mode === 'Demo') return '1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED';
+    return settings.driveFolderPreferences || '';
   }
 };
 
@@ -100,6 +135,32 @@ export const handleLogout = async () => {
 
 // Memory Cache for MP3 binary blobs to provide immediate playback and zero latency
 export const mp3BlobCache = new Map<string, string>(); // Maps raw URL (e.g. googleapis drive url) to local Blob URL
+export const mp3DurationCache = new Map<string, string>(); // Maps raw URL to calculated duration "m:ss"
+
+export const calculateDurationForUrl = (url: string, sourceUrl: string) => {
+  if (mp3DurationCache.has(url)) return;
+  
+  if (typeof window === 'undefined') return;
+  
+  const audio = new Audio();
+  audio.src = sourceUrl;
+  audio.addEventListener('loadedmetadata', () => {
+    const durationSec = audio.duration;
+    if (durationSec && !isNaN(durationSec) && durationSec !== Infinity) {
+      const minutes = Math.floor(durationSec / 60);
+      const seconds = Math.floor(durationSec % 60);
+      const formatted = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      mp3DurationCache.set(url, formatted);
+      console.log(`Successfully calculated duration for ${url}: ${formatted}`);
+      window.dispatchEvent(new CustomEvent('mp3-duration-cached', { 
+        detail: { url, duration: formatted } 
+      }));
+    }
+  });
+  audio.addEventListener('error', (err) => {
+    console.warn(`Could not load audio metadata for calculating duration: ${url}`, err);
+  });
+};
 
 export const clearAudioCache = () => {
   for (const blobUrl of mp3BlobCache.values()) {
@@ -110,6 +171,7 @@ export const clearAudioCache = () => {
     }
   }
   mp3BlobCache.clear();
+  mp3DurationCache.clear();
 };
 
 /**
@@ -125,6 +187,7 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
     // Non-Drive URLs cannot be fetched via standard browser XMLHttpRequest/fetch due to CORS
     // (e.g., soundhelix.com pages are not CORS accessible).
     // They are played properly using standard HTML5 <audio> without CORS if we supply the URL directly.
+    calculateDurationForUrl(url, url);
     return url;
   }
 
@@ -140,6 +203,10 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
     const blob = await res.blob();
     const blobUrl = URL.createObjectURL(blob);
     mp3BlobCache.set(url, blobUrl);
+    
+    // Calculate duration for the newly cached audio file
+    calculateDurationForUrl(url, blobUrl);
+    
     return blobUrl;
   } catch (err) {
     console.error(`Error caching MP3 (${url}):`, err);
@@ -407,7 +474,7 @@ export const listMP3sFromDrive = async (): Promise<DriveMP3[]> => {
       return {
         name: file.name,
         size: sizeMB,
-        duration: '0:15', // Default standard mock duration for scheduling chimes
+        duration: '0:15', // Default standard mock duration for scheduling mp3s
         path: path
       };
     });
@@ -436,20 +503,29 @@ export const validateGoogleDriveAccess = async (): Promise<boolean> => {
   const token = getAccessToken();
   if (!token) return false;
 
+  const logsFolder = DRIVE_FOLDERS.logs;
+  const mp3sFolder = DRIVE_FOLDERS.mp3s;
+  const prefsFolder = DRIVE_FOLDERS.preferences;
+
+  if (!logsFolder || !mp3sFolder || !prefsFolder) {
+    // Gracefully handle unconfigured folders to allow chooser screen to load with 'To be set'
+    return true;
+  }
+
   try {
-    const resPref = await fetch(`https://www.googleapis.com/drive/v3/files/${DRIVE_FOLDERS.preferences}?fields=id,name`, {
+    const resPref = await fetch(`https://www.googleapis.com/drive/v3/files/${prefsFolder}?fields=id,name`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
     });
 
-    const resMp3 = await fetch(`https://www.googleapis.com/drive/v3/files/${DRIVE_FOLDERS.mp3s}?fields=id,name`, {
+    const resMp3 = await fetch(`https://www.googleapis.com/drive/v3/files/${mp3sFolder}?fields=id,name`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
     });
 
-    const resLogs = await fetch(`https://www.googleapis.com/drive/v3/files/${DRIVE_FOLDERS.logs}?fields=id,name`, {
+    const resLogs = await fetch(`https://www.googleapis.com/drive/v3/files/${logsFolder}?fields=id,name`, {
       headers: {
         'Authorization': `Bearer ${token}`
       }

@@ -1107,7 +1107,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 </div>
                 <div>
                   <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">
-                    {isDriveActive ? "google drive mp3library folder" : "local chime library"}
+                    {isDriveActive ? "google drive mp3library folder" : "local mp3 library"}
                   </h3>
                   <p className="text-[7px] text-slate-400 font-bold uppercase">
                     Source: {isDriveActive ? `Google Drive mp3library folder (${DRIVE_FOLDERS.mp3s})` : 'Bundled Local Audio Assets'}
