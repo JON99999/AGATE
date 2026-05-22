@@ -316,7 +316,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
       {!editingId ? (
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between mb-3 px-1">
-            <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Schedules</h2>
+            <h2 className="font-bold text-slate-800 text-[13px] tracking-tight">Schedules</h2>
             <div className="flex gap-2">
               <button 
                 onClick={createNew}
@@ -372,15 +372,18 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                       )}
                     >
                       <div className="flex justify-between items-start mb-1.5">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-black text-slate-300 uppercase leading-none mb-1">ID: {s.id}</span>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
+                          <span className="text-[10px] font-black text-slate-300 uppercase leading-none mb-1 sm:mb-0">ID: {s.id}</span>
                           <span className={cn(
-                            "px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-tighter inline-block w-fit",
+                            "px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-tighter inline-block w-fit leading-none mb-1 sm:mb-0",
                             s.type === ScheduleType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black" :
                             s.type === ScheduleType.BASIC_HOURLY ? "bg-blue-100 text-blue-700" :
                             "bg-orange-100 text-orange-700"
                           )}>
                             {s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type.split('-').pop()}
+                          </span>
+                          <span className="hidden sm:inline-block text-[13px] font-bold text-slate-800 truncate max-w-[200px] leading-none ml-1">
+                            {s.name}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5 underline-offset-4">
@@ -406,7 +409,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                           <span className="w-1.5 h-1.5 rounded-full bg-green-500 ml-1" />
                         </div>
                       </div>
-                      <p className="font-bold text-slate-800 text-[13px] truncate leading-tight mb-1">{s.name}</p>
+                      <p className="font-bold text-slate-800 text-[13px] truncate leading-tight mb-1 sm:hidden">{s.name}</p>
                       <div className="flex items-center justify-between gap-4">
                         <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-bold uppercase tracking-tighter shrink-0">
                           <Clock className="w-3 h-3" />
@@ -416,57 +419,57 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                         
                         {/* MP3 Status Info */}
                         {(() => {
-                          const status = getMP3Status(s.mp3Url);
-                          const isVerified = status.exists && status.valid;
-                          return (
-                            <div className="flex items-center gap-1.5 min-w-0 overflow-hidden text-right justify-end flex-1">
-                              <button 
-                                onClick={(e) => isVerified ? togglePreview(s.mp3Url, e) : e.stopPropagation()}
-                                disabled={!isVerified}
-                                className={cn(
-                                  "flex items-center gap-2 py-0.5 px-3 rounded border shadow-sm transition-all group/play min-w-0 max-w-full",
-                                  previewUrl === s.mp3Url 
-                                    ? "bg-slate-900 text-white border-slate-900" 
-                                    : isVerified
-                                      ? "bg-white text-blue-600 border-blue-100 hover:bg-blue-50"
-                                      : "bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed"
-                                )}
-                              >
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  {previewUrl === s.mp3Url ? (
-                                    <Square className="w-2.5 h-2.5 fill-current" />
-                                  ) : isVerified ? (
-                                    <Play className="w-2.5 h-2.5 fill-current" />
-                                  ) : (
-                                    <XCircle className="w-2.5 h-2.5" />
-                                  )}
-                                  <span className="text-[10px] font-black uppercase whitespace-nowrap">
-                                    {previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked'}
-                                  </span>
-                                </div>
-                                
-                                <div className={cn(
-                                  "h-3 w-px shrink-0 mx-0.5",
-                                  previewUrl === s.mp3Url ? "bg-slate-700" : isVerified ? "bg-slate-200 group-hover/play:bg-blue-200" : "bg-slate-200"
-                                )} />
+                           const status = getMP3Status(s.mp3Url);
+                           const isVerified = status.exists && status.valid;
+                           return (
+                             <div className="flex items-center gap-1.5 min-w-0 overflow-hidden text-right justify-end flex-1">
+                               <button 
+                                 onClick={(e) => isVerified ? togglePreview(s.mp3Url, e) : e.stopPropagation()}
+                                 disabled={!isVerified}
+                                 className={cn(
+                                   "flex items-center gap-2 py-0.5 px-3 rounded border shadow-sm transition-all group/play min-w-0 max-w-full",
+                                   previewUrl === s.mp3Url 
+                                     ? "bg-slate-900 text-white border-slate-900" 
+                                     : isVerified
+                                       ? "bg-white text-blue-600 border-blue-100 hover:bg-blue-50"
+                                       : "bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed"
+                                 )}
+                               >
+                                 <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+                                   <Music className={cn(
+                                     "w-2.5 h-2.5 shrink-0", 
+                                     previewUrl === s.mp3Url ? "text-slate-400" : 
+                                     isVerified ? "text-slate-300 group-hover/play:text-blue-400" : "text-slate-200"
+                                   )} />
+                                   <span className={cn(
+                                     "text-[10px] font-bold uppercase truncate",
+                                     previewUrl === s.mp3Url ? "text-white" :
+                                     !status.exists ? "text-red-400" : !status.valid ? "text-orange-400" : "text-slate-400 group-hover/play:text-blue-700"
+                                   )}>
+                                     {!status.exists ? "File not found." : !status.valid ? "File not mp3." : status.filename}
+                                   </span>
+                                 </div>
 
-                                <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-                                  <Music className={cn(
-                                    "w-2.5 h-2.5 shrink-0", 
-                                    previewUrl === s.mp3Url ? "text-slate-400" : 
-                                    isVerified ? "text-slate-300 group-hover/play:text-blue-400" : "text-slate-200"
-                                  )} />
-                                  <span className={cn(
-                                    "text-[10px] font-bold uppercase truncate",
-                                    previewUrl === s.mp3Url ? "text-white" :
-                                    !status.exists ? "text-red-400" : !status.valid ? "text-orange-400" : "text-slate-400 group-hover/play:text-blue-700"
-                                  )}>
-                                    {!status.exists ? "File not found." : !status.valid ? "File not mp3." : status.filename}
-                                  </span>
-                                </div>
-                              </button>
-                            </div>
-                          );
+                                 <div className={cn(
+                                   "h-3 w-px shrink-0 mx-0.5",
+                                   previewUrl === s.mp3Url ? "bg-slate-700" : isVerified ? "bg-slate-200 group-hover/play:bg-blue-200" : "bg-slate-200"
+                                 )} />
+
+                                 <div className="flex items-center gap-1.5 shrink-0">
+                                   {previewUrl === s.mp3Url ? (
+                                     <Square className="w-2.5 h-2.5 fill-current" />
+                                   ) : isVerified ? (
+                                     <Play className="w-2.5 h-2.5 fill-current" />
+                                   ) : (
+                                     <XCircle className="w-2.5 h-2.5" />
+                                   )}
+                                   <span className="text-[10px] font-black uppercase whitespace-nowrap">
+                                     {previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked'}
+                                   </span>
+                                 </div>
+                               </button>
+                             </div>
+                           );
                         })()}
                       </div>
                     </div>
@@ -534,15 +537,18 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                             )}
                           >
                             <div className="flex justify-between items-start mb-1.5">
-                              <div className="flex flex-col">
-                                <span className="text-[10px] font-black text-slate-300 uppercase leading-none mb-1">ID: {s.id}</span>
+                              <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
+                                <span className="text-[10px] font-black text-slate-300 uppercase leading-none mb-1 sm:mb-0">ID: {s.id}</span>
                                 <span className={cn(
-                                  "px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-tighter inline-block w-fit opacity-60",
+                                  "px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-tighter inline-block w-fit leading-none mb-1 sm:mb-0 opacity-60",
                                   s.type === ScheduleType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black" :
                                   s.type === ScheduleType.BASIC_HOURLY ? "bg-blue-100 text-blue-700" :
                                   "bg-orange-100 text-orange-700"
                                 )}>
                                   {s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type.split('-').pop()}
+                                </span>
+                                <span className="hidden sm:inline-block text-[13px] font-bold text-slate-600 truncate max-w-[200px] leading-none ml-1">
+                                  {s.name}
                                 </span>
                               </div>
                               <div className="flex items-center gap-1.5 underline-offset-4">
@@ -568,7 +574,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                 <span className={cn("w-1.5 h-1.5 rounded-full ml-1", isExpired ? "bg-red-300" : "bg-slate-300")} />
                               </div>
                             </div>
-                            <p className="font-bold text-slate-600 text-[13px] truncate leading-tight mb-1">{s.name}</p>
+                            <p className="font-bold text-slate-600 text-[13px] truncate leading-tight mb-1 sm:hidden">{s.name}</p>
                             <div className="flex items-center justify-between gap-4">
                               <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-bold uppercase tracking-tighter shrink-0">
                                 <Clock className="w-3 h-3 opacity-50" />
@@ -594,25 +600,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                             : "bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed"
                                       )}
                                     >
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        {previewUrl === s.mp3Url ? (
-                                          <Square className="w-2.5 h-2.5 fill-current" />
-                                        ) : isVerified ? (
-                                          <Play className="w-2.5 h-2.5 fill-current" />
-                                        ) : (
-                                          <XCircle className="w-2.5 h-2.5" />
-                                        )}
-                                        <span className="text-[10px] font-black uppercase whitespace-nowrap">
-                                          {previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked'}
-                                        </span>
-                                      </div>
-
-                                      <div className={cn(
-                                        "h-3 w-px shrink-0 mx-0.5",
-                                        previewUrl === s.mp3Url ? "bg-slate-700" : isVerified ? "bg-slate-200 group-hover/play:bg-slate-300" : "bg-slate-200"
-                                      )} />
-
-                                      <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+                                      <div className="flex items-center gap-1.5 min-w-0 overflow-hidden font-medium">
                                         <Music className={cn(
                                           "w-2.5 h-2.5 shrink-0", 
                                           previewUrl === s.mp3Url ? "text-slate-400" : 
@@ -624,6 +612,24 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                           !status.exists ? "text-red-400" : !status.valid ? "text-orange-400" : "text-slate-400 group-hover/play:text-slate-600"
                                         )}>
                                           {!status.exists ? "File not found." : !status.valid ? "File not mp3." : status.filename}
+                                        </span>
+                                      </div>
+
+                                      <div className={cn(
+                                        "h-3 w-px shrink-0 mx-0.5",
+                                        previewUrl === s.mp3Url ? "bg-slate-700" : isVerified ? "bg-slate-200 group-hover/play:bg-slate-300" : "bg-slate-200"
+                                      )} />
+
+                                      <div className="flex items-center gap-1.5 shrink-0">
+                                        {previewUrl === s.mp3Url ? (
+                                          <Square className="w-2.5 h-2.5 fill-current" />
+                                        ) : isVerified ? (
+                                          <Play className="w-2.5 h-2.5 fill-current" />
+                                        ) : (
+                                          <XCircle className="w-2.5 h-2.5" />
+                                        )}
+                                        <span className="text-[10px] font-black uppercase whitespace-nowrap">
+                                          {previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked'}
                                         </span>
                                       </div>
                                     </button>

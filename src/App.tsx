@@ -11,7 +11,7 @@ import { Schedule, ScheduleType, LogEntry } from './types';
 import PlayerTab from './components/PlayerTab';
 import SchedulerTab from './components/SchedulerTab';
 import LogTab from './components/LogTab';
-import { cn } from './lib/utils';
+import { cn, extractFolderId } from './lib/utils';
 import { 
   initAuth, 
   googleSignIn, 
@@ -30,8 +30,10 @@ import {
   getSavedSettings,
   saveSettings,
   LocationSettings,
-  DEFAULT_SETTINGS
+  DEFAULT_SETTINGS,
+  driveFileNameCache
 } from './lib/driveService';
+
 
 export default function App() {
   const isPlayerMode = (import.meta as any).env?.VITE_APP_MODE === 'Player';
@@ -98,7 +100,21 @@ export default function App() {
   const [driveMP3s, setDriveMP3s] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showLocationsModal, setShowLocationsModal] = useState(false);
-  const [showWelcomeModal, setShowWelcomeModal] = useState(true);
+  
+  // Prerecord Confirmation states
+  const [showPrerecordConfirmStep, setShowPrerecordConfirmStep] = useState(false);
+  const [prerecordConfirmDetails, setPrerecordConfirmDetails] = useState<{ startDate: Date; totalMinutes: number } | null>(null);
+
+  // Fancy Browser folder modal states
+  const [showFancyBrowser, setShowFancyBrowser] = useState(false);
+  const [fancyBrowserPath, setFancyBrowserPath] = useState('');
+  const [fancyBrowserFolders, setFancyBrowserFolders] = useState<string[]>([]);
+  const [fancyBrowserParent, setFancyBrowserParent] = useState<string | null>(null);
+  const [fancyBrowserError, setFancyBrowserError] = useState<string | null>(null);
+  const [fancyBrowserTargetField, setFancyBrowserTargetField] = useState<'schedules' | 'mp3s' | 'logs' | null>(null);
+
+  // Saving state for Folders Modal to prevent button flickering
+  const [isSavingAndVerifying, setIsSavingAndVerifying] = useState(false);
 
   // Synchronization hook to update editable drafts when location settings modal opens
   useEffect(() => {
@@ -143,20 +159,28 @@ export default function App() {
       .then(r => r.json())
       .then(res => {
         setIsDriveActive(true);
-        setIsDriveValidated(true);
         if (res.exists) {
+          setIsDriveValidated(true);
           setLocalPathsUnavailable(false);
+          fetchDataForMode(settings);
         } else {
+          setIsDriveValidated(false);
           setLocalPathsUnavailable(true);
+          setLoading(false);
+          setShowLocationsModal(true);
         }
-        fetchDataForMode(settings);
       })
       .catch(() => {
         setIsDriveActive(true);
-        setIsDriveValidated(true);
+        setIsDriveValidated(false);
         setLocalPathsUnavailable(true);
-        fetchDataForMode(settings);
+        setLoading(false);
+        setShowLocationsModal(true);
       });
+    } else if (settings.mode === 'Demo') {
+      setIsDriveActive(true);
+      setIsDriveValidated(false);
+      setLocalPathsUnavailable(false);
     }
 
     const unsubscribe = initAuth(
@@ -179,11 +203,13 @@ export default function App() {
               setIsDriveValidated(false);
               setDriveValidationError('Connected Google account lacks read/write access to one or more configured shared directories.');
               setLoading(false);
+              setShowLocationsModal(true);
             }
           } catch (err: any) {
             setIsDriveValidated(false);
             setDriveValidationError(err.message || 'Error occurred while validating folders.');
             setLoading(false);
+            setShowLocationsModal(true);
           } finally {
             setIsValidatingDrive(false);
           }
@@ -201,8 +227,11 @@ export default function App() {
           setIsDriveActive(false);
           setIsDriveValidated(false);
           setDriveMP3s([]);
+          setLoading(false);
+          setShowLocationsModal(true);
+        } else {
+          setLoading(false);
         }
-        setLoading(false);
       }
     );
     return () => unsubscribe();
@@ -220,12 +249,17 @@ export default function App() {
         setSchedules(localSchedules || []);
         setLogs(localLogs || []);
         
-        const mappedMP3s = (localMP3s || []).map((file: any) => ({
-          name: file.name,
-          size: file.size,
-          duration: file.duration || '0:15',
-          path: file.path
-        }));
+        const mappedMP3s = (localMP3s || []).map((file: any) => {
+          if (file.path && file.name) {
+            driveFileNameCache.set(file.path, file.name);
+          }
+          return {
+            name: file.name,
+            size: file.size,
+            duration: file.duration || '0:15',
+            path: file.path
+          };
+        });
         setDriveMP3s(mappedMP3s);
         setSyncTime(new Date());
         setScrollTrigger(prev => prev + 1);
@@ -233,6 +267,25 @@ export default function App() {
         setIsDriveValidated(true);
       } else {
         // 'Drive' or 'Demo' mode: both pull from Google Drive
+        const hasToken = !!(getAccessToken() || token);
+        if (!hasToken) {
+          setIsDriveValidated(false);
+          setIsSyncing(false);
+          setLoading(false);
+          return;
+        }
+
+        // Validate Google Drive (or Demo mode virtual folders) prior to any file read
+        const isValid = await validateGoogleDriveAccess();
+        if (!isValid) {
+          setIsDriveValidated(false);
+          setIsSyncing(false);
+          setLoading(false);
+          return;
+        }
+
+        setIsDriveValidated(true);
+
         const hasPreferencesFolder = !!DRIVE_FOLDERS.preferences;
         const hasLogsFolder = !!DRIVE_FOLDERS.logs;
         const hasMP3Folder = !!DRIVE_FOLDERS.mp3s;
@@ -291,7 +344,7 @@ export default function App() {
 
   useEffect(() => {
     const settings = getSavedSettings();
-    if (settings.mode === 'Drive' && isDriveValidated) {
+    if ((settings.mode === 'Drive' || settings.mode === 'Demo') && isDriveValidated) {
       fetchData();
     }
   }, [token, isDriveValidated]);
@@ -346,7 +399,7 @@ export default function App() {
 
   const saveSchedules = async (newSchedules: Schedule[]) => {
     const settings = getSavedSettings();
-    if (settings.mode === 'Local' || settings.mode === 'Demo') {
+    if (settings.mode === 'Local') {
       try {
         await fetch('/api/schedules', {
           method: 'POST',
@@ -383,7 +436,7 @@ export default function App() {
         : new Date().toISOString()
     };
 
-    if (settings.mode === 'Local' || settings.mode === 'Demo') {
+    if (settings.mode === 'Local') {
       try {
         await fetch('/api/logs', {
           method: 'POST',
@@ -421,6 +474,8 @@ export default function App() {
       setPrerecordHoursInput('2');
       setPrerecordMinutesInput('0');
       setPrerecordError(null);
+      setShowPrerecordConfirmStep(false);
+      setPrerecordConfirmDetails(null);
       setShowPrerecordModal(true);
     } else {
       setPlayMode('Live');
@@ -484,13 +539,96 @@ export default function App() {
       }
 
       const totalMinutes = (hours * 60) + mins;
-      setPrerecordLengthMinutes(totalMinutes);
-      setPrerecordDate(parsedDate);
-      setPlayMode('Prerecord');
-      setShowPrerecordModal(false);
+      setPrerecordConfirmDetails({
+        startDate: parsedDate,
+        totalMinutes
+      });
+      setShowPrerecordConfirmStep(true);
     } catch (err: any) {
       setPrerecordError(err.message || 'Error occurred while validating date and time.');
     }
+  };
+
+  const handleFinalConfirmPrerecord = () => {
+    if (prerecordConfirmDetails) {
+      setPrerecordLengthMinutes(prerecordConfirmDetails.totalMinutes);
+      setPrerecordDate(prerecordConfirmDetails.startDate);
+      setPlayMode('Prerecord');
+      setShowPrerecordConfirmStep(false);
+      setShowPrerecordModal(false);
+      setPrerecordConfirmDetails(null);
+    }
+  };
+
+  const handleBrowseNative = async (targetField: 'schedules' | 'mp3s' | 'logs') => {
+    try {
+      const res = await fetch('/api/browse-folder', { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.path) {
+        if (targetField === 'schedules') setDraftLocalPathSchedules(data.path);
+        else if (targetField === 'mp3s') setDraftLocalPathMP3s(data.path);
+        else if (targetField === 'logs') setDraftLocalPathLogs(data.path);
+      } else if (data.error) {
+        alert(data.error);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to open folder selection window.');
+    }
+  };
+
+  const loadFancyBrowserDirectories = async (currentPath: string) => {
+    try {
+      const url = `/api/list-directories?path=${encodeURIComponent(currentPath)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.success) {
+        setFancyBrowserPath(data.currentPath);
+        setFancyBrowserFolders(data.folders || []);
+        setFancyBrowserParent(data.parentPath);
+        setFancyBrowserError(null);
+      } else {
+        setFancyBrowserError(data.error || 'Failed to list folder directory.');
+      }
+    } catch (err: any) {
+      setFancyBrowserError(err.message || 'Network error listing directories.');
+    }
+  };
+
+  const handleOpenFancyBrowser = async (targetField: 'schedules' | 'mp3s' | 'logs') => {
+    setFancyBrowserTargetField(targetField);
+    let initialPath = '';
+    if (targetField === 'schedules') initialPath = draftLocalPathSchedules;
+    else if (targetField === 'mp3s') initialPath = draftLocalPathMP3s;
+    else if (targetField === 'logs') initialPath = draftLocalPathLogs;
+
+    setFancyBrowserError(null);
+    setShowFancyBrowser(true);
+    await loadFancyBrowserDirectories(initialPath);
+  };
+
+  const handleFancyBrowserSelectDir = (subDirName: string) => {
+    const separator = fancyBrowserPath.includes('\\') ? '\\' : '/';
+    const cleanPath = fancyBrowserPath.endsWith(separator) 
+      ? fancyBrowserPath + subDirName 
+      : fancyBrowserPath + separator + subDirName;
+    loadFancyBrowserDirectories(cleanPath);
+  };
+
+  const handleFancyBrowserNavigateParent = () => {
+    if (fancyBrowserParent) {
+      loadFancyBrowserDirectories(fancyBrowserParent);
+    }
+  };
+
+  const handleFancyBrowserConfirmSelect = () => {
+    if (fancyBrowserTargetField === 'schedules') {
+      setDraftLocalPathSchedules(fancyBrowserPath);
+    } else if (fancyBrowserTargetField === 'mp3s') {
+      setDraftLocalPathMP3s(fancyBrowserPath);
+    } else if (fancyBrowserTargetField === 'logs') {
+      setDraftLocalPathLogs(fancyBrowserPath);
+    }
+    setShowFancyBrowser(false);
   };
 
   const handleAuthSignIn = async () => {
@@ -546,9 +684,10 @@ export default function App() {
     e.preventDefault();
     setLocationsError(null);
     setLocationsSuccess(null);
+    setIsSavingAndVerifying(true);
     try {
       const current = getSavedSettings();
-      let updatedSettings = { ...current };
+      let updatedSettings = { ...current, mode: locationMode };
 
       if (locationMode === 'Local') {
         updatedSettings = {
@@ -603,29 +742,61 @@ export default function App() {
         await fetchDataForMode(updatedSettings);
         setLocationsSuccess('Local storage configurations updated.');
       } else if (locationMode === 'Drive') {
-        // Run verification with the updated folder IDs
         setIsValidatingDrive(true);
-        const success = await validateGoogleDriveAccess();
+        // Is there any folder setting change?
+        const hasFolderChanges = (
+          draftDriveFolderLogs !== driveFolderLogs ||
+          draftDriveFolderMP3s !== driveFolderMP3s ||
+          draftDriveFolderPreferences !== driveFolderPreferences
+        );
+
+        let success = true;
+        if (hasFolderChanges) {
+          // Always request a new authentication after change to a folder type setting
+          try {
+            const res = await googleSignIn();
+            if (res) {
+              setUser(res.user);
+              setToken(res.accessToken);
+            } else {
+              success = false;
+            }
+          } catch (authErr: any) {
+            success = false;
+            setLocationsError('Authentication is required when changing folder settings.');
+          }
+        }
+
         if (success) {
-          setIsDriveValidated(true);
-          setDriveValidationError(null);
-          await fetchDataForMode(updatedSettings);
-          setLocationsSuccess('Google Drive directory IDs updated and validated.');
-        } else {
-          setIsDriveValidated(false);
-          setDriveValidationError('Associated account does not have authorization/access on newly specified directory folder IDs.');
-          setLocationsError('Verification of IDs failed. Please confirm correct and accessible folder resource permissions.');
+          const authSuccess = await validateGoogleDriveAccess();
+          if (authSuccess) {
+            setIsDriveValidated(true);
+            setDriveValidationError(null);
+            await fetchDataForMode(updatedSettings);
+            setLocationsSuccess('Google Drive directory IDs updated and validated.');
+          } else {
+            setIsDriveValidated(false);
+            setDriveValidationError('Associated account does not have authorization/access on newly specified directory folder IDs.');
+            setLocationsError('Verification of IDs failed. Please confirm correct and accessible folder resource permissions.');
+          }
         }
         setIsValidatingDrive(false);
+      } else if (locationMode === 'Demo') {
+        setIsDriveValidated(true);
+        setDriveValidationError(null);
+        await fetchDataForMode(updatedSettings);
+        setLocationsSuccess('Workspace mode switched to Demo.');
       }
 
       setTimeout(() => {
         setLocationsSuccess(null);
         setShowLocationsModal(false);
+        setIsSavingAndVerifying(false);
       }, 1500);
 
     } catch (err: any) {
       setLocationsError(err.message || 'Failed to save configure locations.');
+      setIsSavingAndVerifying(false);
     }
   };
 
@@ -664,74 +835,20 @@ export default function App() {
         
         // Open location selector for Local Mode
         setShowLocationsModal(true);
-      } else {
-        // Drive or Demo details: requires Google token and validation
-        const hasToken = !!(getAccessToken() || token);
-        if (hasToken) {
-          setIsDriveActive(true);
-          setIsValidatingDrive(true);
-          setDriveValidationError(null);
-          try {
-            const success = await validateGoogleDriveAccess();
-            if (success) {
-              setIsDriveValidated(true);
-              setDriveValidationError(null);
-              await fetchDataForMode(updatedSettings);
-            } else {
-              setIsDriveValidated(false);
-              setDriveValidationError('Connected Google account lacks read/write access to one or more configured shared directories.');
-            }
-          } catch (err: any) {
-            setIsDriveValidated(false);
-            setDriveValidationError(err.message || 'Error occurred while validating folders.');
-          } finally {
-            setIsValidatingDrive(false);
-          }
+      } else if (mode === 'Drive') {
+        setIsDriveActive(true);
+        setIsDriveValidated(true);
+        setDriveValidationError(null);
+        await fetchDataForMode(updatedSettings);
 
-          if (mode === 'Drive') {
-            setShowLocationsModal(true);
-          }
-        } else {
-          // Sequence Google Sign-in to occur only after mode select
-          try {
-            setLoading(true);
-            setIsValidatingDrive(true);
-            setDriveValidationError(null);
-            const res = await googleSignIn();
-            if (res) {
-              setUser(res.user);
-              setToken(res.accessToken);
-              setIsDriveActive(true);
-              const success = await validateGoogleDriveAccess();
-              if (success) {
-                setIsDriveValidated(true);
-                setDriveValidationError(null);
-                await fetchDataForMode(updatedSettings);
-              } else {
-                setIsDriveValidated(false);
-                setDriveValidationError('Connected Google account lacks read/write access to one or more configured shared directories.');
-              }
-            } else {
-              setIsDriveActive(false);
-              setIsDriveValidated(false);
-            }
-          } catch (e: any) {
-            console.error('Sign-in failed during mode selection:', e);
-            setDriveValidationError(e.message || 'Verification of Google login failed.');
-            setIsDriveActive(false);
-            setIsDriveValidated(false);
-          } finally {
-            setIsValidatingDrive(false);
-            setLoading(false);
-          }
-
-          if (mode === 'Drive') {
-            setShowLocationsModal(true);
-          }
-        }
+        // Open location selector for Drive Mode
+        setShowLocationsModal(true);
+      } else if (mode === 'Demo') {
+        setIsDriveActive(true);
+        setIsDriveValidated(true);
+        setDriveValidationError(null);
+        await fetchDataForMode(updatedSettings);
       }
-
-      setShowWelcomeModal(false);
     } catch (err) {
       console.error('Failed to select mode:', err);
     }
@@ -739,179 +856,16 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 gap-4">
         <RefreshCw className={cn("w-8 h-8 animate-spin", isPre ? "text-purple-600" : "text-blue-500")} />
+        <p className="text-xs font-bold text-slate-500 tracking-wider animate-pulse select-none">
+          Connect to google drive using the pop-up window
+        </p>
       </div>
     );
   }
 
-  if (!isDriveValidated) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col justify-between text-slate-100 p-6 selection:bg-blue-500/30 selection:text-blue-200">
-        <div className="flex-1 flex flex-col items-center justify-center max-w-md w-full mx-auto py-12">
-          {/* Logo and Icon Header */}
-          <div className="flex flex-col items-center text-center gap-3 mb-8">
-            <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 ring-4 ring-blue-500/10 animate-[pulse_3s_infinite]">
-              <Clock className="w-8 h-8 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-black uppercase tracking-widest text-white">Interstitial-er</h1>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-blue-400 mt-1">Remote Broadcast Synchronizer</p>
-            </div>
-          </div>
 
-          {/* Core Info Panel */}
-          <div className="w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-6">
-            <div className="space-y-2">
-              <h2 className="text-sm font-black uppercase text-slate-200 tracking-wider flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-blue-400" />
-                Google Drive Workgroup Secure Login
-              </h2>
-              <p className="text-[11px] leading-relaxed text-slate-400">
-                This app operates as a standalone local player synchronized with a shared Google Drive cloud repository. Offline mode has been disabled; you must authorize access to the shared workgroup files below to proceed.
-              </p>
-            </div>
-
-            {/* folder Links Section */}
-            <div className="space-y-3 bg-slate-950/60 p-4 rounded-xl border border-slate-800/50">
-              <p className="text-[8px] font-black uppercase text-slate-500 tracking-widest leading-none">Shared Directory Resources</p>
-              
-              <div className="space-y-2.5">
-                {/* Prefs Box */}
-                <div className="flex items-center justify-between text-[10px] bg-slate-900/40 p-2 rounded border border-slate-800/40 hover:border-slate-800 transition-colors">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                    <div className="truncate">
-                      <p className="font-bold text-slate-200 leading-none">Preferences & Schedules</p>
-                      <p className="text-[8px] font-mono text-slate-500 mt-0.5 truncate select-all">{DRIVE_FOLDERS.preferences}</p>
-                    </div>
-                  </div>
-                  <a 
-                    href={`https://drive.google.com/drive/folders/${DRIVE_FOLDERS.preferences}`} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="flex items-center gap-1 text-[8px] font-black text-blue-400 hover:text-blue-300 uppercase shrink-0"
-                  >
-                    Open <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                </div>
-
-                {/* MP3s Box */}
-                <div className="flex items-center justify-between text-[10px] bg-slate-900/40 p-2 rounded border border-slate-800/40 hover:border-slate-800 transition-colors">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                    <div className="truncate">
-                      <p className="font-bold text-slate-200 leading-none">MP3 Library Directory</p>
-                      <p className="text-[8px] font-mono text-slate-500 mt-0.5 truncate select-all">{DRIVE_FOLDERS.mp3s}</p>
-                    </div>
-                  </div>
-                  <a 
-                    href={`https://drive.google.com/drive/folders/${DRIVE_FOLDERS.mp3s}`} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="flex items-center gap-1 text-[8px] font-black text-blue-400 hover:text-blue-300 uppercase shrink-0"
-                  >
-                    Open <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                </div>
-
-                {/* Logs Box */}
-                <div className="flex items-center justify-between text-[10px] bg-slate-900/40 p-2 rounded border border-slate-800/40 hover:border-slate-800 transition-colors">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                    <div className="truncate">
-                      <p className="font-bold text-slate-200 leading-none">Activity Log Directory</p>
-                      <p className="text-[8px] font-mono text-slate-500 mt-0.5 truncate select-all">{DRIVE_FOLDERS.logs}</p>
-                    </div>
-                  </div>
-                  <a 
-                    href={`https://drive.google.com/drive/folders/${DRIVE_FOLDERS.logs}`} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="flex items-center gap-1 text-[8px] font-black text-blue-400 hover:text-blue-300 uppercase shrink-0"
-                  >
-                    Open <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                </div>
-              </div>
-            </div>
-
-            {/* Error States or Loader */}
-            {isValidatingDrive && (
-              <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4 flex flex-col items-center justify-center gap-2.5 text-center">
-                <RefreshCw className="w-5 h-5 text-blue-400 animate-spin" />
-                <p className="text-[10px] font-bold uppercase tracking-wider text-blue-300 animate-pulse">
-                  Validating Shared Folder Connections...
-                </p>
-              </div>
-            )}
-
-            {driveValidationError && !isValidatingDrive && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-red-400 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase text-red-300">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  Access Validation Failed
-                </div>
-                <p className="text-[10px] leading-relaxed">
-                  {driveValidationError}
-                </p>
-                <p className="text-[9px] text-slate-400 leading-normal">
-                  Note: Make sure your logged-in Google account has appropriate share access properties or try signing out to reconnect with a master user account.
-                </p>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            {!isValidatingDrive && (
-              <div className="space-y-3 pt-2">
-                {!user ? (
-                  <button 
-                    onClick={handleAuthSignIn}
-                    className="w-full h-11 px-4 bg-white text-slate-800 hover:bg-slate-100 rounded-xl font-bold text-xs tracking-wider uppercase transition-all shadow-lg flex items-center justify-center gap-3 cursor-pointer select-none border border-slate-200"
-                  >
-                    <svg className="w-5 h-5 shrink-0" viewBox="0 0 48 48">
-                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                    </svg>
-                    <span>Connect Google Drive</span>
-                  </button>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-slate-300 text-[10px] bg-slate-950/60 p-3 rounded-lg border border-slate-800">
-                      <Mail className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                      <span className="truncate font-mono font-semibold text-slate-200">{user?.email}</span>
-                      <span className="ml-auto text-[8px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-black uppercase shrink-0">Signed In</span>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleAuthSignIn}
-                        className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-black text-[10px] uppercase tracking-wider transition-colors cursor-pointer"
-                      >
-                        Re-Authorize Folders
-                      </button>
-                      <button
-                        onClick={handleAuthSignOut}
-                        className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg hover:text-white border border-slate-700 transition-colors text-[10px] font-black uppercase tracking-wider cursor-pointer"
-                      >
-                        Sign Out
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="max-w-md w-full mx-auto text-center border-t border-slate-900 pt-4 text-[9px] text-slate-600 font-bold uppercase tracking-wider">
-          * Interstitial-er • v1.2.0
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-screen bg-[#F8FAFC] font-sans overflow-hidden">
@@ -1025,20 +979,21 @@ export default function App() {
                   </div>
                   <p className="text-[10px] leading-relaxed text-slate-400">
                     {isMissingSchedules && isMissingMP3s ? (
-                      "Schedules config (schedules.json) and .mp3 chimes could not be found."
+                      "Schedules config (schedules.json) and .mp3s could not be found."
                     ) : isMissingSchedules ? (
                       "The schedules configuration file (schedules.json) was not detected in this directory."
                     ) : (
-                      "No play chimes (.mp3) files were found/listed inside your audio folder."
+                      "No play .mp3 files were found/listed inside your audio folder."
                     )}
                     {" Recommended to verify folder locations using the configuration tool."}
                   </p>
                   <div className="mt-1">
                     <button
                       onClick={() => setShowLocationsModal(true)}
-                      className="py-1 px-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[9px] uppercase tracking-wider rounded border border-amber-400 transition"
+                      className="flex items-center gap-1.5 py-1 px-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[9px] uppercase tracking-wider rounded border border-amber-400 transition cursor-pointer"
                     >
-                      Configure Directories
+                      <Folder className="w-3 h-3 shrink-0" />
+                      <span>Configure folders</span>
                     </button>
                   </div>
                 </div>
@@ -1148,7 +1103,7 @@ export default function App() {
               <span className={cn(
                 "w-1.5 h-1.5 rounded-full transition-all duration-300",
                 !isPre 
-                  ? "bg-blue-300 shadow-[0_0_6px_#60A5FA]" 
+                  ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]" 
                   : "bg-slate-800"
               )} />
               Live
@@ -1169,7 +1124,7 @@ export default function App() {
               <span className={cn(
                 "w-1.5 h-1.5 rounded-full transition-all duration-300",
                 isPre 
-                  ? "bg-purple-300 shadow-[0_0_6px_#C084FC]" 
+                  ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]" 
                   : "bg-slate-800"
               )} />
               Prerecord
@@ -1188,112 +1143,216 @@ export default function App() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl max-w-sm w-full overflow-hidden text-slate-100 flex flex-col"
             >
-              <form onSubmit={handleActivatePrerecord} className="flex flex-col">
-                {/* Modal Header */}
-                <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-                  <div className="flex items-center gap-2 text-purple-400">
-                    <Clock className="w-5 h-5" />
-                    <h3 className="text-xs font-black uppercase tracking-widest text-white">Activate Prerecord Mode</h3>
+              {showPrerecordConfirmStep && prerecordConfirmDetails ? (
+                <div className="flex flex-col">
+                  {/* Confirmation Header */}
+                  <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+                    <div className="flex items-center gap-2 text-purple-400">
+                      <CheckCircle className="w-5 h-5 text-emerald-400" />
+                      <h3 className="text-xs font-black uppercase tracking-widest text-white">Verify Show Details</h3>
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setShowPrerecordConfirmStep(false);
+                        setPrerecordConfirmDetails(null);
+                      }}
+                      className="text-slate-500 hover:text-slate-300 font-bold text-xs uppercase"
+                    >
+                      Adjust
+                    </button>
                   </div>
-                  <button 
-                    type="button"
-                    onClick={() => setShowPrerecordModal(false)}
-                    className="text-slate-500 hover:text-slate-300 font-bold text-xs uppercase"
-                  >
-                    Cancel
-                  </button>
-                </div>
 
-                {/* Modal Content */}
-                <div className="p-5 space-y-4">
-                  <p className="text-[10px] leading-relaxed text-slate-300">
-                    Set the Date and Time of when the prerecord will air.
-                  </p>
+                  {/* Confirmation Content */}
+                  <div className="p-5 space-y-4">
+                    <div className="p-3 bg-slate-950/60 border border-slate-800/80 rounded-lg space-y-3">
+                      <p className="text-xs leading-relaxed text-slate-300">
+                        Please confirm you want to activate <span className="font-extrabold text-white">Prerecord Mode</span> with the following parameters:
+                      </p>
 
-                  <div className="space-y-3">
-                    {/* Date picker */}
-                    <div>
-                      <label className="block text-[8px] font-black uppercase tracking-wider text-slate-400 mb-1">Air Date of Prerecord</label>
-                      <input 
-                        type="date" 
-                        required
-                        value={prerecordDateInput}
-                        onChange={e => setPrerecordDateInput(e.target.value)}
-                        className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all cursor-pointer"
-                      />
-                    </div>
-
-                    {/* Time picker (24h input mask) */}
-                    <div>
-                      <label className="block text-[8px] font-black uppercase tracking-wider text-slate-400 mb-1">Show Start Time (24h - HH:mm)</label>
-                      <input 
-                        type="text" 
-                        required
-                        placeholder="HH:mm (e.g. 14:30)"
-                        maxLength={5}
-                        value={prerecordTimeInput}
-                        onChange={handleTimeInputChange}
-                        className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all cursor-pointer"
-                      />
-                    </div>
-
-                    {/* Show Length pickers */}
-                    <div>
-                      <label className="block text-[8px] font-black uppercase tracking-wider text-slate-400 mb-1">Show Length</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="relative">
-                          <input 
-                            type="number" 
-                            required
-                            min={0}
-                            max={999}
-                            value={prerecordHoursInput}
-                            onChange={e => setPrerecordHoursInput(e.target.value)}
-                            className="w-full pl-3 pr-8 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all"
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-slate-500 pointer-events-none uppercase">Hrs</span>
+                      <div className="space-y-2 pt-1">
+                        <div className="flex flex-col">
+                          <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Air Date</span>
+                          <span className="text-xs font-bold text-purple-400">
+                            {format(prerecordConfirmDetails.startDate, 'EEEE, MMMM do, yyyy')}
+                          </span>
                         </div>
-                        <div className="relative">
-                          <input 
-                            type="number" 
-                            required
-                            min={0}
-                            max={59}
-                            value={prerecordMinutesInput}
-                            onChange={e => setPrerecordMinutesInput(e.target.value)}
-                            className="w-full pl-3 pr-8 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all"
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-slate-500 pointer-events-none uppercase">Min</span>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="flex flex-col">
+                            <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Start Time (24h)</span>
+                            <span className="text-xs font-black font-mono text-purple-400">
+                              {format(prerecordConfirmDetails.startDate, 'HH:mm')}
+                            </span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Start Time (12h)</span>
+                            <span className="text-xs font-black font-mono text-purple-400">
+                              {format(prerecordConfirmDetails.startDate, 'h:mm a')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col">
+                          <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Show Length / Duration</span>
+                          <span className="text-xs font-bold text-purple-400">
+                            {parseInt(prerecordHoursInput, 10) > 0 ? `${prerecordHoursInput} ${parseInt(prerecordHoursInput, 10) === 1 ? 'hour' : 'hours'}` : ''}
+                            {parseInt(prerecordHoursInput, 10) > 0 && parseInt(prerecordMinutesInput, 10) > 0 ? ' and ' : ''}
+                            {parseInt(prerecordMinutesInput, 10) > 0 || parseInt(prerecordHoursInput, 10) === 0 ? `${prerecordMinutesInput} minutes` : ''}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-900/60">
+                          <div className="flex flex-col">
+                            <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Calculated End (24h)</span>
+                            <span className="text-xs font-black font-mono text-emerald-400">
+                              {format(addMinutes(prerecordConfirmDetails.startDate, prerecordConfirmDetails.totalMinutes), 'HH:mm')}
+                            </span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Calculated End (12h)</span>
+                            <span className="text-xs font-black font-mono text-emerald-400">
+                              {format(addMinutes(prerecordConfirmDetails.startDate, prerecordConfirmDetails.totalMinutes), 'h:mm a')}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
+
+                    <p className="text-[9px] text-slate-400 leading-normal bg-slate-950/25 p-2 rounded border border-slate-850/50">
+                      Pro-tip: Double-check that your desktop clock matches your scheduled timezone settings.
+                    </p>
                   </div>
 
-                  {prerecordError && (
-                    <div className="bg-red-500/10 border border-red-500/20 rounded p-2.5 flex items-start gap-2 text-red-400">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <span className="text-[10px] leading-tight font-medium">{prerecordError}</span>
+                  {/* Confirmation Actions */}
+                  <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/20 flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPrerecordConfirmStep(false);
+                        setPrerecordConfirmDetails(null);
+                      }}
+                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[10px] font-bold uppercase tracking-wider rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
+                    >
+                      Adjust
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleFinalConfirmPrerecord}
+                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider rounded shadow-md shadow-emerald-950/20 transition cursor-pointer active:translate-y-px"
+                    >
+                      OK - Activate
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleActivatePrerecord} className="flex flex-col">
+                  {/* Modal Header */}
+                  <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+                    <div className="flex items-center gap-2 text-purple-400">
+                      <Clock className="w-5 h-5" />
+                      <h3 className="text-xs font-black uppercase tracking-widest text-white">Activate Prerecord Mode</h3>
                     </div>
-                  )}
-                </div>
+                    <button 
+                      type="button"
+                      onClick={() => setShowPrerecordModal(false)}
+                      className="text-slate-500 hover:text-slate-300 font-bold text-xs uppercase"
+                    >
+                      Cancel
+                    </button>
+                  </div>
 
-                {/* Modal Actions */}
-                <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/20 flex gap-2 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowPrerecordModal(false)}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[10px] font-bold uppercase tracking-wider rounded border border-slate-700 transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-black uppercase tracking-wider rounded shadow-md shadow-purple-950/20 transition"
-                  >
-                    Activate
-                  </button>
-                </div>
-              </form>
+                  {/* Modal Content */}
+                  <div className="p-5 space-y-4">
+                    <p className="text-[10px] leading-relaxed text-slate-300">
+                      Set the Date and Time of when the prerecord will air.
+                    </p>
+
+                    <div className="space-y-3">
+                      {/* Date picker */}
+                      <div>
+                        <label className="block text-[8px] font-black uppercase tracking-wider text-slate-400 mb-1">Air Date of Prerecord</label>
+                        <input 
+                          type="date" 
+                          required
+                          value={prerecordDateInput}
+                          onChange={e => setPrerecordDateInput(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Time picker (24h input mask) */}
+                      <div>
+                        <label className="block text-[8px] font-black uppercase tracking-wider text-slate-400 mb-1">Show Start Time (24h - HH:mm)</label>
+                        <input 
+                          type="text" 
+                          required
+                          placeholder="HH:mm (e.g. 14:30)"
+                          maxLength={5}
+                          value={prerecordTimeInput}
+                          onChange={handleTimeInputChange}
+                          className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Show Length pickers */}
+                      <div>
+                        <label className="block text-[8px] font-black uppercase tracking-wider text-slate-450 mb-1">Show Length</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="relative">
+                            <input 
+                              type="number" 
+                              required
+                              min={0}
+                              max={999}
+                              value={prerecordHoursInput}
+                              onChange={e => setPrerecordHoursInput(e.target.value)}
+                              className="w-full pl-3 pr-8 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-slate-500 pointer-events-none uppercase">Hrs</span>
+                          </div>
+                          <div className="relative">
+                            <input 
+                              type="number" 
+                              required
+                              min={0}
+                              max={59}
+                              value={prerecordMinutesInput}
+                              onChange={e => setPrerecordMinutesInput(e.target.value)}
+                              className="w-full pl-3 pr-8 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-slate-500 pointer-events-none uppercase">Min</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {prerecordError && (
+                      <div className="bg-red-500/10 border border-red-500/20 rounded p-2.5 flex items-start gap-2 text-red-400">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span className="text-[10px] leading-tight font-medium">{prerecordError}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Modal Actions */}
+                  <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/20 flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowPrerecordModal(false)}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[10px] font-bold uppercase tracking-wider rounded border border-slate-700 transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-black uppercase tracking-wider rounded shadow-md shadow-purple-950/20 transition"
+                    >
+                      Activate
+                    </button>
+                  </div>
+                </form>
+              )}
             </motion.div>
           </div>
         )}
@@ -1313,12 +1372,6 @@ export default function App() {
                   <Folder className="w-5 h-5" />
                   <h3 className="text-xs font-black uppercase tracking-widest text-white">Default Storage Folders</h3>
                 </div>
-                <button 
-                  onClick={() => setShowLocationsModal(false)}
-                  className="text-slate-500 hover:text-slate-300 font-bold text-xs uppercase"
-                >
-                  Close
-                </button>
               </div>
 
               {/* Modal Core Form */}
@@ -1326,22 +1379,65 @@ export default function App() {
                 {/* Modal Content */}
                 <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
                   
-                  {/* Active Storage Mode Banner */}
-                  <div className="p-3 bg-slate-950/45 rounded-lg border border-slate-800 flex justify-between items-center">
-                    <div>
-                      <p className="text-[8px] font-black uppercase text-slate-400 tracking-wider">Active Workspace Mode</p>
-                      <p className="text-xs font-black uppercase text-blue-400 tracking-wider mt-0.5">{locationMode} MODE</p>
+                  {/* Mode Selector Row */}
+                  <div className="space-y-1.5">
+                    <p className="text-[8px] font-black uppercase text-slate-400 tracking-widest leading-none">Select Workspace Mode</p>
+                    <div className="p-1.5 bg-slate-950 border border-slate-900 rounded-lg flex gap-1.5 items-center shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)]">
+                      <button
+                        type="button"
+                        onClick={() => setLocationMode('Demo')}
+                        className={cn(
+                          "flex-1 py-1 text-[9px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
+                          locationMode === 'Demo'
+                            ? "bg-gradient-to-b from-amber-500 to-amber-600 border-[#F59E0B] border-t-amber-400 border-b-amber-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] font-black"
+                            : "bg-amber-950/10 border-amber-900/15 text-amber-500/50 hover:text-amber-400 hover:bg-amber-950/20"
+                        )}
+                      >
+                        <span className={cn(
+                          "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                          locationMode === 'Demo' 
+                            ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]" 
+                            : "bg-slate-800"
+                        )} />
+                        Demo Mode
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLocationMode('Drive')}
+                        className={cn(
+                          "flex-1 py-1 text-[9px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
+                          locationMode === 'Drive'
+                            ? "bg-gradient-to-b from-blue-500 to-blue-600 border-[#3B82F6] border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] font-black"
+                            : "bg-blue-950/10 border-blue-900/15 text-blue-500/50 hover:text-blue-400 hover:bg-blue-950/20"
+                        )}
+                      >
+                        <span className={cn(
+                          "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                          locationMode === 'Drive' 
+                            ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]" 
+                            : "bg-slate-800"
+                        )} />
+                        Google Drive
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLocationMode('Local')}
+                        className={cn(
+                          "flex-1 py-1 text-[9px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
+                          locationMode === 'Local'
+                            ? "bg-gradient-to-b from-purple-500 to-purple-600 border-[#8B5CF6] border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] font-black"
+                            : "bg-purple-950/10 border-purple-900/15 text-purple-500/50 hover:text-purple-400 hover:bg-purple-950/20"
+                        )}
+                      >
+                        <span className={cn(
+                          "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                          locationMode === 'Local' 
+                            ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]" 
+                            : "bg-slate-800"
+                        )} />
+                        Local Folder
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowLocationsModal(false);
-                        setShowWelcomeModal(true);
-                      }}
-                      className="py-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[9px] font-black uppercase tracking-wider transition-colors"
-                    >
-                      Switch Mode
-                    </button>
                   </div>
 
                   {/* Directories List Depending on Mode */}
@@ -1363,9 +1459,25 @@ export default function App() {
                           onChange={e => setDraftLocalPathSchedules(e.target.value)}
                           className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
                         />
+                        <div className="flex gap-2 mt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleBrowseNative('schedules')}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                          >
+                            Browse
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenFancyBrowser('schedules')}
+                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                          >
+                            Browse Fancy
+                          </button>
+                        </div>
                         <p className="text-[8px] text-slate-500 mt-0.5">Directory where Interstitial-er saves the schedules configuration.</p>
                       </div>
-
+ 
                       <div>
                         <div className="flex justify-between items-center mb-1">
                           <label className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Local MP3s Directory Path</label>
@@ -1377,14 +1489,30 @@ export default function App() {
                         </div>
                         <input 
                           type="text"
-                          placeholder="e.g. /Users/name/Music/Chimes"
+                          placeholder="e.g. /Users/name/Music/MP3s"
                           value={draftLocalPathMP3s}
                           onChange={e => setDraftLocalPathMP3s(e.target.value)}
                           className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
                         />
-                        <p className="text-[8px] text-slate-500 mt-0.5">Absolute path containing your secondary .mp3 playback audio chimes.</p>
+                        <div className="flex gap-2 mt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleBrowseNative('mp3s')}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-655 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                          >
+                            Browse
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenFancyBrowser('mp3s')}
+                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                          >
+                            Browse Fancy
+                          </button>
+                        </div>
+                        <p className="text-[8px] text-slate-500 mt-0.5">Absolute path containing your secondary .mp3 playback audio files.</p>
                       </div>
-
+ 
                       <div>
                         <div className="flex justify-between items-center mb-1">
                           <label className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Local Play Log Records Path</label>
@@ -1401,9 +1529,25 @@ export default function App() {
                           onChange={e => setDraftLocalPathLogs(e.target.value)}
                           className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
                         />
+                        <div className="flex gap-2 mt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleBrowseNative('logs')}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-655 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                          >
+                            Browse
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenFancyBrowser('logs')}
+                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                          >
+                            Browse Fancy
+                          </button>
+                        </div>
                         <p className="text-[8px] text-slate-500 mt-0.5">Directory location where logs are stored sequentially.</p>
                       </div>
-
+ 
                       {localPathsUnavailable && (
                         <div className="p-3 bg-amber-950/20 border border-amber-900/40 text-amber-400 rounded text-[9px] leading-relaxed">
                           ⚠️ One or more specified local directories are missing or inaccessible. Please verify paths are correct and physically exist on host desktop folders.
@@ -1427,7 +1571,7 @@ export default function App() {
                           type="text"
                           placeholder="Google Drive Directory ID string..."
                           value={draftDriveFolderPreferences}
-                          onChange={e => setDraftDriveFolderPreferences(e.target.value)}
+                          onChange={e => setDraftDriveFolderPreferences(extractFolderId(e.target.value))}
                           className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
                         />
                         <p className="text-[8px] text-slate-500 mt-0.5">Folder storing schedules.json schedules inside Drive.</p>
@@ -1446,10 +1590,10 @@ export default function App() {
                           type="text"
                           placeholder="Google Drive Directory ID string..."
                           value={draftDriveFolderMP3s}
-                          onChange={e => setDraftDriveFolderMP3s(e.target.value)}
+                          onChange={e => setDraftDriveFolderMP3s(extractFolderId(e.target.value))}
                           className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
                         />
-                        <p className="text-[8px] text-slate-500 mt-0.5">Folder containing .mp3 playback chimes inside Google Drive.</p>
+                        <p className="text-[8px] text-slate-500 mt-0.5">Folder containing .mp3 playback MP3s inside Google Drive.</p>
                       </div>
 
                       <div>
@@ -1465,7 +1609,7 @@ export default function App() {
                           type="text"
                           placeholder="Google Drive Directory ID string..."
                           value={draftDriveFolderLogs}
-                          onChange={e => setDraftDriveFolderLogs(e.target.value)}
+                          onChange={e => setDraftDriveFolderLogs(extractFolderId(e.target.value))}
                           className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
                         />
                         <p className="text-[8px] text-slate-500 mt-0.5">Folder containing log tracking entries inside Google Drive.</p>
@@ -1473,13 +1617,18 @@ export default function App() {
 
                       {/* Google Account Connection Status inside modal */}
                       <div className="pt-2 border-t border-slate-800 mt-3">
-                        <div className="p-3 rounded-lg bg-slate-950/40 border border-slate-850 flex flex-col gap-2">
+                        <div className={cn(
+                          "p-3 rounded-lg flex flex-col gap-2 transition-colors duration-200",
+                          user 
+                            ? "bg-slate-950/40 border border-slate-850" 
+                            : "bg-red-950/25 border border-red-500/30 text-red-400"
+                        )}>
                           <div className="flex items-center justify-between">
                             <span className="text-[8px] font-black uppercase tracking-wider text-slate-400">Authorization Status</span>
                             {user ? (
                               <span className="text-[8px] text-emerald-400 font-bold uppercase">Linked</span>
                             ) : (
-                              <span className="text-[8px] text-amber-500 font-bold uppercase mt-0.5">Not Signed In</span>
+                              <span className="text-[8px] text-red-500 font-bold uppercase mt-0.5 animate-pulse">Not Signed In</span>
                             )}
                           </div>
                           {user ? (
@@ -1506,14 +1655,14 @@ export default function App() {
                       </div>
                     </div>
                   )}
-
+ 
                   {locationMode === 'Demo' && (
                     <div className="space-y-4 text-slate-300 text-[10px]">
                       <div className="p-3.5 bg-amber-950/10 border border-amber-900/30 rounded-lg whitespace-pre-line text-[9px] leading-relaxed text-amber-500">
                         Demo workspace mode retrieves configurations automatically from general demonstration Google Drive directories. 
                         Custom file configurations are disabled in Demo workspace mode.
                       </div>
-
+ 
                       <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2.5">
                         <div>
                           <p className="text-[8px] font-black uppercase text-blue-400">demo schedules folder id</p>
@@ -1526,6 +1675,45 @@ export default function App() {
                         <div>
                           <p className="text-[8px] font-black uppercase text-blue-400">demo history logs folder id</p>
                           <p className="text-[9px] font-mono text-slate-400 select-all truncate">1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx</p>
+                        </div>
+                      </div>
+ 
+                      {/* Google Account Connection Status inside modal for Demo mode as well */}
+                      <div className="pt-2 border-t border-slate-800">
+                        <div className={cn(
+                          "p-3 rounded-lg flex flex-col gap-2 transition-colors duration-200",
+                          user 
+                            ? "bg-slate-950/40 border border-slate-850" 
+                            : "bg-red-950/25 border border-red-500/30 text-red-400"
+                        )}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400">Authorization Status</span>
+                            {user ? (
+                              <span className="text-[8px] text-emerald-400 font-bold uppercase">Linked</span>
+                            ) : (
+                              <span className="text-[8px] text-red-500 font-bold uppercase mt-0.5 animate-pulse">Not Signed In</span>
+                            )}
+                          </div>
+                          {user ? (
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-mono text-slate-300 truncate">{user.email}</p>
+                              <button
+                                type="button"
+                                onClick={handleAuthSignOut}
+                                className="w-full py-1 px-2 text-[8px] font-black bg-red-950/30 text-red-400 border border-red-900/40 hover:bg-red-900 hover:text-white rounded transition cursor-pointer"
+                              >
+                                Disconnect Google Account
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={handleAuthSignIn}
+                              className="w-full py-1 text-[8px] font-black bg-blue-600 hover:bg-blue-700 text-white rounded transition uppercase cursor-pointer"
+                            >
+                              Sign In with Google
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1553,19 +1741,17 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setShowLocationsModal(false)}
-                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[10px] font-bold uppercase rounded border border-slate-700 transition"
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[10px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
                   >
                     Cancel
                   </button>
-                  {locationMode !== 'Demo' && (
-                    <button
-                      type="submit"
-                      disabled={isSyncing || isValidatingDrive}
-                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded shadow transition disabled:opacity-50"
-                    >
-                      {isSyncing || isValidatingDrive ? 'Verifying...' : 'Save Folder Configurations'}
-                    </button>
-                  )}
+                  <button
+                    type="submit"
+                    disabled={isSyncing || isValidatingDrive}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded shadow transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSyncing || isValidatingDrive ? 'Verifying...' : 'Save and Close'}
+                  </button>
                 </div>
               </form>
             </motion.div>
@@ -1573,126 +1759,120 @@ export default function App() {
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {showWelcomeModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+        {showFancyBrowser && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl max-w-lg w-full overflow-hidden text-slate-100 flex flex-col max-h-[90vh]"
+              className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-slate-100 flex flex-col max-h-[85vh]"
             >
-              {/* Header */}
+              {/* Modal Header */}
               <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
                 <div className="flex items-center gap-2 text-blue-400">
-                  <ShieldCheck className="w-5 h-5 animate-pulse" />
-                  <h3 className="text-xs font-black uppercase tracking-widest text-white">Select Workspace Mode</h3>
+                  <Folder className="w-5 h-5" />
+                  <h3 className="text-xs font-black uppercase tracking-widest text-white">
+                    Custom Directory Selector
+                  </h3>
                 </div>
                 <button 
-                  onClick={() => setShowWelcomeModal(false)}
-                  className="text-slate-500 hover:text-slate-300 font-bold text-xs uppercase"
+                  type="button"
+                  onClick={() => setShowFancyBrowser(false)}
+                  className="text-slate-500 hover:text-slate-300 font-bold text-xs uppercase cursor-pointer"
                 >
                   Close
                 </button>
               </div>
 
-              {/* Body */}
-              <div className="p-6 space-y-4 overflow-y-auto">
-                <p className="text-[10px] leading-relaxed text-slate-400 uppercase font-black tracking-widest text-center">
-                  Welcome to Interstitial-er. Choose how you want to load play records & configuration.
-                </p>
-
-                <div className="space-y-3.5">
-                  {/* OPTION 1: DEMO MODE */}
-                  <button
-                    onClick={() => handleSelectMode('Demo')}
-                    className={cn(
-                      "w-full text-left p-4 rounded-xl border transition-all duration-200 flex items-start gap-4 hover:scale-[1.01] cursor-pointer",
-                      locationMode === 'Demo'
-                        ? "bg-amber-950/30 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.15)]"
-                        : "bg-slate-950/40 border-slate-800 hover:border-amber-500/30 hover:bg-slate-950/70"
+              {/* Modal Search/Path Bar */}
+              <div className="p-4 border-b border-slate-800/60 bg-slate-950/20 space-y-2">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[8px] font-black uppercase tracking-wider text-slate-500">Current Folder Path</span>
+                  <div className="flex gap-1.5">
+                    <input 
+                      type="text"
+                      value={fancyBrowserPath}
+                      onChange={e => {
+                        setFancyBrowserPath(e.target.value);
+                      }}
+                      onBlur={() => loadFancyBrowserDirectories(fancyBrowserPath)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          loadFancyBrowserDirectories(fancyBrowserPath);
+                        }
+                      }}
+                      className="w-full px-2.5 py-1 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none"
+                    />
+                    {fancyBrowserParent && (
+                      <button
+                        type="button"
+                        onClick={handleFancyBrowserNavigateParent}
+                        className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-705 border-slate-700 font-black uppercase text-[9px] rounded transition-all cursor-pointer"
+                        title="Go up one folder level"
+                      >
+                        Up
+                      </button>
                     )}
-                  >
-                    <div className={cn(
-                      "p-2.5 rounded-lg border shrink-0 mt-0.5",
-                      locationMode === 'Demo'
-                        ? "bg-amber-950/80 border-amber-500/30 text-amber-500"
-                        : "bg-slate-900 border-slate-800 text-slate-400"
-                    )}>
-                      <Globe className="w-5 h-5 animate-pulse" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-xs font-black uppercase tracking-wider text-white">Demo Mode</h4>
-                      </div>
-                      <p className="text-[10px] text-slate-300 mt-1.5 leading-relaxed">
-                        Query file structures and metadata dynamically from Google Drive demonstration directories. Standard review flow.
-                      </p>
-                    </div>
-                  </button>
-
-                  {/* OPTION 2: GOOGLE DRIVE MODE */}
-                  <button
-                    onClick={() => handleSelectMode('Drive')}
-                    className={cn(
-                      "w-full text-left p-4 rounded-xl border transition-all duration-200 flex items-start gap-4 hover:scale-[1.01] cursor-pointer",
-                      locationMode === 'Drive'
-                        ? "bg-blue-950/20 border-blue-500/50 shadow-[0_0_12px_rgba(59,130,246,0.15)]"
-                        : "bg-slate-950/40 border-slate-800 hover:border-blue-500/30 hover:bg-slate-950/70"
-                    )}
-                  >
-                    <div className={cn(
-                      "p-2.5 rounded-lg border shrink-0 mt-0.5",
-                      locationMode === 'Drive'
-                        ? "bg-blue-950/60 border-blue-500/30 text-blue-400"
-                        : "bg-slate-900 border-slate-800 text-slate-400"
-                    )}>
-                      <Folder className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-black uppercase tracking-wider text-white">Google Drive Mode</h4>
-                      <p className="text-[10px] text-slate-300 mt-1.5 leading-relaxed">
-                        Connect your personal Google Account to sync schedules, history metrics, and custom chimes from your custom folders across all devices.
-                      </p>
-                    </div>
-                  </button>
-
-                  {/* OPTION 3: LOCAL MODE */}
-                  <button
-                    onClick={() => handleSelectMode('Local')}
-                    className={cn(
-                      "w-full text-left p-4 rounded-xl border transition-all duration-200 flex items-start gap-4 hover:scale-[1.01] cursor-pointer",
-                      locationMode === 'Local'
-                        ? "bg-purple-950/20 border-purple-500/50 shadow-[0_0_12px_rgba(168,85,247,0.15)]"
-                        : "bg-slate-950/40 border-slate-800 hover:border-purple-500/30 hover:bg-slate-950/70"
-                    )}
-                  >
-                    <div className={cn(
-                      "p-2.5 rounded-lg border shrink-0 mt-0.5",
-                      locationMode === 'Local'
-                        ? "bg-purple-950/60 border-purple-500/30 text-purple-400"
-                        : "bg-slate-900 border-slate-800 text-slate-400"
-                    )}>
-                      <HardDrive className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-black uppercase tracking-wider text-white">Local Desktop Mode</h4>
-                      <p className="text-[10px] text-slate-300 mt-1.5 leading-relaxed">
-                        Read and update files entirely inside absolute file system paths on your host computer. Recommended for standalone installations.
-                      </p>
-                    </div>
-                  </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Footer selection actions */}
-              <div className="px-6 py-4 border-t border-slate-800 bg-slate-950/40 flex justify-between items-center text-[9px] text-slate-500 font-bold uppercase tracking-wider">
-                <span>Active: <b className="text-slate-300">{locationMode} Mode</b></span>
-                <button
-                  onClick={() => setShowWelcomeModal(false)}
-                  className="px-4 py-1.5 bg-slate-850 hover:bg-slate-800 text-slate-300 rounded border border-slate-750 transition cursor-pointer"
-                >
-                  Enter Workspace
-                </button>
+              {/* Error messages if any */}
+              {fancyBrowserError && (
+                <div className="mx-4 mt-3 p-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded text-[10px] leading-relaxed">
+                  ⚠️ {fancyBrowserError}
+                </div>
+              )}
+
+              {/* Folders list */}
+              <div className="flex-1 overflow-y-auto p-4 min-h-[220px] max-h-[350px]">
+                <div className="text-[8px] font-black uppercase tracking-wider text-slate-500 mb-2">Sub-directories (double click to enter)</div>
+                {fancyBrowserFolders.length === 0 ? (
+                  <div className="text-center py-8 text-[10px] text-slate-500 italic">No subdirectory folders found inside this folder location. Use standard manual path edits above.</div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-1">
+                    {fancyBrowserFolders.map((folderName) => (
+                      <div
+                        key={folderName}
+                        onDoubleClick={() => handleFancyBrowserSelectDir(folderName)}
+                        onClick={() => {
+                          const separator = fancyBrowserPath.includes('\\') ? '\\' : '/';
+                          const cleanPath = fancyBrowserPath.endsWith(separator) 
+                            ? fancyBrowserPath + folderName 
+                            : fancyBrowserPath + separator + folderName;
+                          setFancyBrowserPath(cleanPath);
+                        }}
+                        className="flex items-center gap-2.5 px-3 py-2 bg-slate-950/40 hover:bg-blue-950/30 border border-slate-800/60 hover:border-blue-800/40 rounded-lg text-xs text-slate-300 hover:text-white cursor-pointer select-none transition group"
+                      >
+                        <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0 group-hover:scale-105 transition" />
+                        <span className="font-mono truncate">{folderName}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Selection prompt */}
+              <div className="p-4 bg-slate-950/40 border-t border-slate-800 flex flex-col gap-3">
+                <p className="text-[9px] leading-relaxed text-slate-400">
+                  Select index folder as destination path for <strong className="text-blue-400 uppercase">{fancyBrowserTargetField}</strong> configurations and resources.
+                </p>
+                <div className="flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowFancyBrowser(false)}
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[10px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFancyBrowserConfirmSelect}
+                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded shadow cursor-pointer active:translate-y-px"
+                  >
+                    Select Folder
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

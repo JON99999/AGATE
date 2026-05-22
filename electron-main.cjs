@@ -1,9 +1,11 @@
 const { app, BrowserWindow, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const net = require('net');
 
 let mainWindow;
 let appMode = 'Admin';
+let serverPort = 3000;
 
 try {
   const configPath = path.join(__dirname, 'dist', 'app-config.json');
@@ -17,17 +19,47 @@ try {
   console.log('Using default App Mode: Admin');
 }
 
-function startServer() {
+function getFreePort(startingPort = 3000) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.on('error', () => {
+      resolve(getFreePort(startingPort + 1));
+    });
+    server.listen(startingPort, '127.0.0.1', () => {
+      const { port } = server.address();
+      server.close(() => {
+        resolve(port);
+      });
+    });
+  });
+}
+
+async function startServer() {
+  try {
+    serverPort = await getFreePort(3000);
+    console.log(`Resolved free port for desktop server: ${serverPort}`);
+  } catch (err) {
+    console.error('Error finding free port, defaulting to 3000:', err);
+    serverPort = 3000;
+  }
+
   // Set environment for the server
   process.env.NODE_ENV = 'production';
-  process.env.PORT = '3000';
+  process.env.PORT = String(serverPort);
+  try {
+    process.env.APP_USER_DATA_PATH = app.getPath('userData');
+    console.log(`Setting user data path env: ${process.env.APP_USER_DATA_PATH}`);
+  } catch (err) {
+    console.error('Failed to resolve electron userData path:', err);
+  }
 
   // Import and run the compiled production server
   // Because it's bundled as CommonJS (.cjs), we can simply require it
   try {
     const serverPath = path.join(__dirname, 'dist', 'server.cjs');
     require(serverPath);
-    console.log('Backend server started successfully.');
+    console.log(`Backend server started successfully on port ${serverPort}.`);
   } catch (err) {
     console.error('Failed to start backend server:', err);
   }
@@ -64,9 +96,9 @@ function createWindow() {
 
   mainWindow = new BrowserWindow(windowOptions);
 
-  // Small delay to ensure server is bounded to port 3000
+  // Small delay to ensure server is bounded to the resolved port
   setTimeout(() => {
-    mainWindow.loadURL('http://localhost:3000');
+    mainWindow.loadURL(`http://localhost:${serverPort}`);
   }, 2000);
 
   mainWindow.on('closed', function () {
@@ -74,8 +106,8 @@ function createWindow() {
   });
 }
 
-app.on('ready', () => {
-  startServer();
+app.on('ready', async () => {
+  await startServer();
   createWindow();
 });
 

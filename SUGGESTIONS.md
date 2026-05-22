@@ -19,5 +19,5 @@ Based on your requirements, here are some professional recommendations and clari
 ## 5. File Selection UI
 - **Model**: For the MP3 link selector, a simple "File Explorer" view of the `data/mp3s` folder is implemented. Users can also type full URLs for external resources.
 
-## 6. Portability
-- To make this app a single "portable" file, you could wrap this in an **Electron** shell, which would allow it to run as a native MacOS/Windows application with direct access to local folders without a web server.
+## 6. Portability (Resolved in v0.4)
+- **Status**: Completed. The application has been fully integrated into an Electron desktop container (supporting MacOS arm64, MacOS Intel, and Windows 10/11) leveraging a bundled Node.js Express backend and localized `userData` persistent directories. You can run the application directly as a standalone local executable.

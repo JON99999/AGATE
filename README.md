@@ -1,4 +1,4 @@
-# Minute-Sync Scheduler
+# Interstitial-er
 
 A cross-platform desktop MP3 scheduler designed for professional audio orchestration.
 
@@ -19,7 +19,7 @@ A cross-platform desktop MP3 scheduler designed for professional audio orchestra
 ### 2. Setup
 ```bash
 git clone <repository-url>
-cd MinuteSync-Scheduler
+cd Interstitial-er
 npm install
 ```
 

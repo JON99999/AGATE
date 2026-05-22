@@ -3,7 +3,7 @@
 To get the "double-click" versions (`.exe` for Windows or `.dmg` for Mac) without building them yourself, follow these steps using GitHub:
 
 ## 1. Connect to GitHub
-Use the **Share** or **Settings** menu in this interface to sync this project to your GitHub account. Ensure the repository name is what you expect (e.g., `MinuteSync-Scheduler`).
+Use the **Share** or **Settings** menu in this interface to sync this project to your GitHub account. Ensure the repository name is what you expect (e.g., `Interstitial-er`).
 
 ## 2. Trigger an Automatic Build
 I have configured a "GitHub Action" that builds the app for you whenever you create a version tag.
@@ -23,7 +23,7 @@ I have configured a "GitHub Action" that builds the app for you whenever you cre
 ## 4. Download your Files
 1. Once the Action finishes (green checkmark), go back to your **Releases** page.
 2. You will now see "Assets" listed at the bottom of your version `v0.1.0`.
-3. Download the `Minute-Sync-Scheduler-0.1.0.exe` (Windows) or `.dmg` (Mac).
+3. Download the `Interstitial-er-0.1.0.exe` (Windows) or `.dmg` (Mac).
 4. These are "Portable" versions—you can move them anywhere on your computer and double-click to run!
 
 ---

@@ -68,8 +68,14 @@ try {
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
     console.log(`Packaging Electron app for mode: ${mode}...`);
-    // Run electron-builder using the parameters preset in release.yml flow
-    execSync('npx electron-builder --publish always', {
+    // Only publish on GitHub Actions when GH_TOKEN/GITHUB_TOKEN is present, fallback to local packaging (publish never) otherwise
+    const isCI = process.env.GITHUB_ACTIONS === 'true';
+    const publishFlag = isCI ? '--publish always' : '--publish never';
+
+    // Target current host platform dynamically to prevent cross-compilation errors in parallel CI runners
+    const platformFlag = process.platform === 'darwin' ? '--mac' : process.platform === 'win32' ? '--win' : '';
+
+    execSync(`npx electron-builder ${platformFlag} ${publishFlag}`, {
       stdio: 'inherit',
       env: { ...process.env }
     });

@@ -1,11 +1,12 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { createServer as createViteServer } from 'vite';
 import { Schedule, LogEntry } from './src/types';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const LOG_DIR = path.join(process.cwd(), 'Scheduler Logs');
+// Detect safe persistent directory for packaged desktop apps
+const BASE_DIR = process.env.APP_USER_DATA_PATH || process.cwd();
+const DATA_DIR = path.join(BASE_DIR, 'data');
+const LOG_DIR = path.join(BASE_DIR, 'Scheduler Logs');
 const SCHEDULE_FILE_DEFAULT = path.join(DATA_DIR, 'schedules.json');
 const LOG_FILE_DEFAULT = path.join(LOG_DIR, 'logs.json');
 const LOG_BACKUP_DEFAULT = path.join(LOG_DIR, 'logs_backup.json');
@@ -99,7 +100,7 @@ try {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(express.json());
 
@@ -179,6 +180,50 @@ async function startServer() {
     }
   });
 
+  // API - Custom web directory list (Browse Fancy)
+  app.get('/api/list-directories', (req, res) => {
+    try {
+      let targetPath = req.query.path as string;
+      if (!targetPath) {
+        try {
+          const os = require('os');
+          targetPath = os.homedir() || process.cwd();
+        } catch {
+          targetPath = process.cwd();
+        }
+      }
+
+      // Resolve absolute path
+      const resolvedPath = path.resolve(targetPath);
+      
+      if (!fs.existsSync(resolvedPath)) {
+        return res.json({ success: false, error: 'Path does not exist' });
+      }
+
+      const files = fs.readdirSync(resolvedPath, { withFileTypes: true });
+      const folders: string[] = [];
+
+      files.forEach((file) => {
+        if (file.isDirectory()) {
+          folders.push(file.name);
+        }
+      });
+
+      folders.sort();
+
+      const parentPath = path.dirname(resolvedPath);
+
+      res.json({
+        success: true,
+        currentPath: resolvedPath,
+        parentPath: parentPath !== resolvedPath ? parentPath : null,
+        folders
+      });
+    } catch (e: any) {
+      res.json({ success: false, error: e.message || 'Failed to list directory' });
+    }
+  });
+
   // API - List local MP3 files
   app.get('/api/local-mp3s', (req, res) => {
     try {
@@ -196,7 +241,7 @@ async function startServer() {
             name: f,
             size: `${(stats.size / (1024 * 1024)).toFixed(1)} MB`,
             duration: '0:15', // Default starting duration
-            path: `http://localhost:3000/api/stream-local?file=${encodeURIComponent(f)}`
+            path: `http://localhost:${PORT}/api/stream-local?file=${encodeURIComponent(f)}`
           };
         });
       res.json(mp3List);
@@ -320,13 +365,14 @@ async function startServer() {
 
   // Vite integration
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = __dirname;
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
