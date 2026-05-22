@@ -40,8 +40,7 @@
       "target": [
         "nsis",
         "portable"
-      ],
-      "icon": "src/assets/icon.png"
+      ]
     },
     "mac": {
       "target": [
@@ -49,7 +48,6 @@
         "zip"
       ],
       "category": "public.app-category.productivity",
-      "icon": "src/assets/icon.png",
       "identity": null
     }
   },
