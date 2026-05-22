@@ -2,6 +2,8 @@
   "name": "minute-sync-scheduler",
   "private": true,
   "version": "0.1.0",
+  "description": "Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.",
+  "author": "jonceramic",
   "repository": {
     "type": "git",
     "url": "https://github.com/jonceramic/MinuteSync-Scheduler.git"
@@ -20,7 +22,7 @@
   },
   "build": {
     "appId": "com.minutesync.scheduler",
-    "productName": "Minute-Sync Scheduler",
+    "productName": "Interstitial-er",
     "publish": [
       {
         "provider": "github"
@@ -36,22 +38,37 @@
     },
     "win": {
       "target": [
-        "nsis",
-        "portable"
-      ],
-      "arch": [
-        "x64"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.png"
     },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
-      ],
-      "arch": [
-        "arm64",
-        "x64"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "category": "public.app-category.productivity",
       "icon": "build/icon.png",
