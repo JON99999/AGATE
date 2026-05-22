@@ -24,7 +24,7 @@ The application is structured as a cross-platform desktop application built with
 
 - **Persistent Directories**: Dynamic path binding updated to map relative files into the user's localized platform application directories, preventing runtime errors in read-only sandboxed locations.
 - **Host Platform targeting**: Modified the builder to execute locally-targeted platform flags, bypassing cross-compilation errors on secondary platforms during isolated CI runners.
-- **App Launcher Configuration**: Registered initial build asset configurations, including launcher icon definitions (`build/icon.png`) and MacOS signing bypass filters (`"identity": null`).
+- **App Launcher Configuration**: Registered initial build asset configurations, including launcher icon definitions (`src/assets/icon.png`) and MacOS signing bypass filters (`"identity": null`).
 
 ---
 
