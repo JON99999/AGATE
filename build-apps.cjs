@@ -72,8 +72,8 @@ try {
     const isCI = process.env.GITHUB_ACTIONS === 'true';
     const publishFlag = isCI ? '--publish always' : '--publish never';
 
-    // Target current host platform dynamically to prevent cross-compilation errors in parallel CI runners
-    const platformFlag = process.platform === 'darwin' ? '--mac' : process.platform === 'win32' ? '--win' : '';
+    // Target current platform and define the desired architectures (macOS: arm64 + x64, Windows: x64)
+    const platformFlag = process.platform === 'darwin' ? '--mac --x64 --arm64' : process.platform === 'win32' ? '--win --x64' : '';
 
     execSync(`npx electron-builder ${platformFlag} ${publishFlag}`, {
       stdio: 'inherit',
