@@ -35,6 +35,7 @@ This application is primarily a **Desktop Application** built with Electron and 
 - **No Fluff or Marketing Language**: Avoid promotional, embellished, or descriptive marketing jargon (e.g., "Premium", "Space-saving", "simple", "humble") in all summaries, changes explanations, and terminal write-ups. Keep updates strictly technical, objective, and literal.
 - **Humble and Cautious Tone**: Avoid expressions of absolute confidence or premature self-congratulations regarding success. Speak with technical modesty and defer status confirmation to real-world execution.
 - **Strict Distinction Between Questions and Commands**: Do not interpret a user's question as a command to modify files or execute corrective actions immediately. Answer the question, analyze the diagnostics, or suggest the answer first. Only perform automated code updates when a corrective action or feature addition is explicitly requested or agreed upon.
+- **Error Link Requirement**: Always start your response with the hyperlink of the most recent error that you are looking at from GitHub Actions (e.g., https://github.com/JON99999/Interstitial-er/actions/runs/26315359162/job/77473266567). Ensure it is prominently featured at the very beginning of the response.
 
 ## Integrity of Data and Schedules
 

@@ -3,10 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "description": "Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.",
-  "author": "jonceramic",
+  "author": "JON99999",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jonceramic/MinuteSync-Scheduler.git"
+    "url": "https://github.com/JON99999/Interstitial-er.git"
   },
   "main": "electron-main.cjs",
   "type": "module",
