@@ -48,7 +48,7 @@
         "zip"
       ],
       "category": "public.app-category.productivity",
-      "identity": null
+      "identity": "-"
     }
   },
   "dependencies": {
