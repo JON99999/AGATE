@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, Clock, List, Settings, Plus, Play, CheckCircle, AlertCircle, RefreshCw, LogOut, ChevronLeft, ChevronRight, Save, Trash2, History, Folder, HardDrive, Wifi, WifiOff, ShieldCheck, Mail, Globe, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, addHours, subHours, isSameMinute, startOfHour, addMinutes, isAfter, isBefore, parseISO, startOfDay, endOfDay } from 'date-fns';
@@ -33,13 +33,78 @@ import {
   LocationSettings,
   DEFAULT_SETTINGS,
   driveFileNameCache,
-  availableFilesCache
+  availableFilesCache,
+  triggerDriveBackup
 } from './lib/driveService';
 
 export default function App() {
   const isPlayerMode = (import.meta as any).env?.VITE_APP_MODE === 'Player';
   const [activeTab, setActiveTab] = useState<'player' | 'scheduler' | 'log'>('player');
   const [durationUpdates, setDurationUpdates] = useState(0);
+
+  // Fetch folder name/descriptor helper
+  const fetchDriveFolderDescriptor = async (folderId: string, currentToken: string | null): Promise<string> => {
+    if (!folderId) return 'Not Configured';
+    let defaultName = '';
+    if (folderId === '1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED') defaultName = 'scheduledata';
+    else if (folderId === '11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch') defaultName = 'mp3library';
+    else if (folderId === '1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx') defaultName = 'logs';
+
+    if (!currentToken) return defaultName || `Google Drive Folder [${folderId.substring(0, 6)}...]`;
+    try {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=name,owners(displayName,emailAddress)`, {
+        headers: {
+          'Authorization': `Bearer ${currentToken}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const folderName = data.name || defaultName || 'Unnamed Folder';
+        const ownerName = data.owners?.[0]?.displayName || '';
+        const ownerEmail = data.owners?.[0]?.emailAddress || '';
+        const ownerStr = ownerName && ownerEmail 
+          ? ` (${ownerName}, ${ownerEmail})` 
+          : ownerName 
+            ? ` (${ownerName})` 
+            : ownerEmail 
+              ? ` (${ownerEmail})` 
+              : '';
+        return `${folderName}${ownerStr}`;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch name for drive folder ID:', folderId, e);
+    }
+    return defaultName || `Google Drive Folder [${folderId.substring(0, 6)}...]`;
+  };
+
+  // Archiving/backup implementation
+  const runArchiving = async (mode: 'Local' | 'Drive' | 'Demo') => {
+    if (hasBackedUpThisSessionRef.current) {
+      console.log('Archiving already completed for this session of the folder. Skipping.');
+      return;
+    }
+    try {
+      if (mode === 'Local') {
+        const res = await fetch('/api/trigger-backup', { method: 'POST' });
+        if (!res.ok) {
+          throw new Error('Local archiving failed');
+        }
+      } else if (mode === 'Drive' || mode === 'Demo') {
+        await triggerDriveBackup();
+      }
+      console.log('Archiving of schedules and logs completed successfully');
+      hasBackedUpThisSessionRef.current = true;
+    } catch (err: any) {
+      console.error('Archiving sequence failed: ', err);
+      setIsDriveValidated(false);
+      if (mode === 'Local') {
+        setLocalPathsUnavailable(true);
+      } else {
+        setDriveValidationError(err.message || 'Archiving failed: Google Drive connection is inaccessible or blocked.');
+      }
+      setShowLocationsModal(true);
+    }
+  };
 
   useEffect(() => {
     const handler = () => setDurationUpdates(prev => prev + 1);
@@ -106,11 +171,80 @@ export default function App() {
   const [showManualOverride, setShowManualOverride] = useState(false);
   const [driveMP3s, setDriveMP3s] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const fetchInProgressRef = useRef(false);
+  const hasBackedUpThisSessionRef = useRef(false);
   const [showLocationsModal, setShowLocationsModal] = useState(false);
   
   // Prerecord Confirmation states
   const [showPrerecordConfirmStep, setShowPrerecordConfirmStep] = useState(false);
   const [prerecordConfirmDetails, setPrerecordConfirmDetails] = useState<{ startDate: Date; totalMinutes: number } | null>(null);
+
+  // Google Drive folder descriptors and edit fields
+  const [driveFolderDescMap, setDriveFolderDescMap] = useState<Record<string, string>>({
+    '1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED': 'scheduledata',
+    '11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch': 'mp3library',
+    '1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx': 'logs'
+  });
+  const [editingDriveField, setEditingDriveField] = useState<'preferences' | 'mp3s' | 'logs' | null>(null);
+  const [tempPasteLink, setTempPasteLink] = useState('');
+
+  // Sync map descriptors for drive folders when authenticated
+  useEffect(() => {
+    const fetchNames = async () => {
+      const currentToken = getAccessToken() || token;
+      if (!currentToken) return;
+
+      const idsToFetch = [
+        driveFolderPreferences, driveFolderMP3s, driveFolderLogs,
+        '1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED', '11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch', '1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx'
+      ].filter(id => id && (!driveFolderDescMap[id] || !driveFolderDescMap[id].includes('(')));
+
+      if (idsToFetch.length === 0) return;
+
+      const newMap = { ...driveFolderDescMap };
+      let changed = false;
+      for (const id of idsToFetch) {
+        try {
+          const desc = await fetchDriveFolderDescriptor(id, currentToken);
+          newMap[id] = desc;
+          changed = true;
+        } catch (e) {}
+      }
+      if (changed) {
+        setDriveFolderDescMap(newMap);
+      }
+    };
+    fetchNames();
+  }, [token, driveFolderPreferences, driveFolderMP3s, driveFolderLogs]);
+
+  // Sync map descriptors for draft states as well
+  useEffect(() => {
+    const fetchDraftNames = async () => {
+      const currentToken = getAccessToken() || token;
+      if (!currentToken) return;
+
+      const idsToFetch = [
+        draftDriveFolderPreferences, draftDriveFolderMP3s, draftDriveFolderLogs,
+        '1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED', '11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch', '1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx'
+      ].filter(id => id && (!driveFolderDescMap[id] || !driveFolderDescMap[id].includes('(')));
+
+      if (idsToFetch.length === 0) return;
+
+      const newMap = { ...driveFolderDescMap };
+      let changed = false;
+      for (const id of idsToFetch) {
+        try {
+          const desc = await fetchDriveFolderDescriptor(id, currentToken);
+          newMap[id] = desc;
+          changed = true;
+        } catch (e) {}
+      }
+      if (changed) {
+        setDriveFolderDescMap(newMap);
+      }
+    };
+    fetchDraftNames();
+  }, [token, draftDriveFolderPreferences, draftDriveFolderMP3s, draftDriveFolderLogs]);
 
   // Fancy Browser folder modal states
   const [showFancyBrowser, setShowFancyBrowser] = useState(false);
@@ -245,6 +379,11 @@ export default function App() {
   }, []);
 
   const fetchDataForMode = async (settings = getSavedSettings()) => {
+    if (fetchInProgressRef.current) {
+      console.log('fetchDataForMode already inside concurrent cycle. De-duplicating sequence.');
+      return;
+    }
+    fetchInProgressRef.current = true;
     setIsSyncing(true);
     try {
       if (settings.mode === 'Local') {
@@ -349,11 +488,14 @@ export default function App() {
         setIsDriveActive(true);
         setIsDriveValidated(true);
       }
+      // Trigger background archiving invisibly on successful fetch
+      await runArchiving(settings.mode).catch(() => {});
     } catch (error) {
       console.error('Failed to fetch data for mode ' + settings.mode, error);
     } finally {
       setIsSyncing(false);
       setLoading(false);
+      fetchInProgressRef.current = false;
     }
   };
 
@@ -601,59 +743,26 @@ export default function App() {
     }
   };
 
-  const loadFancyBrowserDirectories = async (currentPath: string) => {
+  const handleOpenLocalPath = async (dirPath: string) => {
+    if (!dirPath) return;
     try {
-      const url = `/api/list-directories?path=${encodeURIComponent(currentPath)}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.success) {
-        setFancyBrowserPath(data.currentPath);
-        setFancyBrowserFolders(data.folders || []);
-        setFancyBrowserParent(data.parentPath);
-        setFancyBrowserError(null);
-      } else {
-        setFancyBrowserError(data.error || 'Failed to list folder directory.');
+      const res = await fetch('/api/open-local-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: dirPath })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.warn('Could not open folder natively:', err.error || 'Server error');
       }
-    } catch (err: any) {
-      setFancyBrowserError(err.message || 'Network error listing directories.');
+    } catch (e) {
+      console.warn('Network error opening local folder:', e);
     }
   };
 
-  const handleOpenFancyBrowser = async (targetField: 'schedules' | 'mp3s' | 'logs') => {
-    setFancyBrowserTargetField(targetField);
-    let initialPath = '';
-    if (targetField === 'schedules') initialPath = draftLocalPathSchedules;
-    else if (targetField === 'mp3s') initialPath = draftLocalPathMP3s;
-    else if (targetField === 'logs') initialPath = draftLocalPathLogs;
-
-    setFancyBrowserError(null);
-    setShowFancyBrowser(true);
-    await loadFancyBrowserDirectories(initialPath);
-  };
-
-  const handleFancyBrowserSelectDir = (subDirName: string) => {
-    const separator = fancyBrowserPath.includes('\\') ? '\\' : '/';
-    const cleanPath = fancyBrowserPath.endsWith(separator) 
-      ? fancyBrowserPath + subDirName 
-      : fancyBrowserPath + separator + subDirName;
-    loadFancyBrowserDirectories(cleanPath);
-  };
-
-  const handleFancyBrowserNavigateParent = () => {
-    if (fancyBrowserParent) {
-      loadFancyBrowserDirectories(fancyBrowserParent);
-    }
-  };
-
-  const handleFancyBrowserConfirmSelect = () => {
-    if (fancyBrowserTargetField === 'schedules') {
-      setDraftLocalPathSchedules(fancyBrowserPath);
-    } else if (fancyBrowserTargetField === 'mp3s') {
-      setDraftLocalPathMP3s(fancyBrowserPath);
-    } else if (fancyBrowserTargetField === 'logs') {
-      setDraftLocalPathLogs(fancyBrowserPath);
-    }
-    setShowFancyBrowser(false);
+  const handleOpenDriveFolder = (folderId: string) => {
+    if (!folderId) return;
+    window.open(`https://drive.google.com/drive/folders/${folderId}`, '_blank');
   };
 
   const handleAuthSignIn = async () => {
@@ -672,6 +781,8 @@ export default function App() {
         if (success) {
           setIsDriveValidated(true);
           setDriveValidationError(null);
+          const currentSettings = getSavedSettings();
+          await fetchDataForMode(currentSettings);
         } else {
           setIsDriveValidated(false);
           setDriveValidationError('Connected Google account lacks read/write access to one or more configured shared directories.');
@@ -704,6 +815,8 @@ export default function App() {
       if (success) {
         setIsDriveValidated(true);
         setDriveValidationError(null);
+        const currentSettings = getSavedSettings();
+        await fetchDataForMode(currentSettings);
       } else {
         setIsDriveValidated(false);
         setDriveValidationError('The manually provided token succeeded validation in Firebase, but Google API rejected access. Check if the token is active, expired, or has correct drive permissions.');
@@ -759,6 +872,20 @@ export default function App() {
           driveFolderMP3s: draftDriveFolderMP3s,
           driveFolderPreferences: draftDriveFolderPreferences
         };
+      }
+
+      // Detect mode or log/schedule folder mapping changes to reset backup flag
+      const modeChanged = current.mode !== updatedSettings.mode;
+      const schedulesChanged = updatedSettings.mode === 'Local'
+        ? current.localPathSchedules !== updatedSettings.localPathSchedules
+        : (updatedSettings.mode === 'Drive' ? current.driveFolderPreferences !== updatedSettings.driveFolderPreferences : false);
+      const logsChanged = updatedSettings.mode === 'Local'
+        ? current.localPathLogs !== updatedSettings.localPathLogs
+        : (updatedSettings.mode === 'Drive' ? current.driveFolderLogs !== updatedSettings.driveFolderLogs : false);
+
+      if (modeChanged || schedulesChanged || logsChanged) {
+        console.log('Resetting backup flag due to updated folder mode or mapping');
+        hasBackedUpThisSessionRef.current = false;
       }
 
       // Save locally (localStorage)
@@ -859,6 +986,10 @@ export default function App() {
   const handleSelectMode = async (mode: 'Local' | 'Drive' | 'Demo') => {
     try {
       const current = getSavedSettings();
+      if (current.mode !== mode) {
+        console.log(`Resetting backup flag: Mode changed to ${mode}`);
+        hasBackedUpThisSessionRef.current = false;
+      }
       const updatedSettings = {
         ...current,
         mode
@@ -1521,15 +1652,17 @@ export default function App() {
                             onClick={() => handleBrowseNative('schedules')}
                             className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                           >
-                            Browse
+                            Edit
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenFancyBrowser('schedules')}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
-                          >
-                            Browse Fancy
-                          </button>
+                          {draftLocalPathSchedules && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenLocalPath(draftLocalPathSchedules)}
+                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            >
+                              Open
+                            </button>
+                          )}
                         </div>
                         <p className="text-[8px] text-slate-500 mt-0.5">Directory where Interstitial-er saves the schedules configuration.</p>
                       </div>
@@ -1554,17 +1687,19 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => handleBrowseNative('mp3s')}
-                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-655 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                           >
-                            Browse
+                            Edit
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenFancyBrowser('mp3s')}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
-                          >
-                            Browse Fancy
-                          </button>
+                          {draftLocalPathMP3s && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenLocalPath(draftLocalPathMP3s)}
+                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            >
+                              Open
+                            </button>
+                          )}
                         </div>
                         <p className="text-[8px] text-slate-500 mt-0.5">Absolute path containing your secondary .mp3 playback audio files.</p>
                       </div>
@@ -1589,17 +1724,19 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => handleBrowseNative('logs')}
-                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-655 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                           >
-                            Browse
+                            Edit
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenFancyBrowser('logs')}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
-                          >
-                            Browse Fancy
-                          </button>
+                          {draftLocalPathLogs && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenLocalPath(draftLocalPathLogs)}
+                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            >
+                              Open
+                            </button>
+                          )}
                         </div>
                         <p className="text-[8px] text-slate-500 mt-0.5">Directory location where logs are stored sequentially.</p>
                       </div>
@@ -1613,62 +1750,113 @@ export default function App() {
                   )}
 
                   {locationMode === 'Drive' && (
-                    <div className="space-y-3">
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Google Drive Preferences Folder ID</label>
-                          {!draftDriveFolderPreferences ? (
-                            <span className="text-[8px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">To be set</span>
+                    <div className="space-y-4">
+                      {/* Preferences/Schedules Container */}
+                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">Schedules & Preferences File</span>
+                          {draftDriveFolderPreferences ? (
+                            <span className="text-[8.5px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
                           ) : (
-                            <span className="text-[8px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">Configured</span>
+                            <span className="text-[8.5px] bg-amber-950 text-amber-500 border border-amber-950/45 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">To be set</span>
                           )}
                         </div>
-                        <input 
-                          type="text"
-                          placeholder="Google Drive Directory ID string..."
-                          value={draftDriveFolderPreferences}
-                          onChange={e => setDraftDriveFolderPreferences(extractFolderId(e.target.value))}
-                          className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <p className="text-[8px] text-slate-500 mt-0.5">Folder storing schedules.json schedules inside Drive.</p>
+                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                          {driveFolderDescMap[draftDriveFolderPreferences] || "No directory folder configured yet"}
+                        </p>
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingDriveField('preferences');
+                              setTempPasteLink(draftDriveFolderPreferences);
+                            }}
+                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          {draftDriveFolderPreferences && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDriveFolder(draftDriveFolderPreferences)}
+                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                              Open
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Google Drive MP3 Folder ID</label>
-                          {!draftDriveFolderMP3s ? (
-                            <span className="text-[8px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">To be set</span>
+                      {/* MP3s Folder Container */}
+                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">Audio Playback Files (.mp3)</span>
+                          {draftDriveFolderMP3s ? (
+                            <span className="text-[8.5px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
                           ) : (
-                            <span className="text-[8px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">Configured</span>
+                            <span className="text-[8.5px] bg-amber-950 text-amber-500 border border-amber-950/45 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">To be set</span>
                           )}
                         </div>
-                        <input 
-                          type="text"
-                          placeholder="Google Drive Directory ID string..."
-                          value={draftDriveFolderMP3s}
-                          onChange={e => setDraftDriveFolderMP3s(extractFolderId(e.target.value))}
-                          className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <p className="text-[8px] text-slate-500 mt-0.5">Folder containing .mp3 playback MP3s inside Google Drive.</p>
+                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                          {driveFolderDescMap[draftDriveFolderMP3s] || "No directory folder configured yet"}
+                        </p>
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingDriveField('mp3s');
+                              setTempPasteLink(draftDriveFolderMP3s);
+                            }}
+                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          {draftDriveFolderMP3s && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDriveFolder(draftDriveFolderMP3s)}
+                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                              Open
+                            </button>
+                          )}
+                        </div>
                       </div>
 
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Google Drive Logs Folder ID</label>
-                          {!draftDriveFolderLogs ? (
-                            <span className="text-[8px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">To be set</span>
+                      {/* Logs Folder Container */}
+                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">System Execution Logs</span>
+                          {draftDriveFolderLogs ? (
+                            <span className="text-[8.5px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
                           ) : (
-                            <span className="text-[8px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">Configured</span>
+                            <span className="text-[8.5px] bg-amber-950 text-amber-500 border border-amber-955 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">To be set</span>
                           )}
                         </div>
-                        <input 
-                          type="text"
-                          placeholder="Google Drive Directory ID string..."
-                          value={draftDriveFolderLogs}
-                          onChange={e => setDraftDriveFolderLogs(extractFolderId(e.target.value))}
-                          className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <p className="text-[8px] text-slate-500 mt-0.5">Folder containing log tracking entries inside Google Drive.</p>
+                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                          {driveFolderDescMap[draftDriveFolderLogs] || "No directory folder configured yet"}
+                        </p>
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingDriveField('logs');
+                              setTempPasteLink(draftDriveFolderLogs);
+                            }}
+                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          {draftDriveFolderLogs && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDriveFolder(draftDriveFolderLogs)}
+                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                              Open
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {/* Google Account Connection Status inside modal */}
@@ -1777,24 +1965,69 @@ export default function App() {
                   )}
  
                   {locationMode === 'Demo' && (
-                    <div className="space-y-4 text-slate-300 text-[10px]">
-                      <div className="p-3.5 bg-amber-950/10 border border-amber-900/30 rounded-lg whitespace-pre-line text-[9px] leading-relaxed text-amber-500">
+                    <div className="space-y-4">
+                      <div className="p-3 bg-amber-950/15 border border-amber-900/35 rounded-lg whitespace-pre-line text-[9px] leading-relaxed text-amber-500">
                         Demo workspace mode retrieves configurations automatically from general demonstration Google Drive directories. 
                         Custom file configurations are disabled in Demo workspace mode.
                       </div>
 
-                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2.5">
-                        <div>
-                          <p className="text-[8px] font-black uppercase text-blue-400">demo schedules folder id</p>
-                          <p className="text-[9px] font-mono text-slate-400 select-all truncate">1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED</p>
+                      {/* Demo Schedules Container */}
+                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">Demo Schedules & Preferences File</span>
+                          <span className="text-[8.5px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
                         </div>
-                        <div>
-                          <p className="text-[8px] font-black uppercase text-blue-400">demo mp3s folder id</p>
-                          <p className="text-[9px] font-mono text-slate-400 select-all truncate">11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch</p>
+                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                          {driveFolderDescMap['1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED'] || 'scheduledata'}
+                        </p>
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDriveFolder('1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED')}
+                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                          >
+                            Open
+                          </button>
                         </div>
-                        <div>
-                          <p className="text-[8px] font-black uppercase text-blue-400">demo history logs folder id</p>
-                          <p className="text-[9px] font-mono text-slate-400 select-all truncate">1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx</p>
+                      </div>
+ 
+                      {/* Demo MP3s Folder Container */}
+                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">Demo Audio Playback Files (.mp3)</span>
+                          <span className="text-[8.5px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
+                        </div>
+                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                          {driveFolderDescMap['11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch'] || 'mp3library'}
+                        </p>
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDriveFolder('11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch')}
+                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                          >
+                            Open
+                          </button>
+                        </div>
+                      </div>
+ 
+                      {/* Demo Logs Folder Container */}
+                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">Demo System Execution Logs</span>
+                          <span className="text-[8.5px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
+                        </div>
+                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                          {driveFolderDescMap['1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx'] || 'logs'}
+                        </p>
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDriveFolder('1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx')}
+                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                          >
+                            Open
+                          </button>
                         </div>
                       </div>
 
@@ -1907,120 +2140,89 @@ export default function App() {
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {showFancyBrowser && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+        {editingDriveField && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-slate-100 flex flex-col max-h-[85vh]"
+              className="bg-slate-900 border border-slate-800 rounded-xl max-w-sm w-full overflow-hidden text-slate-100 flex flex-col shadow-2xl p-5 space-y-4"
             >
-              {/* Modal Header */}
-              <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-                <div className="flex items-center gap-2 text-blue-400">
-                  <Folder className="w-5 h-5" />
-                  <h3 className="text-xs font-black uppercase tracking-widest text-white">
-                    Custom Directory Selector
-                  </h3>
-                </div>
-                <button 
+              <div className="flex justify-between items-center pb-2 border-b border-slate-800/60">
+                <h3 className="text-xs font-black uppercase text-blue-400 tracking-wider">
+                  {editingDriveField === 'preferences' 
+                    ? 'Schedules & Preferences folder' 
+                    : editingDriveField === 'mp3s' 
+                      ? 'MP3s Audio folder' 
+                      : 'Logs folder'}
+                </h3>
+                <button
                   type="button"
-                  onClick={() => setShowFancyBrowser(false)}
-                  className="text-slate-500 hover:text-slate-300 font-bold text-xs uppercase cursor-pointer"
+                  onClick={() => {
+                    setEditingDriveField(null);
+                    setTempPasteLink('');
+                  }}
+                  className="text-slate-500 hover:text-slate-350 font-bold text-xs"
                 >
-                  Close
+                  ✕
                 </button>
               </div>
 
-              {/* Modal Search/Path Bar */}
-              <div className="p-4 border-b border-slate-800/60 bg-slate-950/20 space-y-2">
-                <div className="flex flex-col gap-1">
-                  <span className="text-[8px] font-black uppercase tracking-wider text-slate-500">Current Folder Path</span>
-                  <div className="flex gap-1.5">
-                    <input 
-                      type="text"
-                      value={fancyBrowserPath}
-                      onChange={e => {
-                        setFancyBrowserPath(e.target.value);
-                      }}
-                      onBlur={() => loadFancyBrowserDirectories(fancyBrowserPath)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          loadFancyBrowserDirectories(fancyBrowserPath);
-                        }
-                      }}
-                      className="w-full px-2.5 py-1 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none"
-                    />
-                    {fancyBrowserParent && (
-                      <button
-                        type="button"
-                        onClick={handleFancyBrowserNavigateParent}
-                        className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-705 border-slate-700 font-black uppercase text-[9px] rounded transition-all cursor-pointer"
-                        title="Go up one folder level"
-                      >
-                        Up
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Error messages if any */}
-              {fancyBrowserError && (
-                <div className="mx-4 mt-3 p-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded text-[10px] leading-relaxed">
-                  ⚠️ {fancyBrowserError}
-                </div>
-              )}
-
-              {/* Folders list */}
-              <div className="flex-1 overflow-y-auto p-4 min-h-[220px] max-h-[350px]">
-                <div className="text-[8px] font-black uppercase tracking-wider text-slate-500 mb-2">Sub-directories (double click to enter)</div>
-                {fancyBrowserFolders.length === 0 ? (
-                  <div className="text-center py-8 text-[10px] text-slate-500 italic">No subdirectory folders found inside this folder location. Use standard manual path edits above.</div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-1">
-                    {fancyBrowserFolders.map((folderName) => (
-                      <div
-                        key={folderName}
-                        onDoubleClick={() => handleFancyBrowserSelectDir(folderName)}
-                        onClick={() => {
-                          const separator = fancyBrowserPath.includes('\\') ? '\\' : '/';
-                          const cleanPath = fancyBrowserPath.endsWith(separator) 
-                            ? fancyBrowserPath + folderName 
-                            : fancyBrowserPath + separator + folderName;
-                          setFancyBrowserPath(cleanPath);
-                        }}
-                        className="flex items-center gap-2.5 px-3 py-2 bg-slate-950/40 hover:bg-blue-950/30 border border-slate-800/60 hover:border-blue-800/40 rounded-lg text-xs text-slate-300 hover:text-white cursor-pointer select-none transition group"
-                      >
-                        <Folder className="w-3.5 h-3.5 text-blue-400 shrink-0 group-hover:scale-105 transition" />
-                        <span className="font-mono truncate">{folderName}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Selection prompt */}
-              <div className="p-4 bg-slate-950/40 border-t border-slate-800 flex flex-col gap-3">
-                <p className="text-[9px] leading-relaxed text-slate-400">
-                  Select index folder as destination path for <strong className="text-blue-400 uppercase">{fancyBrowserTargetField}</strong> configurations and resources.
+              <div className="space-y-2">
+                <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">
+                  Paste Google Drive Share Link or ID
+                </span>
+                <textarea
+                  rows={3}
+                  value={tempPasteLink}
+                  onChange={(e) => setTempPasteLink(e.target.value)}
+                  placeholder="Paste folders/ browser URL (e.g. https://drive.google.com/drive/folders/...) or raw folder ID here..."
+                  className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-300 outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-700 resize-none"
+                />
+                <p className="text-[7.5px] leading-normal text-slate-500">
+                  Simply paste the raw share URL or standard folder ID. It will extract the ID key automatically.
                 </p>
-                <div className="flex gap-2 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setShowFancyBrowser(false)}
-                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[10px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleFancyBrowserConfirmSelect}
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded shadow cursor-pointer active:translate-y-px"
-                  >
-                    Select Folder
-                  </button>
-                </div>
+              </div>
+
+              <div className="flex gap-2 justify-end pt-1 border-t border-slate-800/40">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingDriveField(null);
+                    setTempPasteLink('');
+                  }}
+                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[10px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const rawId = extractFolderId(tempPasteLink);
+                    if (editingDriveField === 'preferences') {
+                      setDraftDriveFolderPreferences(rawId);
+                    } else if (editingDriveField === 'mp3s') {
+                      setDraftDriveFolderMP3s(rawId);
+                    } else if (editingDriveField === 'logs') {
+                      setDraftDriveFolderLogs(rawId);
+                    }
+                    setEditingDriveField(null);
+                    setTempPasteLink('');
+                    // Fetch descriptor block immediately
+                    if (rawId && user && token) {
+                      try {
+                        const descriptor = await fetchDriveFolderDescriptor(rawId, token);
+                        setDriveFolderDescMap(prev => ({
+                          ...prev,
+                          [rawId]: descriptor
+                        }));
+                      } catch (err) {}
+                    }
+                  }}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded shadow cursor-pointer active:translate-y-px"
+                >
+                  Apply
+                </button>
               </div>
             </motion.div>
           </div>

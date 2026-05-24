@@ -2,6 +2,7 @@ const { app, BrowserWindow, screen, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
+const http = require('http');
 
 let mainWindow;
 let appMode = 'Admin';
@@ -99,10 +100,27 @@ function createWindow() {
 
   mainWindow = new BrowserWindow(windowOptions);
 
-  // Small delay to ensure server is bounded to the resolved port
-  setTimeout(() => {
-    mainWindow.loadURL(`http://localhost:${serverPort}`);
-  }, 2000);
+  // Active polling inter-process status loop to load as soon as port is listening
+  function loadAppWhenReady(port, url, win, attempts = 0) {
+    if (attempts > 100) { // 100 * 100ms = 10s max timeout
+      console.log('Timeout waiting for backend server. Loading URL anyway.');
+      win.loadURL(url);
+      return;
+    }
+    const req = http.get(`http://127.0.0.1:${port}/api/settings`, (res) => {
+      if (res.statusCode === 200) {
+        console.log(`Backend server is ready on port ${port}. Loading URL.`);
+        win.loadURL(url);
+      } else {
+        setTimeout(() => loadAppWhenReady(port, url, win, attempts + 1), 100);
+      }
+    });
+    req.on('error', () => {
+      setTimeout(() => loadAppWhenReady(port, url, win, attempts + 1), 100);
+    });
+  }
+
+  loadAppWhenReady(serverPort, `http://127.0.0.1:${serverPort}`, mainWindow);
 
   mainWindow.on('closed', function () {
     mainWindow = null;

@@ -359,12 +359,15 @@ export const loadSchedulesFromDrive = async (): Promise<Schedule[]> => {
     if (!fileId) {
       // Create empty schedules.json if not found
       fileId = await createFileInFolder('schedules.json', DRIVE_FOLDERS.preferences);
-      await uploadFileContent(fileId, JSON.stringify([]));
+      await uploadFileContent(fileId, JSON.stringify({ ScheduleBackupCounter: 0, data: [] }));
       return [];
     }
     const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
     const jsonStr = await res.text();
     const parsed = JSON.parse(jsonStr || '[]');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Array.isArray(parsed.data) ? parsed.data : [];
+    }
     return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
     console.error('Error loading schedules from Google Drive:', err);
@@ -381,7 +384,16 @@ export const saveSchedulesToDrive = async (schedules: Schedule[]): Promise<void>
     if (!fileId) {
       fileId = await createFileInFolder('schedules.json', DRIVE_FOLDERS.preferences);
     }
-    await uploadFileContent(fileId, JSON.stringify(schedules, null, 2));
+    let counter = 0;
+    try {
+      const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
+      const jsonStr = await res.text();
+      const parsed = JSON.parse(jsonStr || '{}');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        counter = parsed.ScheduleBackupCounter || 0;
+      }
+    } catch (e) {}
+    await uploadFileContent(fileId, JSON.stringify({ ScheduleBackupCounter: counter, data: schedules }, null, 2));
   } catch (err) {
     console.error('Error saving schedules to Google Drive:', err);
     throw err;
@@ -396,12 +408,15 @@ export const loadLogsFromDrive = async (): Promise<LogEntry[]> => {
     let fileId = await findFileInFolder('logs.json', DRIVE_FOLDERS.logs);
     if (!fileId) {
       fileId = await createFileInFolder('logs.json', DRIVE_FOLDERS.logs);
-      await uploadFileContent(fileId, JSON.stringify([]));
+      await uploadFileContent(fileId, JSON.stringify({ LogsBackupCounter: 0, data: [] }));
       return [];
     }
     const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
     const jsonStr = await res.text();
     const parsed = JSON.parse(jsonStr || '[]');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Array.isArray(parsed.data) ? parsed.data : [];
+    }
     return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
     console.error('Error loading logs from Google Drive:', err);
@@ -418,7 +433,16 @@ export const saveLogsToDrive = async (logs: LogEntry[]): Promise<void> => {
     if (!fileId) {
       fileId = await createFileInFolder('logs.json', DRIVE_FOLDERS.logs);
     }
-    await uploadFileContent(fileId, JSON.stringify(logs, null, 2));
+    let counter = 0;
+    try {
+      const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
+      const jsonStr = await res.text();
+      const parsed = JSON.parse(jsonStr || '{}');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        counter = parsed.LogsBackupCounter || 0;
+      }
+    } catch (e) {}
+    await uploadFileContent(fileId, JSON.stringify({ LogsBackupCounter: counter, data: logs }, null, 2));
   } catch (err) {
     console.error('Error saving logs to Google Drive:', err);
     throw err;
@@ -432,25 +456,151 @@ export const appendLogToDrive = async (entry: LogEntry): Promise<LogEntry[]> => 
   try {
     let fileId = await findFileInFolder('logs.json', DRIVE_FOLDERS.logs);
     let logs: LogEntry[] = [];
+    let counter = 0;
     if (!fileId) {
       fileId = await createFileInFolder('logs.json', DRIVE_FOLDERS.logs);
     } else {
       try {
         const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
         const text = await res.text();
-        logs = JSON.parse(text || '[]');
+        const parsed = JSON.parse(text || '[]');
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          logs = Array.isArray(parsed.data) ? parsed.data : [];
+          counter = parsed.LogsBackupCounter || 0;
+        } else {
+          logs = Array.isArray(parsed) ? parsed : [];
+        }
       } catch (e) {
         console.warn('Could not load existing logs to append, rewriting:', e);
       }
     }
     logs.push(entry);
-    await uploadFileContent(fileId, JSON.stringify(logs, null, 2));
+    await uploadFileContent(fileId, JSON.stringify({ LogsBackupCounter: counter, data: logs }, null, 2));
     return logs;
   } catch (err) {
     console.error('Error appending log to Google Drive:', err);
     throw err;
   }
 };
+
+/**
+ * Resolves or creates a 'backups' folder inside a parent folder on Google Drive
+ */
+async function getOrCreateBackupsFolder(parentFolderId: string): Promise<string> {
+  let backupsFolderId = await findFileInFolder('backups', parentFolderId);
+  if (!backupsFolderId) {
+    backupsFolderId = await createFileInFolder('backups', parentFolderId, 'application/vnd.google-apps.folder');
+  }
+  return backupsFolderId;
+}
+
+/**
+ * Trigger archiving backup copies in Google Drive
+ */
+export const triggerDriveBackup = async (): Promise<void> => {
+  // 1. Backup schedules
+  try {
+    const prefsFolder = DRIVE_FOLDERS.preferences;
+    if (prefsFolder) {
+      let fileId = await findFileInFolder('schedules.json', prefsFolder);
+      if (!fileId) {
+        fileId = await createFileInFolder('schedules.json', prefsFolder);
+        await uploadFileContent(fileId, JSON.stringify({ ScheduleBackupCounter: 0, data: [] }));
+      }
+      if (fileId) {
+        let parsed: any;
+        try {
+          const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
+          const jsonStr = await res.text();
+          parsed = JSON.parse(jsonStr || '[]');
+        } catch {
+          parsed = [];
+        }
+
+        let arrayData = Array.isArray(parsed) ? parsed : (parsed.data || []);
+        let currentCounter = Array.isArray(parsed) ? 1 : ((parsed.ScheduleBackupCounter || 0) + 1);
+
+        const updatedObj = {
+          ScheduleBackupCounter: currentCounter,
+          data: arrayData
+        };
+
+        const updatedStr = JSON.stringify(updatedObj, null, 2);
+        await uploadFileContent(fileId, updatedStr);
+
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const formattedDate = `${yyyy}_${mm}_${dd}`;
+        const padCounter = String(currentCounter).padStart(8, '0');
+        const backupName = `schedules_Backup_${formattedDate}_${padCounter}.json`;
+
+        const backupsFolderId = await getOrCreateBackupsFolder(prefsFolder);
+        let backupFileId = await findFileInFolder(backupName, backupsFolderId);
+        if (!backupFileId) {
+          backupFileId = await createFileInFolder(backupName, backupsFolderId);
+        }
+        await uploadFileContent(backupFileId, updatedStr);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to backup schedules in Drive:', err);
+    throw err;
+  }
+
+  // 2. Backup logs
+  try {
+    const logsFolder = DRIVE_FOLDERS.logs;
+    if (logsFolder) {
+      let fileId = await findFileInFolder('logs.json', logsFolder);
+      if (!fileId) {
+        fileId = await createFileInFolder('logs.json', logsFolder);
+        await uploadFileContent(fileId, JSON.stringify({ LogsBackupCounter: 0, data: [] }));
+      }
+      if (fileId) {
+        let parsed: any;
+        try {
+          const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
+          const jsonStr = await res.text();
+          parsed = JSON.parse(jsonStr || '[]');
+        } catch {
+          parsed = [];
+        }
+
+        let arrayData = Array.isArray(parsed) ? parsed : (parsed.data || []);
+        let currentCounter = Array.isArray(parsed) ? 1 : ((parsed.LogsBackupCounter || 0) + 1);
+
+        const updatedObj = {
+          LogsBackupCounter: currentCounter,
+          data: arrayData
+        };
+
+        const updatedStr = JSON.stringify(updatedObj, null, 2);
+        await uploadFileContent(fileId, updatedStr);
+
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const formattedDate = `${yyyy}_${mm}_${dd}`;
+        const padCounter = String(currentCounter).padStart(8, '0');
+        const backupName = `logs_Backup_${formattedDate}_${padCounter}.json`;
+
+        const backupsFolderId = await getOrCreateBackupsFolder(logsFolder);
+        let backupFileId = await findFileInFolder(backupName, backupsFolderId);
+        if (!backupFileId) {
+          backupFileId = await createFileInFolder(backupName, backupsFolderId);
+        }
+        await uploadFileContent(backupFileId, updatedStr);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to backup logs in Drive:', err);
+    throw err;
+  }
+};
+
 
 // Memory cache + LocalStorage backup for persistent filenames
 export const driveFileNameCache = {

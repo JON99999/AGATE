@@ -24,7 +24,15 @@ I have configured a "GitHub Action" that builds the app for you whenever you cre
 1. Once the Action finishes (green checkmark), go back to your **Releases** page.
 2. You will now see "Assets" listed at the bottom of your version `v0.1.0`.
 3. Download the `Interstitial-er-0.1.0.exe` (Windows) or `.dmg` (Mac).
-4. These are "Portable" versions—you can move them anywhere on your computer and double-click to run!
+4. These are "Portable" and ad-hoc signed versions. Since they are built via GitHub Actions and are not signed with a paid Apple Developer certificate, modern macOS Gatekeeper may block launch or claim the app "is damaged".
+5. To bypass macOS Gatekeeper:
+   - Move the installed app to your **Applications** folder.
+   - Right-click (or Control-click) the application icon and select **Open** from the context menu (do not just double-click). Click **Open** again on the pop-up warning.
+   - Alternatively, open a terminal window and run:
+     ```bash
+     xattr -cr /Applications/Interstitial-er.app
+     ```
+     This cleans the quarantine flag and launches the app successfully.
 
 ---
 

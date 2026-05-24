@@ -10,6 +10,7 @@ const LOG_DIR = path.join(BASE_DIR, 'Scheduler Logs');
 const SCHEDULE_FILE_DEFAULT = path.join(DATA_DIR, 'schedules.json');
 const LOG_FILE_DEFAULT = path.join(LOG_DIR, 'logs.json');
 const LOG_BACKUP_DEFAULT = path.join(LOG_DIR, 'logs_backup.json');
+const SCHEDULE_BACKUP_DEFAULT = path.join(DATA_DIR, 'schedules_backup.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 
 // Ensure base directories exist
@@ -48,10 +49,7 @@ try {
 
 // Dynamic Path Resolutions
 function getScheduleFilePath() {
-  if (currentSettings.mode === 'Local') {
-    if (!currentSettings.localPathSchedules) {
-      return '';
-    }
+  if (currentSettings.mode === 'Local' && currentSettings.localPathSchedules) {
     if (!fs.existsSync(currentSettings.localPathSchedules)) {
       try {
         fs.mkdirSync(currentSettings.localPathSchedules, { recursive: true });
@@ -63,10 +61,7 @@ function getScheduleFilePath() {
 }
 
 function getLogFilePath() {
-  if (currentSettings.mode === 'Local') {
-    if (!currentSettings.localPathLogs) {
-      return '';
-    }
+  if (currentSettings.mode === 'Local' && currentSettings.localPathLogs) {
     if (!fs.existsSync(currentSettings.localPathLogs)) {
       try {
         fs.mkdirSync(currentSettings.localPathLogs, { recursive: true });
@@ -78,13 +73,17 @@ function getLogFilePath() {
 }
 
 function getLogBackupPath() {
-  if (currentSettings.mode === 'Local') {
-    if (!currentSettings.localPathLogs) {
-      return '';
-    }
-    return path.join(currentSettings.localPathLogs, 'logs_backup.json');
+  if (currentSettings.mode === 'Local' && currentSettings.localPathLogs) {
+    return path.join(currentSettings.localPathLogs, 'backups', 'logs_backup.json');
   }
-  return LOG_BACKUP_DEFAULT;
+  return path.join(LOG_DIR, 'backups', 'logs_backup.json');
+}
+
+function getScheduleBackupPath() {
+  if (currentSettings.mode === 'Local' && currentSettings.localPathSchedules) {
+    return path.join(currentSettings.localPathSchedules, 'backups', 'schedules_backup.json');
+  }
+  return path.join(DATA_DIR, 'backups', 'schedules_backup.json');
 }
 
 // Try detecting Electron context-isolation open dialog options dynamically
@@ -282,7 +281,11 @@ async function startServer() {
         return res.json([]);
       }
       const data = fs.readFileSync(filePath, 'utf-8');
-      res.json(JSON.parse(data || '[]'));
+      const parsed = JSON.parse(data || '[]');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return res.json(Array.isArray(parsed.data) ? parsed.data : []);
+      }
+      res.json(Array.isArray(parsed) ? parsed : []);
     } catch (e) {
       console.error('Failed to read schedules:', e);
       res.status(300).json([]);
@@ -298,7 +301,34 @@ async function startServer() {
       }
       
       const schedules: Schedule[] = req.body;
-      fs.writeFileSync(filePath, JSON.stringify(schedules, null, 2));
+      let counter = 0;
+      if (fs.existsSync(filePath)) {
+        const data = fs.readFileSync(filePath, 'utf-8');
+        try {
+          const parsed = JSON.parse(data || '{}');
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            counter = parsed.ScheduleBackupCounter || 0;
+          }
+        } catch (pe) {}
+      }
+      counter += 1; // Increment on every backup / save operation
+      const updatedObj = { ScheduleBackupCounter: counter, data: schedules };
+      fs.writeFileSync(filePath, JSON.stringify(updatedObj, null, 2));
+
+      // Simple backup mechanism for schedules to match conventions of logs
+      try {
+        const backupPath = getScheduleBackupPath();
+        if (backupPath) {
+          const backupParent = path.dirname(backupPath);
+          if (!fs.existsSync(backupParent)) {
+            fs.mkdirSync(backupParent, { recursive: true });
+          }
+          fs.writeFileSync(backupPath, JSON.stringify(updatedObj, null, 2));
+        }
+      } catch (e) {
+        console.error('Schedules backup copy failed:', e);
+      }
+
       res.json({ success: true });
     } catch (e: any) {
       console.error('Failed to save schedules:', e);
@@ -314,7 +344,11 @@ async function startServer() {
         return res.json([]);
       }
       const data = fs.readFileSync(filePath, 'utf-8');
-      res.json(JSON.parse(data || '[]'));
+      const parsed = JSON.parse(data || '[]');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return res.json(Array.isArray(parsed.data) ? parsed.data : []);
+      }
+      res.json(Array.isArray(parsed) ? parsed : []);
     } catch (e) {
       console.error('Failed to read logs from endpoint:', e);
       res.status(500).json([]);
@@ -331,18 +365,26 @@ async function startServer() {
       }
 
       let logs = [];
+      let counter = 0;
       if (fs.existsSync(filePath)) {
         const data = fs.readFileSync(filePath, 'utf-8');
         try {
-          logs = JSON.parse(data || '[]');
+          const parsed = JSON.parse(data || '[]');
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            logs = Array.isArray(parsed.data) ? parsed.data : [];
+            counter = parsed.LogsBackupCounter || 0;
+          } else {
+            logs = Array.isArray(parsed) ? parsed : [];
+          }
         } catch (pe) {
           logs = [];
         }
       }
       logs.push(entry);
       
-      // Save main log
-      fs.writeFileSync(filePath, JSON.stringify(logs, null, 2));
+      counter += 1; // Increment on every backup / save operation
+      // Save main log as object structure
+      fs.writeFileSync(filePath, JSON.stringify({ LogsBackupCounter: counter, data: logs }, null, 2));
       
       // Simple backup mechanism
       try {
@@ -351,7 +393,7 @@ async function startServer() {
         if (!fs.existsSync(backupParent)) {
           fs.mkdirSync(backupParent, { recursive: true });
         }
-        fs.writeFileSync(backupPath, JSON.stringify(logs, null, 2));
+        fs.writeFileSync(backupPath, JSON.stringify({ LogsBackupCounter: counter, data: logs }, null, 2));
       } catch (e) {
         console.error('Backup failed:', e);
       }
@@ -360,6 +402,167 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to save log to endpoint:', e);
       res.status(500).json({ error: 'Failed to save log: ' + e.message });
+    }
+  });
+
+  // API - Open local folder in OS neutral fashion
+  app.post('/api/open-local-folder', (req, res) => {
+    try {
+      const { path: folderPath } = req.body;
+      if (!folderPath) {
+        return res.status(400).json({ error: 'Folder path is required' });
+      }
+      if (!fs.existsSync(folderPath)) {
+        return res.status(404).json({ error: 'Folder directory does not exist' });
+      }
+
+      const { exec } = require('child_process');
+      const startCmd = process.platform === 'win32' 
+        ? `start ""` 
+        : process.platform === 'darwin' 
+          ? 'open' 
+          : 'xdg-open';
+      
+      exec(`${startCmd} "${folderPath}"`, (err: any) => {
+        if (err) {
+          console.error('Failed to open local directory:', err);
+          return res.status(500).json({ error: 'Failed to open directory natively: ' + err.message });
+        }
+        res.json({ success: true });
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Cannot open directory' });
+    }
+  });
+
+  // API - Trigger local schedules and logs archiving/backup
+  app.post('/api/trigger-backup', (req, res) => {
+    try {
+      const schedulePath = getScheduleFilePath();
+      const logPath = getLogFilePath();
+
+      // Backup schedules
+      if (!fs.existsSync(schedulePath)) {
+        const scheduleDir = path.dirname(schedulePath);
+        if (scheduleDir && !fs.existsSync(scheduleDir)) {
+          fs.mkdirSync(scheduleDir, { recursive: true });
+        }
+        fs.writeFileSync(schedulePath, JSON.stringify({ ScheduleBackupCounter: 0, data: [] }, null, 2));
+      }
+
+      if (fs.existsSync(schedulePath)) {
+        const data = fs.readFileSync(schedulePath, 'utf-8');
+        let parsed;
+        try {
+          parsed = JSON.parse(data || '[]');
+        } catch {
+          parsed = [];
+        }
+
+        let arrayData = Array.isArray(parsed) ? parsed : (parsed.data || []);
+        let currentCounter = Array.isArray(parsed) ? 1 : ((parsed.ScheduleBackupCounter || 0) + 1);
+
+        const updatedObj = {
+          ScheduleBackupCounter: currentCounter,
+          data: arrayData
+        };
+
+        const updatedStr = JSON.stringify(updatedObj, null, 2);
+        fs.writeFileSync(schedulePath, updatedStr);
+
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const formattedDate = `${yyyy}_${mm}_${dd}`;
+        const padCounter = String(currentCounter).padStart(8, '0');
+        const backupFileName = `schedules_Backup_${formattedDate}_${padCounter}.json`;
+
+        const scheduleDir = path.dirname(schedulePath);
+        const scheduleBackupDir = path.join(scheduleDir, 'backups');
+        if (!fs.existsSync(scheduleBackupDir)) {
+          fs.mkdirSync(scheduleBackupDir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(scheduleBackupDir, backupFileName), updatedStr);
+
+        // Also save to schedules_backup.json
+        try {
+          const backupPath = getScheduleBackupPath();
+          if (backupPath) {
+            const backupParent = path.dirname(backupPath);
+            if (!fs.existsSync(backupParent)) {
+              fs.mkdirSync(backupParent, { recursive: true });
+            }
+            fs.writeFileSync(backupPath, updatedStr);
+          }
+        } catch (e) {
+          console.error('Schedules trigger backup failed to copy:', e);
+        }
+      }
+
+      // Backup logs
+      if (!fs.existsSync(logPath)) {
+        const logDir = path.dirname(logPath);
+        if (logDir && !fs.existsSync(logDir)) {
+          fs.mkdirSync(logDir, { recursive: true });
+        }
+        fs.writeFileSync(logPath, JSON.stringify({ LogsBackupCounter: 0, data: [] }, null, 2));
+      }
+
+      if (fs.existsSync(logPath)) {
+        const data = fs.readFileSync(logPath, 'utf-8');
+        let parsed;
+        try {
+          parsed = JSON.parse(data || '[]');
+        } catch (pe) {
+          parsed = [];
+        }
+
+        let arrayData = Array.isArray(parsed) ? parsed : (parsed.data || []);
+        let currentCounter = Array.isArray(parsed) ? 1 : ((parsed.LogsBackupCounter || 0) + 1);
+
+        const updatedObj = {
+          LogsBackupCounter: currentCounter,
+          data: arrayData
+        };
+
+        const updatedStr = JSON.stringify(updatedObj, null, 2);
+        fs.writeFileSync(logPath, updatedStr);
+
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const formattedDate = `${yyyy}_${mm}_${dd}`;
+        const padCounter = String(currentCounter).padStart(8, '0');
+        const backupFileName = `logs_Backup_${formattedDate}_${padCounter}.json`;
+
+        const logDir = path.dirname(logPath);
+        const logBackupDir = path.join(logDir, 'backups');
+        if (!fs.existsSync(logBackupDir)) {
+          fs.mkdirSync(logBackupDir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(logBackupDir, backupFileName), updatedStr);
+
+        // Also save to logs_backup.json
+        try {
+          const backupPath = getLogBackupPath();
+          if (backupPath) {
+            const backupParent = path.dirname(backupPath);
+            if (!fs.existsSync(backupParent)) {
+              fs.mkdirSync(backupParent, { recursive: true });
+            }
+            fs.writeFileSync(backupPath, updatedStr);
+          }
+        } catch (e) {
+          console.error('Logs trigger backup failed to copy:', e);
+        }
+      }
+
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('Local backup trigger failed:', e);
+      res.status(500).json({ error: 'Archiving failed: ' + e.message });
     }
   });
 

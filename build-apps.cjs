@@ -66,6 +66,21 @@ try {
     pkg.build.appId = `com.minutesync.scheduler.${mode.toLowerCase()}`;
     pkg.build.companyName = "Interstitial-er";
 
+    // Ensure build directory exists and has our physical composite icon copied as build/icon.png
+    const buildIconDir = path.join(__dirname, 'build');
+    if (!fs.existsSync(buildIconDir)) {
+      fs.mkdirSync(buildIconDir, { recursive: true });
+    }
+    const chosenIconSource = path.join(__dirname, 'src', 'assets', 'images', 'interstitialer_icon_1779637727966.png');
+    if (fs.existsSync(chosenIconSource)) {
+      try {
+        fs.copyFileSync(chosenIconSource, path.join(buildIconDir, 'icon.png'));
+        console.log('Successfully copied physical composite logo to build/icon.png for installer/desktop app launcher representation.');
+      } catch (err) {
+        console.error('Failed to copy composite logo to build/icon.png:', err);
+      }
+    }
+
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
     console.log(`Packaging Electron app for mode: ${mode}...`);
