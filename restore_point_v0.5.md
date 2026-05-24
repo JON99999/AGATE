@@ -19,6 +19,7 @@ The application is structured as a cross-platform desktop application built with
 - **Backend Service (`server.ts`)**: Serves API endpoints, receives dynamic PORT mappings via standard container environment settings (`process.env.PORT`), and persists app states safely to local platforms' writable user pathways (`userData`). It is built using the bundled single-file `dist/server.cjs` structure for ES Module resilience.
 - **Frontend App (`src/App.tsx`)**: The visual interface developed in React & Tailwind CSS. Integrates a smart sub-session backup caching rule limiting backups to once-per-folder-configuration with automatic resets upon location toggles.
 - **Backups & Path Integrity**: Local backups are stored under relative `/backups` subfolders within both folders (`Schedules` and `Logs`), auto-generating parents and children cleanly.
+- **Launcher Icon Verification**: The high-resolution 1024x1024 visual icon is preseeded directly in `build/icon.png`. Additionally, the build pipeline dynamically checks for `src/assets/images/user-icon.png`. If it exists and measures exactly `1024x1024` (validated via a zero-dependency Buffer offset parser), the user-provided icon is used. Otherwise, the build process safely falls back to the preseeded `interstitialer_icon_1779637727966.png` asset. Information is also preserved via `src/assets/images/place_1024x1024_user-icon_png_in_this_folder.md`.
 
 ---
 

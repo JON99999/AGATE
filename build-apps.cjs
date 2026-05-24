@@ -28,6 +28,24 @@ function restorePkg() {
   }
 }
 
+function getPngDimensions(filePath) {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buffer = Buffer.alloc(24);
+    fs.readSync(fd, buffer, 0, 24, 0);
+    fs.closeSync(fd);
+
+    if (buffer[0] !== 0x89 || buffer[1] !== 0x50 || buffer[2] !== 0x4e || buffer[3] !== 0x47) {
+      return null;
+    }
+    const width = buffer.readUInt32BE(16);
+    const height = buffer.readUInt32BE(20);
+    return { width, height };
+  } catch (err) {
+    return null;
+  }
+}
+
 try {
   const cleanBuild = () => {
     console.log('Cleaning up old build outputs...');
@@ -64,20 +82,41 @@ try {
     if (!pkg.build) pkg.build = {};
     pkg.build.productName = `Interstitial-er ${mode}`;
     pkg.build.appId = `com.minutesync.scheduler.${mode.toLowerCase()}`;
-    pkg.build.companyName = "Interstitial-er";
+    if (!pkg.build.win) pkg.build.win = {};
+    pkg.build.win.companyName = "Interstitial-er";
 
     // Ensure build directory exists and has our physical composite icon copied as build/icon.png
     const buildIconDir = path.join(__dirname, 'build');
     if (!fs.existsSync(buildIconDir)) {
       fs.mkdirSync(buildIconDir, { recursive: true });
     }
-    const chosenIconSource = path.join(__dirname, 'src', 'assets', 'images', 'interstitialer_icon_1779637727966.png');
+
+    const userIconPath = path.join(__dirname, 'src', 'assets', 'images', 'user-icon.png');
+    const placeholderPath = path.join(__dirname, 'src', 'assets', 'images', 'interstitialer_icon_1779637727966.png');
+    let chosenIconSource = placeholderPath;
+
+    if (fs.existsSync(userIconPath)) {
+      const dims = getPngDimensions(userIconPath);
+      if (dims && dims.width === 1024 && dims.height === 1024) {
+        console.log(`Custom user-icon.png with correct 1024x1024 dimensions detected. Using as active build launcher icon for mode: ${mode}`);
+        chosenIconSource = userIconPath;
+      } else {
+        if (dims) {
+          console.log(`Custom user-icon.png has incorrect dimensions (${dims.width}x${dims.height}). Falling back to preseeded placeholder.`);
+        } else {
+          console.log('Custom user-icon.png is not a valid PNG file. Falling back to preseeded placeholder.');
+        }
+      }
+    } else {
+      console.log(`No custom user-icon.png present. Using preseeded placeholder for mode: ${mode}`);
+    }
+
     if (fs.existsSync(chosenIconSource)) {
       try {
         fs.copyFileSync(chosenIconSource, path.join(buildIconDir, 'icon.png'));
-        console.log('Successfully copied physical composite logo to build/icon.png for installer/desktop app launcher representation.');
+        console.log(`Successfully copied ${path.basename(chosenIconSource)} to build/icon.png for installer/desktop app launcher representation.`);
       } catch (err) {
-        console.error('Failed to copy composite logo to build/icon.png:', err);
+        console.error('Failed to copy active logo to build/icon.png:', err);
       }
     }
 

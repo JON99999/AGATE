@@ -23,7 +23,6 @@
   "build": {
     "appId": "com.minutesync.scheduler",
     "productName": "Interstitial-er",
-    "companyName": "Interstitial-er",
     "publish": [
       {
         "provider": "github"
@@ -38,6 +37,7 @@
       "output": "release"
     },
     "win": {
+      "companyName": "Interstitial-er",
       "target": [
         "nsis",
         "portable"
@@ -69,6 +69,7 @@
     "electron-builder": "^26.8.1",
     "esbuild": "^0.25.0",
     "firebase": "^12.13.0",
+    "jimp": "^1.6.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",
