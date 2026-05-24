@@ -64,6 +64,7 @@ try {
     if (!pkg.build) pkg.build = {};
     pkg.build.productName = `Interstitial-er ${mode}`;
     pkg.build.appId = `com.minutesync.scheduler.${mode.toLowerCase()}`;
+    pkg.build.companyName = "Interstitial-er";
 
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 

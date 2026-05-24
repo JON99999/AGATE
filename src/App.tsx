@@ -17,6 +17,7 @@ import {
   googleSignIn, 
   handleLogout, 
   getAccessToken, 
+  setOverrideAccessToken,
   loadSchedulesFromDrive, 
   saveSchedulesToDrive, 
   loadLogsFromDrive, 
@@ -31,9 +32,9 @@ import {
   saveSettings,
   LocationSettings,
   DEFAULT_SETTINGS,
-  driveFileNameCache
+  driveFileNameCache,
+  availableFilesCache
 } from './lib/driveService';
-
 
 export default function App() {
   const isPlayerMode = (import.meta as any).env?.VITE_APP_MODE === 'Player';
@@ -45,6 +46,10 @@ export default function App() {
     window.addEventListener('mp3-duration-cached', handler);
     return () => window.removeEventListener('mp3-duration-cached', handler);
   }, []);
+
+  useEffect(() => {
+    document.title = isPlayerMode ? 'Interstitial-er Player' : 'Interstitial-er Admin';
+  }, [isPlayerMode]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -97,6 +102,8 @@ export default function App() {
   const [isDriveValidated, setIsDriveValidated] = useState(false);
   const [isValidatingDrive, setIsValidatingDrive] = useState(false);
   const [driveValidationError, setDriveValidationError] = useState<string | null>(null);
+  const [manualToken, setManualToken] = useState('');
+  const [showManualOverride, setShowManualOverride] = useState(false);
   const [driveMP3s, setDriveMP3s] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [showLocationsModal, setShowLocationsModal] = useState(false);
@@ -249,9 +256,15 @@ export default function App() {
         setSchedules(localSchedules || []);
         setLogs(localLogs || []);
         
+        availableFilesCache.clear();
         const mappedMP3s = (localMP3s || []).map((file: any) => {
           if (file.path && file.name) {
             driveFileNameCache.set(file.path, file.name);
+            availableFilesCache.set(file.name, {
+              path: file.path,
+              size: file.size,
+              duration: file.duration || '0:15'
+            });
           }
           return {
             name: file.name,
@@ -318,6 +331,18 @@ export default function App() {
 
         setSchedules(driveSchedules || []);
         setLogs(driveLogsStr || []);
+        
+        availableFilesCache.clear();
+        (mp3Files || []).forEach((file: any) => {
+          if (file.path && file.name) {
+            availableFilesCache.set(file.name, {
+              path: file.path,
+              size: file.size,
+              duration: file.duration || '0:15'
+            });
+          }
+        });
+
         setDriveMP3s(mp3Files || []);
         setSyncTime(new Date());
         setScrollTrigger(prev => prev + 1);
@@ -655,6 +680,37 @@ export default function App() {
     } catch (e: any) {
       console.error('Sign-in failed:', e);
       setDriveValidationError(e.message || 'Verification of Google login failed.');
+    } finally {
+      setIsValidatingDrive(false);
+      setLoading(false);
+    }
+  };
+
+  const handleManualTokenOverride = async (inputToken: string) => {
+    if (!inputToken.trim()) return;
+    try {
+      setLoading(true);
+      setDriveValidationError(null);
+      setIsValidatingDrive(true);
+      
+      // Inject token
+      setOverrideAccessToken(inputToken.trim());
+      setToken(inputToken.trim());
+      setUser({ email: 'manual-developer@interstitialer.local', displayName: 'Developer Override Session' } as any);
+      setIsDriveActive(true);
+      
+      // Verify Google Drive directories using the token
+      const success = await validateGoogleDriveAccess();
+      if (success) {
+        setIsDriveValidated(true);
+        setDriveValidationError(null);
+      } else {
+        setIsDriveValidated(false);
+        setDriveValidationError('The manually provided token succeeded validation in Firebase, but Google API rejected access. Check if the token is active, expired, or has correct drive permissions.');
+      }
+    } catch (e: any) {
+      console.error('Manual drive token injection failed:', e);
+      setDriveValidationError(e.message || 'Verification of manual token override failed.');
     } finally {
       setIsValidatingDrive(false);
       setLoading(false);
@@ -1643,16 +1699,80 @@ export default function App() {
                               </button>
                             </div>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={handleAuthSignIn}
-                              className="w-full py-1 text-[8px] font-black bg-blue-600 hover:bg-blue-700 text-white rounded transition uppercase"
-                            >
-                              Sign In with Google
-                            </button>
+                            <div className="space-y-2">
+                              <button
+                                type="button"
+                                onClick={handleAuthSignIn}
+                                className="w-full py-1 text-[8px] font-black bg-blue-600 hover:bg-blue-700 text-white rounded transition uppercase"
+                              >
+                                Sign In with Google
+                              </button>
+
+                              <div className="pt-1.5 border-t border-slate-900/40">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowManualOverride(!showManualOverride)}
+                                  className="text-[7.5px] text-slate-400 hover:text-slate-200 underline uppercase tracking-tight block ml-auto transition"
+                                >
+                                  {showManualOverride ? "Hide Manual Bypass" : "Manual OAuth Token Bypass"}
+                                </button>
+                                
+                                {showManualOverride && (
+                                  <div className="mt-2 space-y-1.5 p-2 bg-slate-950/60 border border-slate-800 rounded">
+                                    <span className="text-[7.5px] font-black uppercase text-slate-400 block">Inject OAuth Access Token</span>
+                                    <div className="flex gap-1.5">
+                                      <input
+                                        type="password"
+                                        placeholder="Paste access token (Bearer)..."
+                                        value={manualToken}
+                                        onChange={(e) => setManualToken(e.target.value)}
+                                        className="flex-1 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[9px] font-mono text-slate-350 outline-none"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => handleManualTokenOverride(manualToken)}
+                                        className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-750 text-[8px] font-bold uppercase rounded transition"
+                                      >
+                                        Apply
+                                      </button>
+                                    </div>
+                                    <p className="text-[7px] text-slate-500 leading-normal">
+                                      If running in desktop or an iframe sandbox, obtain a Google access token from the web console and inject it here directly to bypass popup restrictions.
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           )}
                         </div>
                       </div>
+
+                      {/* Diagnostic Panel for Google Drive mode */}
+                      {driveValidationError && (
+                        <div className="mt-2.5 p-3.5 bg-red-950/15 border border-red-900/40 rounded-lg text-[9px] text-red-300 space-y-2 max-w-full">
+                          <div className="flex items-center gap-1.5 font-bold uppercase text-red-400 text-[8px]">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            <span>Authorization Diagnostic Stream</span>
+                          </div>
+                          <p className="font-sans leading-relaxed text-slate-300">
+                            The authorization sequence returned an issue. Inside desktop or sandbox environments, explicit Google validation redirect limits apply:
+                          </p>
+                          <div className="p-1 px-2 bg-slate-950 rounded border border-slate-800 font-mono text-[8px] text-slate-400 select-all overflow-x-auto whitespace-pre block max-w-full">
+                            {driveValidationError}
+                          </div>
+                          <ul className="list-disc pl-3.5 space-y-1 text-slate-400 text-[8px] leading-relaxed">
+                            <li>
+                              <strong className="text-slate-300">Electron Redirection Restriction:</strong> Google OAuth tightens domains from unknown ports or non-certified custom schemes.
+                            </li>
+                            <li>
+                              <strong className="text-slate-300">Authorized Domains Check:</strong> Navigate to Firebase Console &gt; Authentication &gt; Settings &gt; Authorized Domains, and confirm that <code className="bg-slate-900 px-1 py-0.5 rounded select-all">{window.location.origin}</code> is whitelisted.
+                            </li>
+                            <li>
+                              <strong className="text-slate-300">Callback verification:</strong> Ensure your GCP Credentials specify the correct URI callbacks.
+                            </li>
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
  
@@ -1662,7 +1782,7 @@ export default function App() {
                         Demo workspace mode retrieves configurations automatically from general demonstration Google Drive directories. 
                         Custom file configurations are disabled in Demo workspace mode.
                       </div>
- 
+
                       <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2.5">
                         <div>
                           <p className="text-[8px] font-black uppercase text-blue-400">demo schedules folder id</p>
@@ -1677,6 +1797,7 @@ export default function App() {
                           <p className="text-[9px] font-mono text-slate-400 select-all truncate">1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx</p>
                         </div>
                       </div>
+
  
                       {/* Google Account Connection Status inside modal for Demo mode as well */}
                       <div className="pt-2 border-t border-slate-800">
@@ -1716,6 +1837,33 @@ export default function App() {
                           )}
                         </div>
                       </div>
+
+                      {/* Diagnostic Panel for Google Demo mode */}
+                      {driveValidationError && (
+                        <div className="mt-2.5 p-3.5 bg-red-950/15 border border-red-900/40 rounded-lg text-[9px] text-red-300 space-y-2 max-w-full">
+                          <div className="flex items-center gap-1.5 font-bold uppercase text-red-400 text-[8px]">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            <span>Authorization Diagnostic Stream</span>
+                          </div>
+                          <p className="font-sans leading-relaxed text-slate-300">
+                            The authorization sequence returned an issue. Inside desktop or sandbox environments, explicit Google validation redirect limits apply:
+                          </p>
+                          <div className="p-1 px-2 bg-slate-950 rounded border border-slate-800 font-mono text-[8px] text-slate-400 select-all overflow-x-auto whitespace-pre block max-w-full">
+                            {driveValidationError}
+                          </div>
+                          <ul className="list-disc pl-3.5 space-y-1 text-slate-400 text-[8px] leading-relaxed">
+                            <li>
+                              <strong className="text-slate-300">Electron Redirection Restriction:</strong> Google OAuth tightens domains from unknown ports or non-certified custom schemes.
+                            </li>
+                            <li>
+                              <strong className="text-slate-300">Authorized Domains Check:</strong> Navigate to Firebase Console &gt; Authentication &gt; Settings &gt; Authorized Domains, and confirm that <code className="bg-slate-900 px-1 py-0.5 rounded select-all">{window.location.origin}</code> is whitelisted.
+                            </li>
+                            <li>
+                              <strong className="text-slate-300">Callback verification:</strong> Ensure your GCP Credentials specify the correct URI callbacks.
+                            </li>
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
 

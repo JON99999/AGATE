@@ -23,6 +23,7 @@
   "build": {
     "appId": "com.minutesync.scheduler",
     "productName": "Interstitial-er",
+    "companyName": "Interstitial-er",
     "publish": [
       {
         "provider": "github"

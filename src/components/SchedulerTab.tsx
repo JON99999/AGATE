@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, ShieldAlert, Copy, Check, XCircle, FolderOpen, Music, Search, Play, Square } from 'lucide-react';
 import { Schedule, ScheduleType, ScheduleMetadata } from '../types';
-import { cn, getMP3Status, formatDuration } from '../lib/utils';
+import { cn, getMP3Status, formatDuration, getFilenameFromUrlOrPath } from '../lib/utils';
 import { getPlayableUrl, DRIVE_FOLDERS } from '../lib/driveService';
 
 interface SchedulerTabProps {
@@ -219,10 +219,13 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
         return;
       }
     }
+
+    const sanitizedMp3Url = getFilenameFromUrlOrPath(formData.mp3Url);
     
     const now = new Date().toISOString();
     const updated: Schedule = {
       ...formData as Schedule,
+      mp3Url: sanitizedMp3Url,
       metadata: {
         ...(formData.metadata as ScheduleMetadata),
         lastModifiedDate: now
@@ -1142,7 +1145,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                   <button 
                     key={i}
                     onClick={() => {
-                      setFormData({ ...formData, mp3Url: file.path });
+                      setFormData({ ...formData, mp3Url: file.name });
                       setIsPickerOpen(false);
                     }}
                     className={cn(

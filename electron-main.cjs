@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen } = require('electron');
+const { app, BrowserWindow, screen, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -67,30 +67,33 @@ async function startServer() {
 
 function createWindow() {
   let windowOptions = {
-    width: 1280,
     height: 800,
     title: appMode === 'Player' ? "Interstitial-er Player" : "Interstitial-er Admin",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      devTools: appMode !== 'Player',
     },
   };
 
   if (appMode === 'Player') {
+    // Disable dev tools and remove menus for Player version
+    Menu.setApplicationMenu(null);
+
     try {
       const primaryDisplay = screen.getPrimaryDisplay();
       const { height } = primaryDisplay.workAreaSize;
-      windowOptions.width = 200;
+      windowOptions.width = 250;
       windowOptions.height = height;
       windowOptions.x = 0;
       windowOptions.y = 0;
-      windowOptions.minWidth = 200;
-      windowOptions.maxWidth = 200;
+      windowOptions.minWidth = 250;
+      windowOptions.maxWidth = 250;
     } catch (e) {
-      windowOptions.width = 200;
+      windowOptions.width = 250;
       windowOptions.height = 800;
-      windowOptions.minWidth = 200;
-      windowOptions.maxWidth = 200;
+      windowOptions.minWidth = 250;
+      windowOptions.maxWidth = 250;
     }
   }
 

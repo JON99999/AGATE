@@ -11,7 +11,7 @@ export const provider = new GoogleAuthProvider();
 // Required Scope for reading and writing files in Drive
 provider.addScope('https://www.googleapis.com/auth/drive');
 
-let cachedAccessToken: string | null = null;
+let cachedAccessToken: string | null = (typeof window !== 'undefined') ? sessionStorage.getItem('interstitialer_drive_token') : null;
 let currentAuthUser: User | null = null;
 let isSigningIn = false;
 
@@ -107,6 +107,9 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
       throw new Error('Failed to retrieve access token from Google Auth');
     }
     cachedAccessToken = credential.accessToken;
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('interstitialer_drive_token', cachedAccessToken);
+    }
     currentAuthUser = result.user;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error) {
@@ -121,6 +124,17 @@ export const getAccessToken = (): string | null => {
   return cachedAccessToken;
 };
 
+export const setOverrideAccessToken = (token: string | null) => {
+  cachedAccessToken = token;
+  if (typeof window !== 'undefined') {
+    if (token) {
+      sessionStorage.setItem('interstitialer_drive_token', token);
+    } else {
+      sessionStorage.removeItem('interstitialer_drive_token');
+    }
+  }
+};
+
 export const getCurrentUser = (): User | null => {
   return currentAuthUser;
 };
@@ -128,6 +142,9 @@ export const getCurrentUser = (): User | null => {
 export const handleLogout = async () => {
   await signOut(auth);
   cachedAccessToken = null;
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem('interstitialer_drive_token');
+  }
   currentAuthUser = null;
   // Revoke cached Blob URLs to free up memory
   clearAudioCache();
@@ -136,6 +153,7 @@ export const handleLogout = async () => {
 // Memory Cache for MP3 binary blobs to provide immediate playback and zero latency
 export const mp3BlobCache = new Map<string, string>(); // Maps raw URL (e.g. googleapis drive url) to local Blob URL
 export const mp3DurationCache = new Map<string, string>(); // Maps raw URL to calculated duration "m:ss"
+export const availableFilesCache = new Map<string, { path: string; size: string; duration: string }>();
 
 export const calculateDurationForUrl = (url: string, sourceUrl: string) => {
   if (mp3DurationCache.has(url)) return;
@@ -178,17 +196,23 @@ export const clearAudioCache = () => {
  * Download an MP3 from Drive into memory cache
  */
 export const cacheMP3 = async (url: string, token: string): Promise<string> => {
-  if (mp3BlobCache.has(url)) {
-    return mp3BlobCache.get(url)!;
+  let resolvedUrl = url;
+  const fileInCache = availableFilesCache.get(url);
+  if (fileInCache) {
+    resolvedUrl = fileInCache.path;
   }
 
-  const isDriveUrl = url.includes('googleapis.com') || url.includes('drive.google.com');
+  if (mp3BlobCache.has(resolvedUrl)) {
+    return mp3BlobCache.get(resolvedUrl)!;
+  }
+
+  const isDriveUrl = resolvedUrl.includes('googleapis.com') || resolvedUrl.includes('drive.google.com');
   if (!isDriveUrl) {
     // Non-Drive URLs cannot be fetched via standard browser XMLHttpRequest/fetch due to CORS
     // (e.g., soundhelix.com pages are not CORS accessible).
     // They are played properly using standard HTML5 <audio> without CORS if we supply the URL directly.
-    calculateDurationForUrl(url, url);
-    return url;
+    calculateDurationForUrl(url, resolvedUrl);
+    return resolvedUrl;
   }
 
   // If it's a Drive URL, download with oauth bearer token
@@ -198,14 +222,15 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
   }
 
   try {
-    const res = await fetch(url, { headers });
+    const res = await fetch(resolvedUrl, { headers });
     if (!res.ok) throw new Error(`Failed to fetch MP3 from url: ${res.statusText}`);
     const blob = await res.blob();
     const blobUrl = URL.createObjectURL(blob);
-    mp3BlobCache.set(url, blobUrl);
+    mp3BlobCache.set(resolvedUrl, blobUrl);
     
     // Calculate duration for the newly cached audio file
     calculateDurationForUrl(url, blobUrl);
+    calculateDurationForUrl(resolvedUrl, blobUrl);
     
     return blobUrl;
   } catch (err) {
@@ -218,8 +243,13 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
  * Clean up the audio memory cache by revoking files that are no longer part of active schedules.
  */
 export const updateAudioCache = async (activeUrls: string[], token: string | null) => {
+  const resolvedActiveUrls = activeUrls.map(url => {
+    const file = availableFilesCache.get(url);
+    return file ? file.path : url;
+  });
+
   // 1. Purge urls no longer needed
-  const activeSet = new Set(activeUrls);
+  const activeSet = new Set(resolvedActiveUrls);
   for (const cachedUrl of Array.from(mp3BlobCache.keys())) {
     if (!activeSet.has(cachedUrl)) {
       const blobUrl = mp3BlobCache.get(cachedUrl);
@@ -238,7 +268,9 @@ export const updateAudioCache = async (activeUrls: string[], token: string | nul
   if (token) {
     await Promise.allSettled(
       activeUrls.map(url => {
-        if (!mp3BlobCache.has(url)) {
+        const file = availableFilesCache.get(url);
+        const resolvedUrl = file ? file.path : url;
+        if (!mp3BlobCache.has(resolvedUrl)) {
           return cacheMP3(url, token);
         }
         return Promise.resolve();
@@ -489,14 +521,21 @@ export const listMP3sFromDrive = async (): Promise<DriveMP3[]> => {
  */
 export const getPlayableUrl = (url: string | undefined): string => {
   if (!url) return '';
-  if (mp3BlobCache.has(url)) {
-    return mp3BlobCache.get(url)!;
+  
+  let resolvedUrl = url;
+  const fileInCache = availableFilesCache.get(url);
+  if (fileInCache) {
+    resolvedUrl = fileInCache.path;
+  }
+
+  if (mp3BlobCache.has(resolvedUrl)) {
+    return mp3BlobCache.get(resolvedUrl)!;
   }
   const token = getAccessToken();
-  if (url.includes('googleapis.com') && token) {
-    return `${url}&access_token=${token}`;
+  if (resolvedUrl.includes('googleapis.com') && token) {
+    return `${resolvedUrl}&access_token=${token}`;
   }
-  return url;
+  return resolvedUrl;
 };
 
 export const validateGoogleDriveAccess = async (): Promise<boolean> => {
