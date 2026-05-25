@@ -82,8 +82,6 @@ try {
     if (!pkg.build) pkg.build = {};
     pkg.build.productName = `Interstitial-er ${mode}`;
     pkg.build.appId = `com.minutesync.scheduler.${mode.toLowerCase()}`;
-    if (!pkg.build.win) pkg.build.win = {};
-    pkg.build.win.companyName = "Interstitial-er";
 
     // Ensure build directory exists and has our physical composite icon copied as build/icon.png
     const buildIconDir = path.join(__dirname, 'build');
