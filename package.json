@@ -1,7 +1,7 @@
 {
   "name": "minute-sync-scheduler",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.5.3",
   "description": "Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.",
   "author": "JON99999",
   "repository": {
@@ -43,10 +43,12 @@
       ],
       "icon": "build/icon.ico"
     },
+    "nsis": {
+      "differentialPackage": false
+    },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
       "category": "public.app-category.productivity",
       "identity": "-",
