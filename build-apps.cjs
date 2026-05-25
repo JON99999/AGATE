@@ -122,7 +122,15 @@ try {
     const macIconSource = path.join(__dirname, 'src', 'assets', 'images', 'mac', 'icon.icns');
     const winIconSource = path.join(__dirname, 'src', 'assets', 'images', 'win', 'icon.ico');
 
-    if (fs.existsSync(macIconSource)) {
+    const isRealIconFile = (filePath) => {
+      try {
+        return fs.existsSync(filePath) && fs.statSync(filePath).size > 500;
+      } catch (err) {
+        return false;
+      }
+    };
+
+    if (isRealIconFile(macIconSource)) {
       try {
         fs.copyFileSync(macIconSource, path.join(buildIconDir, 'icon.icns'));
         console.log(`Successfully copied pre-generated icon.icns to build/icon.icns for macOS.`);
@@ -130,10 +138,10 @@ try {
         console.error('Failed to copy pre-generated icon.icns to build/icon.icns:', err);
       }
     } else {
-      console.log(`mac/icon.icns not found at ${macIconSource}. (Skipping local copy; expected to be handled in GitHub CI environment.)`);
+      console.log(`mac/icon.icns not found or is placeholder at ${macIconSource}. (Skipping local copy; expected to be handled in GitHub CI environment or generated.)`);
     }
 
-    if (fs.existsSync(winIconSource)) {
+    if (isRealIconFile(winIconSource)) {
       try {
         fs.copyFileSync(winIconSource, path.join(buildIconDir, 'icon.ico'));
         console.log(`Successfully copied pre-generated icon.ico to build/icon.ico for Windows.`);
@@ -141,7 +149,7 @@ try {
         console.error('Failed to copy pre-generated icon.ico to build/icon.ico:', err);
       }
     } else {
-      console.log(`win/icon.ico not found at ${winIconSource}. (Skipping local copy; expected to be handled in GitHub CI environment.)`);
+      console.log(`win/icon.ico not found or is placeholder at ${winIconSource}. (Skipping local copy; expected to be handled in GitHub CI environment or generated.)`);
     }
 
     // Ensure explicit icon configuration is specified inside the build config schema
