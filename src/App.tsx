@@ -167,9 +167,6 @@ export default function App() {
   const [isDriveValidated, setIsDriveValidated] = useState(false);
   const [isValidatingDrive, setIsValidatingDrive] = useState(false);
   const [driveValidationError, setDriveValidationError] = useState<string | null>(null);
-  const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('interstitialer_google_client_id') || '');
-  const [isPollingExternal, setIsPollingExternal] = useState(false);
-  const [showMethodB, setShowMethodB] = useState(false);
   const [manualToken, setManualToken] = useState('');
   const [showManualOverride, setShowManualOverride] = useState(false);
   const [driveMP3s, setDriveMP3s] = useState<any[]>([]);
@@ -829,83 +826,6 @@ export default function App() {
       setDriveValidationError(e.message || 'Verification of manual token override failed.');
     } finally {
       setIsValidatingDrive(false);
-      setLoading(false);
-    }
-  };
-
-  const handleExternalBrowserSignIn = async () => {
-    if (!googleClientId.trim()) {
-      setDriveValidationError('Google OAuth Client ID is required for Method B External Browser login.');
-      return;
-    }
-    
-    // Save Client ID for convenience
-    localStorage.setItem('interstitialer_google_client_id', googleClientId.trim());
-    
-    try {
-      setLoading(true);
-      setDriveValidationError(null);
-      setIsValidatingDrive(true);
-      setIsPollingExternal(true);
-
-      const redirectUri = `http://127.0.0.1:${window.location.port || '3000'}/api/oauth-callback`;
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(googleClientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=https://www.googleapis.com/auth/drive`;
-      
-      console.log('Launching external browser for Google OAuth Method B:', authUrl);
-      window.open(authUrl, '_blank');
-
-      // Start Polling for Registered Token
-      let pollCount = 0;
-      const intervalId = setInterval(async () => {
-        pollCount++;
-        // Timeout after 5 minutes
-        if (pollCount > 300) {
-          clearInterval(intervalId);
-          setIsPollingExternal(false);
-          setIsValidatingDrive(false);
-          setLoading(false);
-          setDriveValidationError('Method B browser authentication timed out. Please try again.');
-          return;
-        }
-
-        try {
-          const res = await fetch('/api/check-registered-token');
-          if (!res.ok) throw new Error('Failed to query local loopback status');
-          const data = await res.json();
-          if (data.token) {
-            clearInterval(intervalId);
-            setIsPollingExternal(false);
-            
-            // Set token and authenticate session
-            setOverrideAccessToken(data.token);
-            setToken(data.token);
-            setUser({ email: 'authorized-device@interstitialer.local', displayName: 'Loopback Verified Session' } as any);
-            setIsDriveActive(true);
-            
-            // Validate Google Drive access
-            const success = await validateGoogleDriveAccess();
-            if (success) {
-              setIsDriveValidated(true);
-              setDriveValidationError(null);
-              const currentSettings = getSavedSettings();
-              await fetchDataForMode(currentSettings);
-            } else {
-              setIsDriveValidated(false);
-              setDriveValidationError('OAuth Token verified by loopback, but Google API rejected access to the specified folders. Ensure folders are shared/accessible.');
-            }
-            setIsValidatingDrive(false);
-            setLoading(false);
-          }
-        } catch (err: any) {
-          console.warn('Error polling loopback token:', err);
-        }
-      }, 1000);
-
-    } catch (e: any) {
-      console.error('Method B OAuth launch failed:', e);
-      setDriveValidationError(e.message || 'Failed to initialize external browser flow.');
-      setIsValidatingDrive(false);
-      setIsPollingExternal(false);
       setLoading(false);
     }
   };
@@ -1973,54 +1893,8 @@ export default function App() {
                                 onClick={handleAuthSignIn}
                                 className="w-full py-1 text-[8px] font-black bg-blue-600 hover:bg-blue-700 text-white rounded transition uppercase"
                               >
-                                Sign In with Google (Standard Popup)
+                                Sign In with Google
                               </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setShowMethodB(!showMethodB)}
-                                className="w-full py-1 text-[8px] font-black bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 rounded transition uppercase"
-                              >
-                                {showMethodB ? "Hide Method B Options" : "External Browser (Method B)"}
-                              </button>
-
-                              {showMethodB && (
-                                <div className="mt-2 space-y-2 p-2.5 bg-slate-950/60 border border-slate-800 rounded text-left">
-                                  <span className="text-[7.5px] font-black uppercase text-blue-400 block tracking-wider">Method B: External Browser Sign-In</span>
-                                  
-                                  <div className="space-y-1">
-                                    <label className="text-[7px] text-slate-400 block font-bold uppercase">Google OAuth Client ID</label>
-                                    <div className="flex gap-1.5 font-mono">
-                                      <input
-                                        type="text"
-                                        placeholder="Enter client_id..."
-                                        value={googleClientId}
-                                        onChange={(e) => setGoogleClientId(e.target.value)}
-                                        className="flex-1 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[9px] font-mono text-slate-350 outline-none shrink"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={handleExternalBrowserSignIn}
-                                        disabled={isPollingExternal}
-                                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-850 text-white text-[8px] font-bold uppercase rounded transition font-sans"
-                                      >
-                                        {isPollingExternal ? "Polling..." : "Launch"}
-                                      </button>
-                                    </div>
-                                  </div>
-                                  
-                                  {isPollingExternal && (
-                                    <div className="flex items-center gap-1.5 text-[7.5px] text-emerald-400 font-mono animate-pulse">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block shrink-0"></span>
-                                      <span>Awaiting login token via localhost loopback callback...</span>
-                                    </div>
-                                  )}
-                                  
-                                  <p className="text-[7px] text-slate-400 leading-normal font-sans">
-                                    Launches default browser to authenticate Google Drive, bypassing Electron constraints. Safe transfer of authorization token to local port. Ensure <code className="bg-slate-900 border border-slate-800 px-1 py-0.2 rounded text-[7.5px] select-all font-mono">{`http://127.0.0.1:${window.location.port || '3000'}/api/oauth-callback`}</code> is registered in your GCP Console OAuth redirection list.
-                                  </p>
-                                </div>
-                              )}
 
                               <div className="pt-1.5 border-t border-slate-900/40">
                                 <button
