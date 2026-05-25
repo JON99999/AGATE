@@ -118,6 +118,39 @@ try {
       }
     }
 
+    // Copy pre-generated native system-specific icons (icns, ico)
+    const macIconSource = path.join(__dirname, 'src', 'assets', 'images', 'mac', 'icon.icns');
+    const winIconSource = path.join(__dirname, 'src', 'assets', 'images', 'win', 'icon.ico');
+
+    if (fs.existsSync(macIconSource)) {
+      try {
+        fs.copyFileSync(macIconSource, path.join(buildIconDir, 'icon.icns'));
+        console.log(`Successfully copied pre-generated icon.icns to build/icon.icns for macOS.`);
+      } catch (err) {
+        console.error('Failed to copy pre-generated icon.icns to build/icon.icns:', err);
+      }
+    } else {
+      console.log(`mac/icon.icns not found at ${macIconSource}. (Skipping local copy; expected to be handled in GitHub CI environment.)`);
+    }
+
+    if (fs.existsSync(winIconSource)) {
+      try {
+        fs.copyFileSync(winIconSource, path.join(buildIconDir, 'icon.ico'));
+        console.log(`Successfully copied pre-generated icon.ico to build/icon.ico for Windows.`);
+      } catch (err) {
+        console.error('Failed to copy pre-generated icon.ico to build/icon.ico:', err);
+      }
+    } else {
+      console.log(`win/icon.ico not found at ${winIconSource}. (Skipping local copy; expected to be handled in GitHub CI environment.)`);
+    }
+
+    // Ensure explicit icon configuration is specified inside the build config schema
+    if (!pkg.build.mac) pkg.build.mac = {};
+    pkg.build.mac.icon = "build/icon.icns";
+
+    if (!pkg.build.win) pkg.build.win = {};
+    pkg.build.win.icon = "build/icon.ico";
+
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
     console.log(`Packaging Electron app for mode: ${mode}...`);

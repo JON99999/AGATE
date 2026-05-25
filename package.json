@@ -40,7 +40,8 @@
       "target": [
         "nsis",
         "portable"
-      ]
+      ],
+      "icon": "build/icon.ico"
     },
     "mac": {
       "target": [
@@ -48,7 +49,8 @@
         "zip"
       ],
       "category": "public.app-category.productivity",
-      "identity": "-"
+      "identity": "-",
+      "icon": "build/icon.icns"
     }
   },
   "dependencies": {
