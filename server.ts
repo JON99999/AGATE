@@ -97,11 +97,168 @@ try {
   // Graceful fallback outside Electron desktop application environment (e.g., standard browser view in Devbox)
 }
 
+let registeredOAuthToken: string | null = null;
+
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(express.json());
+
+  // API - Custom OAuth Loopback Handlers (Method B)
+  app.post('/api/register-token', (req, res) => {
+    const { token } = req.body;
+    if (token) {
+      registeredOAuthToken = token;
+      console.log('Successfully registered OAuth token on local server.');
+      res.json({ success: true });
+    } else {
+      res.status(400).json({ error: 'Token is required' });
+    }
+  });
+
+  app.get('/api/check-registered-token', (req, res) => {
+    if (registeredOAuthToken) {
+      const token = registeredOAuthToken;
+      registeredOAuthToken = null; // Consume token to prevent re-use
+      res.json({ token });
+    } else {
+      res.json({ token: null });
+    }
+  });
+
+  app.get('/api/oauth-callback', (req, res) => {
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Interstitial-er Sign-In Success</title>
+  <style>
+    body {
+      background-color: #0f172a; /* Slate 900 */
+      color: #cbd5e1; /* Slate 300 */
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 16px;
+    }
+    .card {
+      background-color: #1e293b; /* Slate 800 */
+      border: 1px solid #334155; /* Slate 700 */
+      border-radius: 8px;
+      padding: 32px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      text-align: center;
+    }
+    .title {
+      color: #f1f5f9; /* Slate 100 */
+      font-size: 20px;
+      font-weight: 700;
+      margin-top: 0;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .status-text {
+      font-weight: 600;
+      font-size: 14px;
+      margin-top: 16px;
+      margin-bottom: 8px;
+    }
+    .status-success {
+      color: #34d399; /* Emerald 400 */
+    }
+    .status-error {
+      color: #f87171; /* Red 400 */
+    }
+    .status-pending {
+      color: #60a5fa; /* Blue 400 */
+    }
+    .desc {
+      font-size: 13px;
+      color: #94a3b8; /* Slate 400 */
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    .brand {
+      font-size: 11px;
+      color: #64748b; /* Slate 500 */
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      margin-top: 24px;
+      border-top: 1px solid #334155;
+      padding-top: 16px;
+    }
+    .loader {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      border: 3px solid #334155;
+      border-top-color: #60a5fa;
+      border-radius: 50%;
+      animation: spin 1s ease-in-out infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="title">Interstitial-er OAuth</div>
+    <div id="loader-container" style="margin: 16px 0;">
+      <div id="loader" class="loader"></div>
+    </div>
+    <div id="status" class="status-text status-pending">Exchanging Token...</div>
+    <div id="message" class="desc">Please wait while the application registers your Google Drive access session credentials.</div>
+    <div class="brand">Interstitial-er</div>
+  </div>
+
+  <script>
+    const hash = window.location.hash;
+    const params = new URLSearchParams(hash.substring(1));
+    const accessToken = params.get('access_token');
+    
+    if (accessToken) {
+      fetch('/api/register-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: accessToken })
+      })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('loader').style.display = 'none';
+        const st = document.getElementById('status');
+        st.innerText = 'AUTHENTICATION COMPLETED';
+        st.className = 'status-text status-success';
+        document.getElementById('message').innerText = 'The access token has been registered successfully. You can now close this tab and return to the Interstitial-er desktop app UI.';
+      })
+      .catch(err => {
+        document.getElementById('loader').style.display = 'none';
+        const st = document.getElementById('status');
+        st.innerText = 'REGISTRATION FAILED';
+        st.className = 'status-text status-error';
+        document.getElementById('message').innerText = 'Failed to transmit access session token to the local server. Ensure Interstitial-er is running on this machine and try again.';
+        console.error(err);
+      });
+    } else {
+      document.getElementById('loader').style.display = 'none';
+      const st = document.getElementById('status');
+      st.innerText = 'NO ACCESS TOKEN DETECTED';
+      st.className = 'status-text status-error';
+      document.getElementById('message').innerText = 'Could not find a valid Google access token in the redirect URL fragment. Google may have denied your request or redirected incorrectly.';
+    }
+  </script>
+</body>
+</html>`);
+  });
 
   // API - Sync settings from frontend
   app.get('/api/settings', (req, res) => {
