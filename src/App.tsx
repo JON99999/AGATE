@@ -11,6 +11,7 @@ import { Schedule, ScheduleType, LogEntry } from './types';
 import PlayerTab from './components/PlayerTab';
 import SchedulerTab from './components/SchedulerTab';
 import LogTab from './components/LogTab';
+import GoogleAuthSection from './components/GoogleAuthSection';
 import { cn, extractFolderId } from './lib/utils';
 import { 
   initAuth, 
@@ -167,7 +168,7 @@ export default function App() {
   const [isDriveValidated, setIsDriveValidated] = useState(false);
   const [isValidatingDrive, setIsValidatingDrive] = useState(false);
   const [driveValidationError, setDriveValidationError] = useState<string | null>(null);
-  const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('interstitialer_google_client_id') || '');
+  const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('interstitialer_google_client_id') || '776109899422-4ui9sqip5tvjarmcmrmnb4p3pdni0b2n.apps.googleusercontent.com');
   const [isPollingExternal, setIsPollingExternal] = useState(false);
   const [showMethodB, setShowMethodB] = useState(false);
   const [manualToken, setManualToken] = useState('');
@@ -1940,153 +1941,24 @@ export default function App() {
                       </div>
 
                       {/* Google Account Connection Status inside modal */}
-                      <div className="pt-2 border-t border-slate-800 mt-3">
-                        <div className={cn(
-                          "p-3 rounded-lg flex flex-col gap-2 transition-colors duration-200",
-                          user 
-                            ? "bg-slate-950/40 border border-slate-850" 
-                            : "bg-red-950/25 border border-red-500/30 text-red-400"
-                        )}>
-                          <div className="flex items-center justify-between">
-                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400">Authorization Status</span>
-                            {user ? (
-                              <span className="text-[8px] text-emerald-400 font-bold uppercase">Linked</span>
-                            ) : (
-                              <span className="text-[8px] text-red-500 font-bold uppercase mt-0.5 animate-pulse">Not Signed In</span>
-                            )}
-                          </div>
-                          {user ? (
-                            <div className="space-y-2">
-                              <p className="text-[9px] font-mono text-slate-300 truncate">{user.email}</p>
-                              <button
-                                type="button"
-                                onClick={handleAuthSignOut}
-                                className="w-full py-1 px-2 text-[8px] font-black bg-red-950/30 text-red-400 border border-red-900/40 hover:bg-red-900 hover:text-white rounded transition"
-                              >
-                                Disconnect Google Account
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              <button
-                                type="button"
-                                onClick={handleAuthSignIn}
-                                className="w-full py-1 text-[8px] font-black bg-blue-600 hover:bg-blue-700 text-white rounded transition uppercase"
-                              >
-                                Sign In with Google (Standard Popup)
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => setShowMethodB(!showMethodB)}
-                                className="w-full py-1 text-[8px] font-black bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 rounded transition uppercase"
-                              >
-                                {showMethodB ? "Hide Method B Options" : "External Browser (Method B)"}
-                              </button>
-
-                              {showMethodB && (
-                                <div className="mt-2 space-y-2 p-2.5 bg-slate-950/60 border border-slate-800 rounded text-left">
-                                  <span className="text-[7.5px] font-black uppercase text-blue-400 block tracking-wider">Method B: External Browser Sign-In</span>
-                                  
-                                  <div className="space-y-1">
-                                    <label className="text-[7px] text-slate-400 block font-bold uppercase">Google OAuth Client ID</label>
-                                    <div className="flex gap-1.5 font-mono">
-                                      <input
-                                        type="text"
-                                        placeholder="Enter client_id..."
-                                        value={googleClientId}
-                                        onChange={(e) => setGoogleClientId(e.target.value)}
-                                        className="flex-1 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[9px] font-mono text-slate-350 outline-none shrink"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={handleExternalBrowserSignIn}
-                                        disabled={isPollingExternal}
-                                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-850 text-white text-[8px] font-bold uppercase rounded transition font-sans"
-                                      >
-                                        {isPollingExternal ? "Polling..." : "Launch"}
-                                      </button>
-                                    </div>
-                                  </div>
-                                  
-                                  {isPollingExternal && (
-                                    <div className="flex items-center gap-1.5 text-[7.5px] text-emerald-400 font-mono animate-pulse">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block shrink-0"></span>
-                                      <span>Awaiting login token via localhost loopback callback...</span>
-                                    </div>
-                                  )}
-                                  
-                                  <p className="text-[7px] text-slate-400 leading-normal font-sans">
-                                    Launches default browser to authenticate Google Drive, bypassing Electron constraints. Safe transfer of authorization token to local port. Ensure <code className="bg-slate-900 border border-slate-800 px-1 py-0.2 rounded text-[7.5px] select-all font-mono">{`http://127.0.0.1:${window.location.port || '3000'}/api/oauth-callback`}</code> is registered in your GCP Console OAuth redirection list.
-                                  </p>
-                                </div>
-                              )}
-
-                              <div className="pt-1.5 border-t border-slate-900/40">
-                                <button
-                                  type="button"
-                                  onClick={() => setShowManualOverride(!showManualOverride)}
-                                  className="text-[7.5px] text-slate-400 hover:text-slate-200 underline uppercase tracking-tight block ml-auto transition"
-                                >
-                                  {showManualOverride ? "Hide Manual Bypass" : "Manual OAuth Token Bypass"}
-                                </button>
-                                
-                                {showManualOverride && (
-                                  <div className="mt-2 space-y-1.5 p-2 bg-slate-950/60 border border-slate-800 rounded">
-                                    <span className="text-[7.5px] font-black uppercase text-slate-400 block">Inject OAuth Access Token</span>
-                                    <div className="flex gap-1.5">
-                                      <input
-                                        type="password"
-                                        placeholder="Paste access token (Bearer)..."
-                                        value={manualToken}
-                                        onChange={(e) => setManualToken(e.target.value)}
-                                        className="flex-1 px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[9px] font-mono text-slate-350 outline-none"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => handleManualTokenOverride(manualToken)}
-                                        className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-750 text-[8px] font-bold uppercase rounded transition"
-                                      >
-                                        Apply
-                                      </button>
-                                    </div>
-                                    <p className="text-[7px] text-slate-500 leading-normal">
-                                      If running in desktop or an iframe sandbox, obtain a Google access token from the web console and inject it here directly to bypass popup restrictions.
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Diagnostic Panel for Google Drive mode */}
-                      {driveValidationError && (
-                        <div className="mt-2.5 p-3.5 bg-red-950/15 border border-red-900/40 rounded-lg text-[9px] text-red-300 space-y-2 max-w-full">
-                          <div className="flex items-center gap-1.5 font-bold uppercase text-red-400 text-[8px]">
-                            <AlertCircle className="w-3 h-3 shrink-0" />
-                            <span>Authorization Diagnostic Stream</span>
-                          </div>
-                          <p className="font-sans leading-relaxed text-slate-300">
-                            The authorization sequence returned an issue. Inside desktop or sandbox environments, explicit Google validation redirect limits apply:
-                          </p>
-                          <div className="p-1 px-2 bg-slate-950 rounded border border-slate-800 font-mono text-[8px] text-slate-400 select-all overflow-x-auto whitespace-pre block max-w-full">
-                            {driveValidationError}
-                          </div>
-                          <ul className="list-disc pl-3.5 space-y-1 text-slate-400 text-[8px] leading-relaxed">
-                            <li>
-                              <strong className="text-slate-300">Electron Redirection Restriction:</strong> Google OAuth tightens domains from unknown ports or non-certified custom schemes.
-                            </li>
-                            <li>
-                              <strong className="text-slate-300">Authorized Domains Check:</strong> Navigate to Firebase Console &gt; Authentication &gt; Settings &gt; Authorized Domains, and confirm that <code className="bg-slate-900 px-1 py-0.5 rounded select-all">{window.location.origin}</code> is whitelisted.
-                            </li>
-                            <li>
-                              <strong className="text-slate-300">Callback verification:</strong> Ensure your GCP Credentials specify the correct URI callbacks.
-                            </li>
-                          </ul>
-                        </div>
-                      )}
+                      <GoogleAuthSection
+                        user={user}
+                        token={token}
+                        setToken={setToken}
+                        setUser={setUser}
+                        googleClientId={googleClientId}
+                        setGoogleClientId={setGoogleClientId}
+                        isPollingExternal={isPollingExternal}
+                        setIsPollingExternal={setIsPollingExternal}
+                        setIsValidatingDrive={setIsValidatingDrive}
+                        setLoading={setLoading}
+                        setDriveValidationError={setDriveValidationError}
+                        driveValidationError={driveValidationError}
+                        validateGoogleDriveAccess={validateGoogleDriveAccess}
+                        fetchDataForMode={fetchDataForMode}
+                        handleAuthSignOut={handleAuthSignOut}
+                        setOverrideAccessToken={setOverrideAccessToken}
+                      />
                     </div>
                   )}
  
@@ -2159,70 +2031,24 @@ export default function App() {
 
  
                       {/* Google Account Connection Status inside modal for Demo mode as well */}
-                      <div className="pt-2 border-t border-slate-800">
-                        <div className={cn(
-                          "p-3 rounded-lg flex flex-col gap-2 transition-colors duration-200",
-                          user 
-                            ? "bg-slate-950/40 border border-slate-850" 
-                            : "bg-red-950/25 border border-red-500/30 text-red-400"
-                        )}>
-                          <div className="flex items-center justify-between">
-                            <span className="text-[8px] font-black uppercase tracking-wider text-slate-400">Authorization Status</span>
-                            {user ? (
-                              <span className="text-[8px] text-emerald-400 font-bold uppercase">Linked</span>
-                            ) : (
-                              <span className="text-[8px] text-red-500 font-bold uppercase mt-0.5 animate-pulse">Not Signed In</span>
-                            )}
-                          </div>
-                          {user ? (
-                            <div className="space-y-2">
-                              <p className="text-[9px] font-mono text-slate-300 truncate">{user.email}</p>
-                              <button
-                                type="button"
-                                onClick={handleAuthSignOut}
-                                className="w-full py-1 px-2 text-[8px] font-black bg-red-950/30 text-red-400 border border-red-900/40 hover:bg-red-900 hover:text-white rounded transition cursor-pointer"
-                              >
-                                Disconnect Google Account
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={handleAuthSignIn}
-                              className="w-full py-1 text-[8px] font-black bg-blue-600 hover:bg-blue-700 text-white rounded transition uppercase cursor-pointer"
-                            >
-                              Sign In with Google
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Diagnostic Panel for Google Demo mode */}
-                      {driveValidationError && (
-                        <div className="mt-2.5 p-3.5 bg-red-950/15 border border-red-900/40 rounded-lg text-[9px] text-red-300 space-y-2 max-w-full">
-                          <div className="flex items-center gap-1.5 font-bold uppercase text-red-400 text-[8px]">
-                            <AlertCircle className="w-3 h-3 shrink-0" />
-                            <span>Authorization Diagnostic Stream</span>
-                          </div>
-                          <p className="font-sans leading-relaxed text-slate-300">
-                            The authorization sequence returned an issue. Inside desktop or sandbox environments, explicit Google validation redirect limits apply:
-                          </p>
-                          <div className="p-1 px-2 bg-slate-950 rounded border border-slate-800 font-mono text-[8px] text-slate-400 select-all overflow-x-auto whitespace-pre block max-w-full">
-                            {driveValidationError}
-                          </div>
-                          <ul className="list-disc pl-3.5 space-y-1 text-slate-400 text-[8px] leading-relaxed">
-                            <li>
-                              <strong className="text-slate-300">Electron Redirection Restriction:</strong> Google OAuth tightens domains from unknown ports or non-certified custom schemes.
-                            </li>
-                            <li>
-                              <strong className="text-slate-300">Authorized Domains Check:</strong> Navigate to Firebase Console &gt; Authentication &gt; Settings &gt; Authorized Domains, and confirm that <code className="bg-slate-900 px-1 py-0.5 rounded select-all">{window.location.origin}</code> is whitelisted.
-                            </li>
-                            <li>
-                              <strong className="text-slate-300">Callback verification:</strong> Ensure your GCP Credentials specify the correct URI callbacks.
-                            </li>
-                          </ul>
-                        </div>
-                      )}
+                      <GoogleAuthSection
+                        user={user}
+                        token={token}
+                        setToken={setToken}
+                        setUser={setUser}
+                        googleClientId={googleClientId}
+                        setGoogleClientId={setGoogleClientId}
+                        isPollingExternal={isPollingExternal}
+                        setIsPollingExternal={setIsPollingExternal}
+                        setIsValidatingDrive={setIsValidatingDrive}
+                        setLoading={setLoading}
+                        setDriveValidationError={setDriveValidationError}
+                        driveValidationError={driveValidationError}
+                        validateGoogleDriveAccess={validateGoogleDriveAccess}
+                        fetchDataForMode={fetchDataForMode}
+                        handleAuthSignOut={handleAuthSignOut}
+                        setOverrideAccessToken={setOverrideAccessToken}
+                      />
                     </div>
                   )}
 

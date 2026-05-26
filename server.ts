@@ -186,6 +186,50 @@ async function startServer() {
       line-height: 1.6;
       margin-bottom: 24px;
     }
+    .token-container {
+      margin-top: 20px;
+      text-align: left;
+    }
+    .token-label {
+      font-size: 9px;
+      font-weight: bold;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+      display: block;
+    }
+    .token-box {
+      width: 100%;
+      height: 60px;
+      background-color: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      color: #38bdf8;
+      font-family: monospace;
+      font-size: 11px;
+      padding: 8px;
+      box-sizing: border-box;
+      resize: none;
+      word-break: break-all;
+    }
+    .btn-copy {
+      background-color: #3b82f6;
+      border: none;
+      color: white;
+      padding: 6px 12px;
+      font-size: 11px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 8px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: background-color 0.15s;
+    }
+    .btn-copy:hover {
+      background-color: #2563eb;
+    }
     .brand {
       font-size: 11px;
       color: #64748b; /* Slate 500 */
@@ -218,6 +262,13 @@ async function startServer() {
     </div>
     <div id="status" class="status-text status-pending">Exchanging Token...</div>
     <div id="message" class="desc">Please wait while the application registers your Google Drive access session credentials.</div>
+    
+    <div id="token-section" class="token-container" style="display: none;">
+      <span class="token-label">Access Token (Option 2 Manual Copy-Paste)</span>
+      <textarea id="token-textarea" class="token-box" readonly onclick="this.select()"></textarea>
+      <button id="btn-copy" class="btn-copy">Copy to Clipboard</button>
+    </div>
+
     <div class="brand">Interstitial-er</div>
   </div>
 
@@ -227,6 +278,23 @@ async function startServer() {
     const accessToken = params.get('access_token');
     
     if (accessToken) {
+      document.getElementById('token-section').style.display = 'block';
+      document.getElementById('token-textarea').value = accessToken;
+      
+      document.getElementById('btn-copy').addEventListener('click', () => {
+        const textarea = document.getElementById('token-textarea');
+        textarea.select();
+        navigator.clipboard.writeText(accessToken).then(() => {
+          const btn = document.getElementById('btn-copy');
+          btn.innerText = 'Copied!';
+          btn.style.backgroundColor = '#10b981';
+          setTimeout(() => {
+            btn.innerText = 'Copy to Clipboard';
+            btn.style.backgroundColor = '#3b82f6';
+          }, 2050);
+        });
+      });
+
       fetch('/api/register-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -238,7 +306,7 @@ async function startServer() {
         const st = document.getElementById('status');
         st.innerText = 'AUTHENTICATION COMPLETED';
         st.className = 'status-text status-success';
-        document.getElementById('message').innerText = 'The access token has been registered successfully. You can now close this tab and return to the Interstitial-er desktop app UI.';
+        document.getElementById('message').innerText = 'The access token has been registered successfully. If your app did not automatically detect the auth, use the copy-paste action below.';
       })
       .catch(err => {
         document.getElementById('loader').style.display = 'none';

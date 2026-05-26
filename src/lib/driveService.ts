@@ -11,8 +11,10 @@ export const provider = new GoogleAuthProvider();
 // Required Scope for reading and writing files in Drive
 provider.addScope('https://www.googleapis.com/auth/drive');
 
-let cachedAccessToken: string | null = (typeof window !== 'undefined') ? sessionStorage.getItem('interstitialer_drive_token') : null;
-let currentAuthUser: User | null = null;
+let cachedAccessToken: string | null = (typeof window !== 'undefined') 
+  ? (sessionStorage.getItem('interstitialer_drive_token') || localStorage.getItem('interstitialer_override_token')) 
+  : null;
+let currentAuthUser: any = null;
 let isSigningIn = false;
 
 export interface LocationSettings {
@@ -75,49 +77,69 @@ export const DRIVE_FOLDERS = {
 
 // Listen to Auth changes
 export const initAuth = (
-  onAuthSuccess?: (user: User, token: string) => void,
+  onAuthSuccess?: (user: any, token: string) => void,
   onAuthFailure?: () => void
 ) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
-    currentAuthUser = user;
-    if (user) {
-      // In Firebase Auth, we need to extract the accessToken from the User Credential on sign-in,
-      // or we can refresh it. Since Firebase doesn't persist the raw provider accessToken in onAuthStateChanged directly
-      // on page refresh, we can request the user to authenticate, or we can look up if we have cached it session-wise.
-      // If we don't have cachedAccessToken, we might prompt for signIn on direct reload which is standard.
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+  if (typeof window !== 'undefined') {
+    const savedToken = cachedAccessToken || localStorage.getItem('interstitialer_override_token');
+    const savedUserJson = localStorage.getItem('interstitialer_user_profile');
+    
+    if (savedToken) {
+      cachedAccessToken = savedToken;
+      let parsedUser = null;
+      if (savedUserJson) {
+        try {
+          parsedUser = JSON.parse(savedUserJson);
+        } catch (e) {}
+      }
+      
+      if (parsedUser) {
+        currentAuthUser = parsedUser;
+        if (onAuthSuccess) {
+          // Delay briefly to allow main components to finish mounting
+          setTimeout(() => onAuthSuccess(parsedUser, savedToken), 50);
+        }
       } else {
-        // Fallback or trigger failure to sign in again
-        if (onAuthFailure) onAuthFailure();
+        // Retrieve details from Google
+        fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { 'Authorization': `Bearer ${savedToken}` }
+        })
+        .then(res => {
+          if (res.ok) return res.json();
+          // Fallback to Drive About if userinfo is unavailable
+          return fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+            headers: { 'Authorization': `Bearer ${savedToken}` }
+          }).then(r => r.ok ? r.json() : null);
+        })
+        .then(data => {
+          if (data) {
+            const userObj = data.user 
+              ? { email: data.user.emailAddress || 'authorized-device@interstitialer.local', displayName: data.user.displayName || 'Authorized User' }
+              : { email: data.email || 'authorized-device@interstitialer.local', displayName: data.name || 'Authorized User' };
+            currentAuthUser = userObj;
+            localStorage.setItem('interstitialer_user_profile', JSON.stringify(userObj));
+            if (onAuthSuccess) onAuthSuccess(userObj, savedToken);
+          } else {
+            if (onAuthFailure) onAuthFailure();
+          }
+        })
+        .catch(() => {
+          if (onAuthFailure) onAuthFailure();
+        });
       }
     } else {
-      cachedAccessToken = null;
       if (onAuthFailure) onAuthFailure();
     }
-  });
+  } else {
+    if (onAuthFailure) onAuthFailure();
+  }
+  
+  // Return dummy unsubscribe function
+  return () => {};
 };
 
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
-  try {
-    isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Failed to retrieve access token from Google Auth');
-    }
-    cachedAccessToken = credential.accessToken;
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('interstitialer_drive_token', cachedAccessToken);
-    }
-    currentAuthUser = result.user;
-    return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error) {
-    console.error('Sign-in error:', error);
-    throw error;
-  } finally {
-    isSigningIn = false;
-  }
+export const googleSignIn = async (): Promise<{ user: any; accessToken: string } | null> => {
+  throw new Error('Standard Firebase googleSignIn has been replaced with the 3 Google Auth Option flows inside Interstitial-er.');
 };
 
 export const getAccessToken = (): string | null => {
@@ -129,23 +151,27 @@ export const setOverrideAccessToken = (token: string | null) => {
   if (typeof window !== 'undefined') {
     if (token) {
       sessionStorage.setItem('interstitialer_drive_token', token);
+      localStorage.setItem('interstitialer_override_token', token);
     } else {
       sessionStorage.removeItem('interstitialer_drive_token');
+      localStorage.removeItem('interstitialer_override_token');
+      localStorage.removeItem('interstitialer_user_profile');
     }
   }
 };
 
-export const getCurrentUser = (): User | null => {
+export const getCurrentUser = (): any => {
   return currentAuthUser;
 };
 
 export const handleLogout = async () => {
-  await signOut(auth);
   cachedAccessToken = null;
+  currentAuthUser = null;
   if (typeof window !== 'undefined') {
     sessionStorage.removeItem('interstitialer_drive_token');
+    localStorage.removeItem('interstitialer_override_token');
+    localStorage.removeItem('interstitialer_user_profile');
   }
-  currentAuthUser = null;
   // Revoke cached Blob URLs to free up memory
   clearAudioCache();
 };
