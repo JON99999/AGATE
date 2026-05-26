@@ -1,56 +1,56 @@
 # Step-by-Step GitHub Web-Only Release Guide
 
-This guide describes how to trigger an automated production compile and upload desktop application installers (`.exe`, `.dmg`, `.zip`) directly to a release page on GitHub using **only** your web browser. This procedure avoids OAuth permission issues or missing file additions by creating a draft release on the web first.
+This guide outlines how to trigger the automated build of desktop installer binaries (`.exe`, `.dmg`, `.zip`) and attach them to a release on GitHub—**using only your web browser**.
+
+By drafting the release page on the website first, you register the version and title in a draft state, making sure everything is perfectly staged before triggers run.
 
 ---
 
 ## Step 1: Export Current App Code from AI Studio to GitHub
 
-Make sure all changes made inside the AI Studio sandbox are synchronized to your repository.
+Make sure all changes made inside the AI Studio sandbox (including our update to version `0.5.6.1` in `package.json`) are exported to your GitHub repository.
 
-1. Locate and click on the **Settings** gear icon in the workspace sidebar of AI Studio.
+1. Locate and click on the **Settings** gear icon in the AI Studio workspace sidebar.
 2. Select the **Export / Connect to GitHub** option from the panels.
 3. Authenticate with your GitHub credentials if prompted.
 4. Select your repository: `JON99999/Interstitial-er`.
-5. Click the button to export the files to your **`main`** branch. This updates `package.json` to version `0.5.6` in your remote repository.
+5. Click the button to export/push files to your **`main`** branch. This updates the remote repository to version `0.5.6.1`.
 
 ---
 
-## Step 2: Create a Draft Release on GitHub Web (Pre-Registration)
+## Step 2: Create and Stage the Draft Release on GitHub Web
 
-Creating a draft release first tells `electron-builder` where to upload compile artifacts without attempting to auto-generate a release itself (which can result in authentication errors or missing assets).
+Creating a draft release prepares the target version tag and coordinates ahead of time.
 
-1. In your browser, navigate to: `https://github.com/JON99999/Interstitial-er`
-2. Scroll down on the right sidebar and click on **Releases**, then click the **Draft a new release** button.
-3. In the box labeled **Choose a tag**:
-   - Type in the new tag name: **`v0.5.6`** (Ensure it starts with `v` and matches your `package.json` version).
-   - Click the blue dropdown option below it: **Create new tag: v0.5.6 on publish**.
-4. Set the **Target** dropdown to **`main`**.
-5. Give the release a Title (e.g., `v0.5.6 Release`).
-6. Scroll to the bottom of the page.
+1. Open your web browser and navigate to: `https://github.com/JON99999/Interstitial-er`
+2. In the right sidebar, click on **Releases** (or click the **Draft a new release** button if visible).
+3. Click the **Draft a new release** button.
+4. Click the box labeled **Choose a tag**:
+   - Type in **`v0.5.6.1`** *(make sure it starts with a lowercase "v" and matches the exact version in `package.json`)*.
+   - Click the blue option that appears below it: **Create new tag: v0.5.6.1 on publish**.
+5. Keep the **Target** dropdown set to **`main`**.
+6. Enter a Title (e.g., `v0.5.6.1 Release`) and write any high-level notes in the description area.
+7. Scroll to the bottom of the page:
+   - **CRITICAL**: Do **NOT** select the checkbox "Set as a pre-release". 
    - **CRITICAL**: Do **NOT** click the green "Publish release" button yet.
-   - Click the grey **Save draft** button instead.
+   - Instead, click the grey button labeled **Save draft**.
 
 ---
 
-## Step 3: Trigger the GitHub Actions Build
+## Step 3: Trigger the Build by Publishing the Release
 
-Now that the draft release is registered, pushing the `v0.5.6` tag triggers the compile runner. On the browser:
+Now you will publish the release, which instantly instructs GitHub to create the `v0.5.6.1` tag on your repository. This tag push is what triggers GitHub Actions to compile the applications.
 
-1. Click on the **Code** tab at the top left of your repository menu.
-2. Select the **Tags** menu or create the tag via the github interface.
-   - *Note*: If the tag `v0.5.6` is not created automatically by the draft step, you can publish the tag or trigger it through a workflow manually.
-   - Alternatively, when you save the draft release with tag `v0.5.6`, go to **Actions** at `https://github.com/JON99999/Interstitial-er/actions` to verify if the runner is running.
-3. To manually push the tag via the browser if GitHub Actions does not trigger automatically on draft save:
-   - Go to your main repository page.
-   - Click the branch dropdown (currently says `main`), type **`v0.5.6`**, and press enter to create the tag directly from the current commit, or proceed with the tag creation during step 4.
+1. While still on your Draft Release page, click the **Edit** button (or go to the **Releases** page, find your draft, and click edit).
+2. Scroll to the bottom of the page and click the green **Publish release** button.
+3. This creates the official tag on GitHub and fires up the compile machinery!
 
 ---
 
-## Step 4: Verify and Publish
+## Step 4: Monitor and Confirm the Installer Files
 
-1. Open `https://github.com/JON99999/Interstitial-er/actions` to monitor progress.
-2. Verify that two build environments (`windows-latest` and `macos-latest`) load, install the node dependencies, and run `npm run dist` packages.
-3. When the compilation completes, return to the **Releases** section on your browser.
-4. Locate the **v0.5.6 Draft Release**, click **Edit**, and verify that the installer files (`Interstitial-er Admin 0.5.6` and `Interstitial-er Player 0.5.6`) are attached in the downloads matrix at the bottom.
-5. Once you confirm the assets are uploaded, click the **Publish release** button to make it public.
+1. Go immediately to the **Actions** tab at the top of your repository menu:  
+   `https://github.com/JON99999/Interstitial-er/actions`
+2. You will see a newly running workflow called **Build/Release Electron App** triggered by your new tag `v0.5.6.1`.
+3. Wait for the two runner environments (`windows-latest` and `macos-latest`) to complete compiling both the **Player** and **Admin** packages (usually takes 3–5 minutes).
+4. Once completed, return to your live **Releases** page on GitHub. The packaged installer files (`.dmg`, `.exe`, `.zip`) will now be neatly listed as download attachments under the `v0.5.6.1` assets foldout list!
