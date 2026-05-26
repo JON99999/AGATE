@@ -219,7 +219,7 @@ export const clearAudioCache = () => {
 };
 
 /**
- * Download an MP3 from Drive into memory cache
+ * Download an MP3 from Drive or Local into memory cache
  */
 export const cacheMP3 = async (url: string, token: string): Promise<string> => {
   let resolvedUrl = url;
@@ -233,18 +233,14 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
   }
 
   const isDriveUrl = resolvedUrl.includes('googleapis.com') || resolvedUrl.includes('drive.google.com');
-  if (!isDriveUrl) {
-    // Non-Drive URLs cannot be fetched via standard browser XMLHttpRequest/fetch due to CORS
-    // (e.g., soundhelix.com pages are not CORS accessible).
-    // They are played properly using standard HTML5 <audio> without CORS if we supply the URL directly.
-    calculateDurationForUrl(url, resolvedUrl);
-    return resolvedUrl;
-  }
-
-  // If it's a Drive URL, download with oauth bearer token
+  
   const headers: HeadersInit = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+  if (isDriveUrl) {
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      throw new Error(`Google Drive token is required to fetch Drive file: ${resolvedUrl}`);
+    }
   }
 
   try {
@@ -261,6 +257,12 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
     return blobUrl;
   } catch (err) {
     console.error(`Error caching MP3 (${url}):`, err);
+    
+    // Fallback for non-Drive URLs if fetching fails (e.g., CORS on external web files)
+    if (!isDriveUrl) {
+      calculateDurationForUrl(url, resolvedUrl);
+      return resolvedUrl;
+    }
     throw err;
   }
 };
@@ -290,19 +292,17 @@ export const updateAudioCache = async (activeUrls: string[], token: string | nul
     }
   }
 
-  // 2. Pre-cache newly active urls if token is available
-  if (token) {
-    await Promise.allSettled(
-      activeUrls.map(url => {
-        const file = availableFilesCache.get(url);
-        const resolvedUrl = file ? file.path : url;
-        if (!mp3BlobCache.has(resolvedUrl)) {
-          return cacheMP3(url, token);
-        }
-        return Promise.resolve();
-      })
-    );
-  }
+  // 2. Pre-cache newly active urls (both local and Drive)
+  await Promise.allSettled(
+    activeUrls.map(url => {
+      const file = availableFilesCache.get(url);
+      const resolvedUrl = file ? file.path : url;
+      if (!mp3BlobCache.has(resolvedUrl)) {
+        return cacheMP3(url, token || '');
+      }
+      return Promise.resolve();
+    })
+  );
 };
 
 // General Google Drive Helpers

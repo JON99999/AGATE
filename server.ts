@@ -278,9 +278,37 @@ async function startServer() {
     const accessToken = params.get('access_token');
     
     if (accessToken) {
-      document.getElementById('token-section').style.display = 'block';
-      document.getElementById('token-textarea').value = accessToken;
-      
+      fetch('/api/register-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: accessToken })
+      })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById('loader').style.display = 'none';
+        const st = document.getElementById('status');
+        st.innerText = 'AUTHENTICATION COMPLETED';
+        st.className = 'status-text status-success';
+        document.getElementById('message').innerHTML = 'Your credentials have been verified and applied.<br>This window will close automatically.';
+        
+        setTimeout(() => {
+          window.close();
+          // Fallback if window.close() is blocked by the browser
+          document.getElementById('message').innerHTML = 'Your login session is fully registered.<br>You can now safely close this browser window/tab.';
+        }, 1200);
+      })
+      .catch(err => {
+        document.getElementById('loader').style.display = 'none';
+        const st = document.getElementById('status');
+        st.innerText = 'AUTOMATION REGISTRATION FAILED';
+        st.className = 'status-text status-error';
+        document.getElementById('message').innerText = 'Failed to transmit token to the local server. Please write down or copy the manual option below to paste in Google settings:';
+        
+        // Show manual fallback only since auto transmission failed
+        document.getElementById('token-section').style.display = 'block';
+        document.getElementById('token-textarea').value = accessToken;
+      });
+
       document.getElementById('btn-copy').addEventListener('click', () => {
         const textarea = document.getElementById('token-textarea');
         textarea.select();
@@ -293,28 +321,6 @@ async function startServer() {
             btn.style.backgroundColor = '#3b82f6';
           }, 2050);
         });
-      });
-
-      fetch('/api/register-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: accessToken })
-      })
-      .then(res => res.json())
-      .then(data => {
-        document.getElementById('loader').style.display = 'none';
-        const st = document.getElementById('status');
-        st.innerText = 'AUTHENTICATION COMPLETED';
-        st.className = 'status-text status-success';
-        document.getElementById('message').innerText = 'The access token has been registered successfully. If your app did not automatically detect the auth, use the copy-paste action below.';
-      })
-      .catch(err => {
-        document.getElementById('loader').style.display = 'none';
-        const st = document.getElementById('status');
-        st.innerText = 'REGISTRATION FAILED';
-        st.className = 'status-text status-error';
-        document.getElementById('message').innerText = 'Failed to transmit access session token to the local server. Ensure Interstitial-er is running on this machine and try again.';
-        console.error(err);
       });
     } else {
       document.getElementById('loader').style.display = 'none';

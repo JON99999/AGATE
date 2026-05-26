@@ -3,7 +3,7 @@ import { format, addMinutes, subMinutes, isSameMinute, isBefore, isAfter, startO
 import { Play, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X } from 'lucide-react';
 import { Schedule, ScheduleType, LogEntry } from '../types';
 import { cn, getMP3Status } from '../lib/utils';
-import { mp3BlobCache, getPlayableUrl, mp3DurationCache } from '../lib/driveService';
+import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache } from '../lib/driveService';
 
 interface PlayerTabProps {
   schedules: Schedule[];
@@ -266,6 +266,10 @@ export default function PlayerTab({
                 const isMissedRecent = isPast && !played && diffSeconds <= 1800;
                 const isMissedOld = isPast && !played && diffSeconds > 1800;
                 
+                const fileInCache = availableFilesCache.get(s.mp3Url);
+                const resolvedUrl = fileInCache ? fileInCache.path : s.mp3Url;
+                const isCached = mp3BlobCache.has(resolvedUrl) || mp3BlobCache.has(s.mp3Url) || getPlayableUrl(s.mp3Url).startsWith('blob:');
+                
                 return (
                   <div 
                     key={`${slot.toISOString()}-${s.id}-${idx}`}
@@ -376,9 +380,9 @@ export default function PlayerTab({
                         )}
                       </div>
                       <div className="flex items-center gap-1 opacity-80 leading-none py-0.5">
-                        <div className={cn("w-1 h-1 rounded-full shrink-0", mp3BlobCache.has(s.mp3Url) ? "bg-emerald-500" : (isPre ? "bg-purple-400 animate-pulse" : "bg-blue-400 animate-pulse"))} />
+                        <div className={cn("w-1 h-1 rounded-full shrink-0", isCached ? "bg-emerald-500" : (isPre ? "bg-purple-400 animate-pulse" : "bg-blue-400 animate-pulse"))} />
                         <span className="text-[6.5px] font-black text-slate-400 uppercase tracking-tighter leading-none">
-                          {mp3BlobCache.has(s.mp3Url) ? "Cached" : "Caching..."}
+                          {isCached ? "Cached" : "Caching..."}
                         </span>
                       </div>
                     </div>
