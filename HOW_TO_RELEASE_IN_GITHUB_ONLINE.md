@@ -12,7 +12,7 @@ Make sure all changes made inside the AI Studio sandbox are synchronized to your
 2. Select the **Export / Connect to GitHub** option from the panels.
 3. Authenticate with your GitHub credentials if prompted.
 4. Select your repository: `JON99999/Interstitial-er`.
-5. Click the button to export the files to your **`main`** branch. This updates `package.json` to version `0.5.5` in your remote repository.
+5. Click the button to export the files to your **`main`** branch. This updates `package.json` to version `0.5.1` in your remote repository.
 
 ---
 
@@ -23,10 +23,10 @@ Creating a draft release first tells `electron-builder` where to upload compile 
 1. In your browser, navigate to: `https://github.com/JON99999/Interstitial-er`
 2. Scroll down on the right sidebar and click on **Releases**, then click the **Draft a new release** button.
 3. In the box labeled **Choose a tag**:
-   - Type in the new tag name: **`v0.5.5`** (Ensure it starts with `v` and matches your `package.json` version).
-   - Click the blue dropdown option below it: **Create new tag: v0.5.5 on publish**.
+   - Type in the new tag name: **`v0.5.1`** (Ensure it starts with `v` and matches your `package.json` version).
+   - Click the blue dropdown option below it: **Create new tag: v0.5.1 on publish**.
 4. Set the **Target** dropdown to **`main`**.
-5. Give the release a Title (e.g., `v0.5.5 Release`).
+5. Give the release a Title (e.g., `v0.5.1 Release`).
 6. Scroll to the bottom of the page.
    - **CRITICAL**: Do **NOT** click the green "Publish release" button yet.
    - Click the grey **Save draft** button instead.
@@ -35,15 +35,15 @@ Creating a draft release first tells `electron-builder` where to upload compile 
 
 ## Step 3: Trigger the GitHub Actions Build
 
-Now that the draft release is registered, pushing the `v0.5.5` tag triggers the compile runner. On the browser:
+Now that the draft release is registered, pushing the `v0.5.1` tag triggers the compile runner. On the browser:
 
 1. Click on the **Code** tab at the top left of your repository menu.
 2. Select the **Tags** menu or create the tag via the github interface.
-   - *Note*: If the tag `v0.5.5` is not created automatically by the draft step, you can publish the tag or trigger it through a workflow manually.
-   - Alternatively, when you save the draft release with tag `v0.5.5`, go to **Actions** at `https://github.com/JON99999/Interstitial-er/actions` to verify if the runner is running.
+   - *Note*: If the tag `v0.5.1` is not created automatically by the draft step, you can publish the tag or trigger it through a workflow manually.
+   - Alternatively, when you save the draft release with tag `v0.5.1`, go to **Actions** at `https://github.com/JON99999/Interstitial-er/actions` to verify if the runner is running.
 3. To manually push the tag via the browser if GitHub Actions does not trigger automatically on draft save:
    - Go to your main repository page.
-   - Click the branch dropdown (currently says `main`), type **`v0.5.5`**, and press enter to create the tag directly from the current commit, or proceed with the tag creation during step 4.
+   - Click the branch dropdown (currently says `main`), type **`v0.5.1`**, and press enter to create the tag directly from the current commit, or proceed with the tag creation during step 4.
 
 ---
 
@@ -52,5 +52,5 @@ Now that the draft release is registered, pushing the `v0.5.5` tag triggers the 
 1. Open `https://github.com/JON99999/Interstitial-er/actions` to monitor progress.
 2. Verify that two build environments (`windows-latest` and `macos-latest`) load, install the node dependencies, and run `npm run dist` packages.
 3. When the compilation completes, return to the **Releases** section on your browser.
-4. Locate the **v0.5.5 Draft Release**, click **Edit**, and verify that the installer files (`Interstitial-er Admin 0.5.5` and `Interstitial-er Player 0.5.5`) are attached in the downloads matrix at the bottom.
+4. Locate the **v0.5.1 Draft Release**, click **Edit**, and verify that the installer files (`Interstitial-er Admin 0.5.1` and `Interstitial-er Player 0.5.1`) are attached in the downloads matrix at the bottom.
 5. Once you confirm the assets are uploaded, click the **Publish release** button to make it public.
