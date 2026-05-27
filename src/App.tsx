@@ -1145,8 +1145,8 @@ export default function App() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 gap-4">
         <RefreshCw className={cn("w-8 h-8 animate-spin", isPre ? "text-purple-600" : "text-blue-500")} />
-        <p className="text-xs font-bold text-slate-500 tracking-wider animate-pulse select-none">
-          Connect to google drive using the pop-up window
+        <p className="text-[14px] font-bold text-slate-500 tracking-wider animate-pulse select-none">
+          Connecting to Google Drive (Check for pop-up window)
         </p>
       </div>
     );
