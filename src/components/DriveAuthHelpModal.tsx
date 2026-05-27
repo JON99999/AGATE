@@ -21,7 +21,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 shrink-0">
           <div className="flex items-center gap-2">
             <HelpCircle className="w-4 h-4 text-blue-400" />
-            <h2 className="text-[13px] font-black uppercase tracking-wider text-slate-100">Google Drive Authorization Guide</h2>
+            <h2 className="text-[16px] font-black uppercase tracking-wider text-slate-100">Google Drive Authorization Guide</h2>
           </div>
           <button
             type="button"
@@ -33,7 +33,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto space-y-6 text-slate-300 font-sans text-[12px] leading-relaxed">
+        <div className="p-6 overflow-y-auto space-y-6 text-slate-300 font-sans text-[14px] leading-relaxed">
           
           {/* Welcome Intro */}
           <div className="space-y-1.5">
@@ -46,7 +46,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
 
           {/* Section: Methods */}
           <div className="space-y-4">
-            <h3 className="text-[12px] font-black uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+            <h3 className="text-[14px] font-black uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
               <Zap className="w-3.5 h-3.5" />
               <span>1. Connection Methods Explained</span>
             </h3>
@@ -54,21 +54,21 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
             <div className="grid grid-cols-1 gap-3">
               {/* Option 1 */}
               <div className="bg-slate-950/40 border border-blue-900/20 rounded-lg p-3 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-blue-400 font-bold uppercase text-[11.5px]">
+                <div className="flex items-center gap-1.5 text-blue-400 font-bold uppercase text-[14px]">
                   <Globe className="w-3.5 h-3.5" />
                   <span>Option 1: Autopilot (Local Loopback) — RECOMMENDED RECOMMENDED DEFAULT</span>
                 </div>
                 <p className="text-slate-450 leading-relaxed">
                   The primary connection standard. Clicking <strong>Connect</strong> opens your web browser to perform the Google login. Once approved, Google redirects back to the app's embedded local port callback (<code className="text-blue-300 font-mono">127.0.0.1:3000/api/oauth-callback</code>). The running application automatically captures the temporary token, applies it to the active player session, and closes the browser tab.
                 </p>
-                <div className="text-[11px] text-slate-500 font-mono italic">
+                <div className="text-[14px] text-slate-500 font-mono italic">
                   * Note: Once configure steps are set, Option 1 is utilized as the default standard option for regular operation.
                 </div>
               </div>
 
               {/* Option 2 */}
               <div className="bg-slate-950/40 border border-purple-900/20 rounded-lg p-3 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-purple-400 font-bold uppercase text-[11.5px]">
+                <div className="flex items-center gap-1.5 text-purple-400 font-bold uppercase text-[14px]">
                   <FileCode className="w-3.5 h-3.5" />
                   <span>Option 2: Browser Verification with Copy-Paste</span>
                 </div>
@@ -78,15 +78,28 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
               </div>
 
               {/* Option 3 */}
-              <div className="bg-slate-950/40 border border-emerald-900/20 rounded-lg p-3 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-emerald-400 font-bold uppercase text-[11.5px]">
+              <div className="bg-slate-950/40 border border-emerald-900/20 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-1.5 text-emerald-400 font-bold uppercase text-[14px]">
                   <Key className="w-3.5 h-3.5" />
                   <span>Option 3: Direct Manual Access Token (Bypass)</span>
                 </div>
                 <p className="text-slate-450 leading-relaxed">
                   Instant developer bypass. Skip browser redirects entirely by supplying any active standard Google Access Token (such as a temporary token generated externally via Google OAuth Playground). Useful for diagnostic scripts or sandbox testing.
                 </p>
-                <div className="text-[11px] text-slate-500 font-mono italic">
+                
+                <div className="p-3 bg-slate-900/80 border border-emerald-950 rounded-md space-y-2 text-[14px]">
+                  <div className="font-bold text-slate-200">How to get a token using Google OAuth Playground:</div>
+                  <ol className="list-decimal pl-4 space-y-1.5 text-slate-350">
+                    <li>Navigate to the <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline inline-flex items-center gap-0.5">Google OAuth Playground <ExternalLink className="w-2.5 h-2.5" /></a>.</li>
+                    <li>Under Step 1 "Select &amp; authorize APIs," type <code className="bg-slate-950 border border-slate-800 px-1 py-0.2 rounded font-mono text-emerald-300">https://www.googleapis.com/auth/drive</code> into the input bar and click <strong>Authorize APIs</strong>.</li>
+                    <li>Sufficiently authorize via your Google account.</li>
+                    <li>On Step 2 in the playground, click the <strong>Exchange authorization code for tokens</strong> button.</li>
+                    <li>Copy the <strong>Access Token</strong> value from the input/details panel.</li>
+                    <li>Open Interstitial-er settings, expand Advanced options, select Option 3, paste the access token, and click <strong>Apply</strong>.</li>
+                  </ol>
+                </div>
+
+                <div className="text-[14px] text-slate-500 font-mono italic">
                   * Note: Standard Google Bearer tokens automatically expire after 60 minutes.
                 </div>
               </div>
@@ -97,7 +110,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
 
           {/* Section: Custom Setup Steps */}
           <div className="space-y-4">
-            <h3 className="text-[12px] font-black uppercase tracking-wider text-slate-100 flex items-center gap-1.5">
+            <h3 className="text-[14px] font-black uppercase tracking-wider text-slate-100 flex items-center gap-1.5">
               <Settings className="w-3.5 h-3.5 text-slate-400" />
               <span>2. Custom Client ID Provisioning (GCP Setup)</span>
             </h3>
@@ -144,7 +157,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
                 </ol>
 
                 <div className="mt-2.5 p-3 bg-blue-950/20 border border-blue-900/30 rounded-lg space-y-1.5 pl-4">
-                  <div className="font-bold text-blue-300 flex items-center gap-1 text-[11.5px] uppercase">
+                  <div className="font-bold text-blue-300 flex items-center gap-1 text-[14px] uppercase">
                     <Mail className="w-3 h-3" />
                     <span>Recommended Org Practice</span>
                   </div>
@@ -171,7 +184,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
 
           {/* Section: Settings Config */}
           <div className="space-y-1.5 p-3 bg-slate-950/50 border border-slate-800 rounded-lg">
-            <span className="text-[11px] font-black uppercase tracking-wider block text-slate-200">Applying Custom Settings</span>
+            <span className="text-[14px] font-black uppercase tracking-wider block text-slate-200">Applying Custom Settings</span>
             <p className="text-slate-400 leading-normal">
               Open the <strong>Advanced connection options</strong> bar in Google settings dashboard, input your new Client ID into the core text slot, and click Connect inside the primary card. Your secure desktop endpoints will now validate against your designated company console credentials.
             </p>
@@ -184,7 +197,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 text-[11.5px] font-black uppercase tracking-wider bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded transition-all cursor-pointer"
+            className="px-4 py-1.5 text-[14px] font-black uppercase tracking-wider bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded transition-all cursor-pointer"
           >
             Close Guide
           </button>

@@ -301,12 +301,12 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
           <ShieldAlert className="w-12 h-12 text-orange-500" />
         </div>
         <h2 className="text-sm font-black text-slate-800 uppercase tracking-tighter mb-2">For Programming Administrators ONLY</h2>
-        <p className="text-[10px] text-slate-500 max-w-[280px] mb-6 leading-relaxed font-medium">
+        <p className="text-[12px] text-slate-500 max-w-[280px] mb-6 leading-relaxed font-medium">
           Please don't change or edit unless you know how it all works. Thanks!
         </p>
         <button 
           onClick={() => onAdminToggle(true)}
-          className="px-6 py-2.5 bg-slate-900 text-white rounded text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
+          className="px-6 py-2.5 bg-slate-900 text-white rounded text-[12px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
         >
           Enter Admin Mode
         </button>
@@ -319,11 +319,11 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
       {!editingId ? (
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between mb-3 px-1">
-            <h2 className="font-bold text-slate-800 text-[13px] tracking-tight">Schedules</h2>
+            <h2 className="font-bold text-slate-800 text-[16px] tracking-tight">Schedules</h2>
             <div className="flex gap-2">
               <button 
                 onClick={createNew}
-                className="p-1 px-3 bg-blue-600 text-white rounded text-[10px] font-black tracking-tighter shadow-sm hover:bg-blue-700 transition-colors"
+                className="p-1 px-3 bg-blue-600 text-white rounded text-[12px] font-black tracking-tighter shadow-sm hover:bg-blue-700 transition-colors"
               >
                 + ADD NEW
               </button>
@@ -334,7 +334,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
             <div className="space-y-2">
               <div className="flex items-center gap-2 mb-2">
                 <div className="h-px bg-green-100 flex-1"></div>
-                <span className="text-[8px] font-black text-green-500 uppercase tracking-widest">Active Schedules</span>
+                <span className="text-[12px] font-black text-green-500 uppercase tracking-widest">Active Schedules</span>
                 <div className="h-px bg-green-100 flex-1"></div>
               </div>
               
@@ -358,7 +358,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 if (activeOnes.length === 0) {
                   return (
                     <div className="py-8 text-center bg-slate-50/50 rounded-lg border border-dashed border-slate-200">
-                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-none">No active triggers</p>
+                      <p className="text-[12px] font-bold text-slate-400 uppercase tracking-widest leading-none">No active triggers</p>
                     </div>
                   );
                 }
@@ -376,16 +376,16 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                     >
                       <div className="flex justify-between items-start mb-1.5">
                         <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
-                          <span className="text-[10px] font-black text-slate-300 uppercase leading-none mb-1 sm:mb-0">ID: {s.id}</span>
+                          <span className="text-[12px] font-black text-slate-300 uppercase leading-none mb-1 sm:mb-0">ID: {s.id}</span>
                           <span className={cn(
-                            "px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-tighter inline-block w-fit leading-none mb-1 sm:mb-0",
+                            "px-1.5 py-0.5 rounded text-[12px] uppercase font-bold tracking-tighter inline-block w-fit leading-none mb-1 sm:mb-0",
                             s.type === ScheduleType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black" :
                             s.type === ScheduleType.BASIC_HOURLY ? "bg-blue-100 text-blue-700" :
                             "bg-orange-100 text-orange-700"
                           )}>
                             {s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type.split('-').pop()}
                           </span>
-                          <span className="hidden sm:inline-block text-[13px] font-bold text-slate-800 truncate max-w-[200px] leading-none ml-1">
+                          <span className="hidden sm:inline-block text-[16px] font-bold text-slate-800 truncate max-w-[200px] leading-none ml-1">
                             {s.name}
                           </span>
                         </div>
@@ -399,7 +399,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                             title="View or Edit Schedule"
                           >
                             <FileText className="w-2.5 h-2.5" />
-                            <span className="text-[10px] font-black uppercase">View/Edit</span>
+                            <span className="text-[12px] font-black uppercase">View/Edit</span>
                           </button>
                           <button 
                             onClick={(e) => duplicate(s, e)}
@@ -407,14 +407,14 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                             title="Duplicate Schedule"
                           >
                             <Copy className="w-2.5 h-2.5" />
-                            <span className="text-[10px] font-black uppercase">Duplicate</span>
+                            <span className="text-[12px] font-black uppercase">Duplicate</span>
                           </button>
                           <span className="w-1.5 h-1.5 rounded-full bg-green-500 ml-1" />
                         </div>
                       </div>
-                      <p className="font-bold text-slate-800 text-[13px] truncate leading-tight mb-1 sm:hidden">{s.name}</p>
+                      <p className="font-bold text-slate-800 text-[16px] truncate leading-tight mb-1 sm:hidden">{s.name}</p>
                       <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-bold uppercase tracking-tighter shrink-0">
+                        <div className="flex items-center gap-1.5 text-[14px] text-slate-400 font-bold uppercase tracking-tighter shrink-0">
                           <Clock className="w-3 h-3" />
                           <span>:{s.minute.toString().padStart(2, '0')}m </span>
                           <span className="text-slate-300 ml-1">• {getScheduleSummary(s)}</span>
@@ -445,7 +445,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                      isVerified ? "text-slate-300 group-hover/play:text-blue-400" : "text-slate-200"
                                    )} />
                                    <span className={cn(
-                                     "text-[10px] font-bold uppercase truncate",
+                                     "text-[12px] font-bold uppercase truncate",
                                      previewUrl === s.mp3Url ? "text-white" :
                                      !status.exists ? "text-red-400" : !status.valid ? "text-orange-400" : "text-slate-400 group-hover/play:text-blue-700"
                                    )}>
@@ -466,7 +466,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                    ) : (
                                      <XCircle className="w-2.5 h-2.5" />
                                    )}
-                                   <span className="text-[10px] font-black uppercase whitespace-nowrap">
+                                   <span className="text-[12px] font-black uppercase whitespace-nowrap">
                                      {previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked'}
                                    </span>
                                  </div>
@@ -484,7 +484,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
             <div className="space-y-2">
               <div className="flex items-center gap-2 mb-2">
                 <div className="h-px bg-slate-100 flex-1"></div>
-                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Inactive Schedules</span>
+                <span className="text-[12px] font-black text-slate-400 uppercase tracking-widest">Inactive Schedules</span>
                 <div className="h-px bg-slate-100 flex-1"></div>
               </div>
 
@@ -508,7 +508,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 if (inactiveOnes.length === 0) {
                   return (
                     <div className="py-4 text-center">
-                      <p className="text-[8px] font-bold text-slate-300 uppercase tracking-widest">No inactive items</p>
+                      <p className="text-[12px] font-bold text-slate-300 uppercase tracking-widest">No inactive items</p>
                     </div>
                   );
                 }
@@ -541,16 +541,16 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                           >
                             <div className="flex justify-between items-start mb-1.5">
                               <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
-                                <span className="text-[10px] font-black text-slate-300 uppercase leading-none mb-1 sm:mb-0">ID: {s.id}</span>
+                                <span className="text-[12px] font-black text-slate-300 uppercase leading-none mb-1 sm:mb-0">ID: {s.id}</span>
                                 <span className={cn(
-                                  "px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-tighter inline-block w-fit leading-none mb-1 sm:mb-0 opacity-60",
+                                  "px-1.5 py-0.5 rounded text-[12px] uppercase font-bold tracking-tighter inline-block w-fit leading-none mb-1 sm:mb-0 opacity-60",
                                   s.type === ScheduleType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black" :
                                   s.type === ScheduleType.BASIC_HOURLY ? "bg-blue-100 text-blue-700" :
                                   "bg-orange-100 text-orange-700"
                                 )}>
                                   {s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type.split('-').pop()}
                                 </span>
-                                <span className="hidden sm:inline-block text-[13px] font-bold text-slate-600 truncate max-w-[200px] leading-none ml-1">
+                                <span className="hidden sm:inline-block text-[16px] font-bold text-slate-600 truncate max-w-[200px] leading-none ml-1">
                                   {s.name}
                                 </span>
                               </div>
@@ -564,7 +564,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                   title="View or Edit Schedule"
                                 >
                                   <FileText className="w-2.5 h-2.5" />
-                                  <span className="text-[10px] font-black uppercase">View/Edit</span>
+                                  <span className="text-[12px] font-black uppercase">View/Edit</span>
                                 </button>
                                 <button 
                                   onClick={(e) => duplicate(s, e)}
@@ -572,14 +572,14 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                   title="Duplicate Schedule"
                                 >
                                   <Copy className="w-2.5 h-2.5" />
-                                  <span className="text-[10px] font-black uppercase">Duplicate</span>
+                                  <span className="text-[12px] font-black uppercase">Duplicate</span>
                                 </button>
                                 <span className={cn("w-1.5 h-1.5 rounded-full ml-1", isExpired ? "bg-red-300" : "bg-slate-300")} />
                               </div>
                             </div>
-                            <p className="font-bold text-slate-600 text-[13px] truncate leading-tight mb-1 sm:hidden">{s.name}</p>
+                            <p className="font-bold text-slate-600 text-[16px] truncate leading-tight mb-1 sm:hidden">{s.name}</p>
                             <div className="flex items-center justify-between gap-4">
-                              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-bold uppercase tracking-tighter shrink-0">
+                              <div className="flex items-center gap-1.5 text-[14px] text-slate-400 font-bold uppercase tracking-tighter shrink-0">
                                 <Clock className="w-3 h-3 opacity-50" />
                                 <span>:{s.minute.toString().padStart(2, '0')}m </span>
                                 <span className="text-slate-300 ml-1">• {getScheduleSummary(s)} • {isExpired ? <span className="text-red-400/70 font-black">EXPIRED</span> : 'SUSPENDED'}</span>
@@ -610,7 +610,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                           isVerified ? "text-slate-300 group-hover/play:text-slate-400" : "text-slate-200"
                                         )} />
                                         <span className={cn(
-                                          "text-[10px] font-bold uppercase truncate",
+                                          "text-[12px] font-bold uppercase truncate",
                                           previewUrl === s.mp3Url ? "text-white" :
                                           !status.exists ? "text-red-400" : !status.valid ? "text-orange-400" : "text-slate-400 group-hover/play:text-slate-600"
                                         )}>
@@ -631,7 +631,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                         ) : (
                                           <XCircle className="w-2.5 h-2.5" />
                                         )}
-                                        <span className="text-[10px] font-black uppercase whitespace-nowrap">
+                                        <span className="text-[12px] font-black uppercase whitespace-nowrap">
                                           {previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked'}
                                         </span>
                                       </div>
@@ -644,7 +644,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                         );
                       })}
                     {inactiveOnes.length > 5 && (
-                      <p className="text-[7px] text-center text-slate-400 font-bold uppercase tracking-tighter pt-1">
+                      <p className="text-[12px] text-center text-slate-400 font-bold uppercase tracking-tighter pt-1">
                         + {inactiveOnes.length - 5} more hidden inactive items
                       </p>
                     )}
@@ -664,7 +664,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
               </div>
               <div className="min-w-0">
                 <h3 className="text-xs font-black text-slate-800 truncate uppercase tracking-tighter">Editor</h3>
-                <p className="text-[8px] text-slate-400 truncate">{editingId === 'new' ? 'New Profile' : `ID: ${formData.id} — ${formData.name || 'Unnamed'}`}</p>
+                <p className="text-[12px] text-slate-400 truncate">{editingId === 'new' ? 'New Profile' : `ID: ${formData.id} — ${formData.name || 'Unnamed'}`}</p>
               </div>
             </div>
           </div>
@@ -674,7 +674,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
               {/* Left Column: Basic Info */}
               <div className="space-y-4">
                 <div className="space-y-1">
-                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Schedule Type</label>
+                  <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest">Schedule Type</label>
                   <select 
                     value={formData.type} 
                     disabled={schedules.some(s => s.id === editingId)}
@@ -691,12 +691,12 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                     <option value={ScheduleType.ADVANCED}>Advanced Calendar</option>
                   </select>
                   {schedules.some(s => s.id === editingId) && (
-                    <p className="text-[7px] text-slate-400 font-medium italic">Type cannot be changed after creation.</p>
+                    <p className="text-[12px] text-slate-400 font-medium italic">Type cannot be changed after creation.</p>
                   )}
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Entry Name</label>
+                  <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest">Entry Name</label>
                   <input 
                     type="text" 
                     value={formData.name || ''} 
@@ -707,12 +707,12 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                       !formData.name && editingId ? "border-red-300" : "border-slate-200"
                     )}
                   />
-                  {!formData.name && <p className="text-[7px] text-red-500 font-bold uppercase tracking-tighter">Name is required</p>}
+                  {!formData.name && <p className="text-[12px] text-red-500 font-bold uppercase tracking-tighter">Name is required</p>}
                 </div>
                 
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
-                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">MP3 location</label>
+                    <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest">MP3 location</label>
                     {formData.mp3Url && (
                       <div className="flex items-center gap-2">
                         {(() => {
@@ -721,25 +721,25 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                           return (
                             <>
                               {!status.exists && (
-                                <span className="flex items-center gap-1 text-[7px] font-black text-red-500 uppercase bg-red-50 px-1.5 py-0.5 rounded border border-red-100 shadow-sm animate-pulse">
+                                <span className="flex items-center gap-1 text-[12px] font-black text-red-500 uppercase bg-red-50 px-1.5 py-0.5 rounded border border-red-100 shadow-sm animate-pulse">
                                   <AlertCircle className="w-2.5 h-2.5" />
                                   File not found.
                                 </span>
                               )}
                               {!status.valid && status.exists && (
-                                <span className="flex items-center gap-1 text-[7px] font-black text-orange-500 uppercase bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100 shadow-sm">
+                                <span className="flex items-center gap-1 text-[12px] font-black text-orange-500 uppercase bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100 shadow-sm">
                                   <Music className="w-2.5 h-2.5" />
                                   File not mp3.
                                 </span>
                               )}
                               {isVerified && (
                                 <div className="flex flex-col items-end">
-                                  <span className="flex items-center gap-1 text-[7px] font-black text-green-500 uppercase bg-green-50 px-1.5 py-0.5 rounded border border-green-100 shadow-sm">
+                                  <span className="flex items-center gap-1 text-[12px] font-black text-green-500 uppercase bg-green-50 px-1.5 py-0.5 rounded border border-green-100 shadow-sm">
                                     <CheckCircle className="w-2.5 h-2.5" />
                                     File Verified
                                   </span>
                                   {formData.duration && (
-                                    <span className="text-[7px] font-mono font-bold text-slate-400 mt-0.5">Length: {formData.duration}</span>
+                                    <span className="text-[12px] font-mono font-bold text-slate-400 mt-0.5">Length: {formData.duration}</span>
                                   )}
                                 </div>
                               )}
@@ -750,7 +750,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                           onClick={() => togglePreview(formData.mp3Url)}
                           disabled={!(getMP3Status(formData.mp3Url).exists && getMP3Status(formData.mp3Url).valid)}
                           className={cn(
-                            "flex items-center gap-1 text-[7px] font-black uppercase px-2 py-0.5 rounded border shadow-sm transition-all",
+                            "flex items-center gap-1 text-[12px] font-black uppercase px-2 py-0.5 rounded border shadow-sm transition-all",
                             previewUrl === formData.mp3Url 
                               ? "bg-slate-900 text-white border-slate-900" 
                               : (getMP3Status(formData.mp3Url).exists && getMP3Status(formData.mp3Url).valid)
@@ -772,7 +772,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                         onChange={e => setFormData({...formData, mp3Url: e.target.value})}
                         placeholder="https://www.googleapis.com/drive/v3/files/... or select from browse"
                         className={cn(
-                          "w-full px-3 py-2 rounded border font-mono text-[8px] outline-none transition-all pr-12",
+                          "w-full px-3 py-2 rounded border font-mono text-[12px] outline-none transition-all pr-12",
                           formData.mp3Url && !getMP3Status(formData.mp3Url).exists 
                             ? "bg-red-50 border-red-200 focus:ring-red-500" 
                             : "bg-slate-50 border-slate-100 focus:ring-blue-500"
@@ -798,7 +798,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                     </div>
                     <button 
                       onClick={() => setIsPickerOpen(true)}
-                      className="px-3 py-2 bg-slate-900 text-white rounded text-[8px] font-black uppercase flex items-center gap-2 hover:bg-slate-800 transition-all shadow-sm"
+                      className="px-3 py-2 bg-slate-900 text-white rounded text-[12px] font-black uppercase flex items-center gap-2 hover:bg-slate-800 transition-all shadow-sm"
                     >
                       <FolderOpen className="w-3 h-3" />
                       Browse
@@ -807,7 +807,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 </div>
 
                 <div className="bg-slate-50 p-3 rounded border border-slate-100 space-y-3">
-                  <div className="flex justify-between items-center text-[9px] font-black uppercase text-slate-500 tracking-tighter">
+                  <div className="flex justify-between items-center text-[12px] font-black uppercase text-slate-500 tracking-tighter">
                     <span>Scheduled play time</span>
                     <div className="flex items-center gap-1">
                       <span className="text-blue-600 font-bold">:</span>
@@ -833,7 +833,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                       onChange={e => setFormData({...formData, minute: parseInt(e.target.value)})}
                       className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-full cursor-pointer"
                     />
-                    <div className="flex justify-between px-0.5 text-[7px] font-black text-slate-300 uppercase tracking-tighter">
+                    <div className="flex justify-between px-0.5 text-[12px] font-black text-slate-300 uppercase tracking-tighter">
                       {[0, 20, 40, 59].map(m => (
                         <span key={m} className="cursor-pointer hover:text-blue-600" onClick={() => setFormData({...formData, minute: m})}>
                           :{m.toString().padStart(2, '0')}
@@ -844,12 +844,12 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Schedule Status</label>
+                  <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest">Schedule Status</label>
                   <div className="grid grid-cols-2 gap-2">
                     <button 
                       onClick={() => setFormData({...formData, enabled: true})}
                       className={cn(
-                        "flex items-center justify-between px-3 py-2 rounded border text-[9px] font-black uppercase transition-all shadow-sm",
+                        "flex items-center justify-between px-3 py-2 rounded border text-[12px] font-black uppercase transition-all shadow-sm",
                         formData.enabled ? "bg-green-600 border-green-600 text-white" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"
                       )}
                     >
@@ -859,7 +859,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                     <button 
                       onClick={() => setFormData({...formData, enabled: false})}
                       className={cn(
-                        "flex items-center justify-between px-3 py-2 rounded border text-[9px] font-black uppercase transition-all shadow-sm",
+                        "flex items-center justify-between px-3 py-2 rounded border text-[12px] font-black uppercase transition-all shadow-sm",
                         !formData.enabled ? "bg-slate-800 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"
                       )}
                     >
@@ -871,20 +871,20 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
 
                 {formData.metadata && (
                   <div className="p-3 bg-slate-50/50 rounded-lg border border-slate-100 flex flex-col gap-2">
-                    <div className="flex justify-between items-center text-[7px] font-black uppercase text-slate-400">
+                    <div className="flex justify-between items-center text-[12px] font-black uppercase text-slate-400">
                       <span>System Metadata</span>
                       <ShieldAlert className="w-2.5 h-2.5 opacity-30" />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <p className="text-[7px] text-slate-400 font-bold uppercase mb-0.5">Created</p>
-                        <p className="text-[9px] text-slate-600 font-mono font-medium leading-none">
+                        <p className="text-[12px] text-slate-400 font-bold uppercase mb-0.5">Created</p>
+                        <p className="text-[12px] text-slate-600 font-mono font-medium leading-none">
                           {new Date(formData.metadata.createdDate).toLocaleDateString([], { month: '2-digit', day: '2-digit', year: '2-digit' })} {new Date(formData.metadata.createdDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
                         </p>
                       </div>
                       <div>
-                        <p className="text-[7px] text-slate-400 font-bold uppercase mb-0.5">Last Modification</p>
-                        <p className="text-[9px] text-slate-600 font-mono font-medium leading-none">
+                        <p className="text-[12px] text-slate-400 font-bold uppercase mb-0.5">Last Modification</p>
+                        <p className="text-[12px] text-slate-600 font-mono font-medium leading-none">
                           {new Date(formData.metadata.lastModifiedDate).toLocaleDateString([], { month: '2-digit', day: '2-digit', year: '2-digit' })} {new Date(formData.metadata.lastModifiedDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
                         </p>
                       </div>
@@ -897,27 +897,27 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
               <div className="space-y-4">
                 {formData.type === ScheduleType.ONE_TIME && (
                   <div className="p-4 bg-purple-50 rounded-lg border border-purple-100 space-y-4">
-                    <h4 className="text-[9px] font-black text-purple-700 uppercase tracking-widest">Static Play Logic</h4>
+                    <h4 className="text-[12px] font-black text-purple-700 uppercase tracking-widest">Static Play Logic</h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[8px] font-bold text-purple-400 uppercase">Target Date</label>
+                        <label className="text-[12px] font-bold text-purple-400 uppercase">Target Date</label>
                         <input 
                           type="date" 
                           value={formData.date || ''} 
                           onChange={e => setFormData({...formData, date: e.target.value})} 
                           className={cn(
-                            "w-full px-2 py-1.5 border rounded text-[10px] outline-none",
+                            "w-full px-2 py-1.5 border rounded text-[12px] outline-none",
                             !formData.date && editingId ? "border-red-300 bg-red-50" : "border-purple-200"
                           )} 
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[8px] font-bold text-purple-400 uppercase">Target Hour</label>
+                        <label className="text-[12px] font-bold text-purple-400 uppercase">Target Hour</label>
                         <select 
                           value={formData.time || ''} 
                           onChange={e => setFormData({...formData, time: e.target.value})} 
                           className={cn(
-                            "w-full px-2 py-1.5 border rounded text-[10px] outline-none bg-white font-bold",
+                            "w-full px-2 py-1.5 border rounded text-[12px] outline-none bg-white font-bold",
                             !formData.time && editingId ? "border-red-300 bg-red-50" : "border-purple-200"
                           )}
                         >
@@ -935,8 +935,8 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 {formData.type === ScheduleType.ADVANCED && (
                   <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 space-y-4">
                     <div className="flex justify-between items-center">
-                      <h4 className="text-[9px] font-black text-blue-700 uppercase tracking-widest">Weekly Schedule</h4>
-                      <div className="flex gap-2 text-[7px] font-black uppercase text-slate-400">
+                      <h4 className="text-[12px] font-black text-blue-700 uppercase tracking-widest">Weekly Schedule</h4>
+                      <div className="flex gap-2 text-[12px] font-black uppercase text-slate-400">
                         <span className="flex items-center gap-1"><Check className="w-2.5 h-2.5 text-green-600" /> Active</span>
                         <span className="flex items-center gap-1"><XCircle className="w-2.5 h-2.5 text-red-400" /> Inactive</span>
                       </div>
@@ -960,7 +960,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                     setFormData({ ...formData, gridRules: allKeys });
                                   }
                                 }}
-                                className="px-1.5 py-0.5 rounded bg-blue-600 text-[6px] font-black text-white hover:bg-blue-700 transition-colors uppercase"
+                                className="px-1.5 py-0.5 rounded bg-blue-600 text-[12px] font-black text-white hover:bg-blue-700 transition-colors uppercase"
                               >
                                 All
                               </button>
@@ -969,7 +969,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                               <th 
                                 key={i} 
                                 onClick={() => toggleColumn(i)}
-                                className="p-1 text-[8px] font-black text-slate-400 cursor-pointer hover:text-blue-600 transition-colors uppercase pb-2"
+                                className="p-1 text-[12px] font-black text-slate-400 cursor-pointer hover:text-blue-600 transition-colors uppercase pb-2"
                               >
                                 {day}
                               </th>
@@ -981,7 +981,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                             <tr key={h} className="hover:bg-blue-100/30 transition-colors">
                               <td 
                                 onClick={() => toggleRow(h)}
-                                className="p-0 text-[7px] font-black text-slate-400 pr-2 cursor-pointer hover:text-blue-600 transition-colors border-r border-slate-100 text-right leading-none h-4"
+                                className="p-0 text-[12px] font-black text-slate-400 pr-2 cursor-pointer hover:text-blue-600 transition-colors border-r border-slate-100 text-right leading-none h-4"
                               >
                                 {h.toString().padStart(2, '0')}:00
                               </td>
@@ -1013,29 +1013,29 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                       </table>
                     </div>
                     
-                    <p className="text-[7px] text-slate-400 italic font-medium pt-2 border-t border-blue-100/50">
+                    <p className="text-[12px] text-slate-400 italic font-medium pt-2 border-t border-blue-100/50">
                       * Headers are clickable to toggle entire columns or rows.
                     </p>
 
                     <div className="grid grid-cols-2 gap-3 pt-2">
                       <div className="space-y-1">
-                        <label className="text-[8px] font-bold text-blue-400 uppercase">Effective Start</label>
+                        <label className="text-[12px] font-bold text-blue-400 uppercase">Effective Start</label>
                         <input 
                           type="date" 
                           value={formData.startDate || ''} 
                           onChange={e => setFormData({...formData, startDate: e.target.value})} 
-                          className="w-full px-2 py-1 border border-blue-200 rounded text-[9px] outline-none bg-white font-medium" 
+                          className="w-full px-2 py-1 border border-blue-200 rounded text-[12px] outline-none bg-white font-medium" 
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[8px] font-bold text-blue-400 uppercase">Expiration Date</label>
+                        <label className="text-[12px] font-bold text-blue-400 uppercase">Expiration Date</label>
                         <input 
                           type="date" 
                           value={formData.endDate || ''} 
                           onChange={e => setFormData({...formData, endDate: e.target.value})} 
-                          className="w-full px-2 py-1 border border-blue-200 rounded text-[9px] outline-none bg-white font-medium" 
+                          className="w-full px-2 py-1 border border-blue-200 rounded text-[12px] outline-none bg-white font-medium" 
                         />
-                        <p className="text-[6px] text-slate-400 font-bold uppercase tracking-tighter">* Blank = No stop date</p>
+                        <p className="text-[12px] text-slate-400 font-bold uppercase tracking-tighter">* Blank = No stop date</p>
                       </div>
                     </div>
                   </div>
@@ -1045,28 +1045,28 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                   <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 flex flex-col items-center justify-center text-center space-y-4 min-h-[140px]">
                     <div className="flex flex-col items-center justify-center opacity-60">
                       <Clock className="w-6 h-6 text-slate-300 mb-2" />
-                      <p className="text-[10px] text-slate-500 font-medium">Auto-repeat hourly trigger enabled.</p>
+                      <p className="text-[12px] text-slate-500 font-medium">Auto-repeat hourly trigger enabled.</p>
                     </div>
                     
                     <div className="w-full grid grid-cols-2 gap-3 pt-4 border-t border-slate-200">
                       <div className="space-y-1 text-left">
-                        <label className="text-[8px] font-bold text-slate-400 uppercase">Effective Start</label>
+                        <label className="text-[12px] font-bold text-slate-400 uppercase">Effective Start</label>
                         <input 
                           type="date" 
                           value={formData.startDate || ''} 
                           onChange={e => setFormData({...formData, startDate: e.target.value})} 
-                          className="w-full px-2 py-1 border border-slate-300 rounded text-[9px] outline-none bg-white font-medium" 
+                          className="w-full px-2 py-1 border border-slate-300 rounded text-[12px] outline-none bg-white font-medium" 
                         />
                       </div>
                       <div className="space-y-1 text-left">
-                        <label className="text-[8px] font-bold text-slate-400 uppercase">Expiration Date</label>
+                        <label className="text-[12px] font-bold text-slate-400 uppercase">Expiration Date</label>
                         <input 
                           type="date" 
                           value={formData.endDate || ''} 
                           onChange={e => setFormData({...formData, endDate: e.target.value})} 
-                          className="w-full px-2 py-1 border border-slate-300 rounded text-[9px] outline-none bg-white font-medium" 
+                          className="w-full px-2 py-1 border border-slate-300 rounded text-[12px] outline-none bg-white font-medium" 
                         />
-                        <p className="text-[6px] text-slate-400 font-bold uppercase tracking-tighter">* Blank = No stop date</p>
+                        <p className="text-[12px] text-slate-400 font-bold uppercase tracking-tighter">* Blank = No stop date</p>
                       </div>
                     </div>
                   </div>
@@ -1077,7 +1077,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
             <div className="mt-8 pt-4 border-t border-slate-100 flex items-center justify-between gap-4">
               <button 
                 onClick={() => deleteSchedule(editingId!)}
-                className="px-4 py-2 flex items-center justify-center gap-2 text-red-500 font-black text-[10px] uppercase hover:bg-red-50 rounded transition-colors border border-transparent hover:border-red-100"
+                className="px-4 py-2 flex items-center justify-center gap-2 text-red-500 font-black text-[12px] uppercase hover:bg-red-50 rounded transition-colors border border-transparent hover:border-red-100"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 Delete this Schedule
@@ -1086,7 +1086,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
               <div className="flex gap-2">
                 <button 
                   onClick={saveEdit}
-                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded text-[10px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md shadow-blue-100"
+                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded text-[12px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md shadow-blue-100"
                 >
                   <CheckCircle className="w-3.5 h-3.5" />
                   Save and Close
@@ -1094,7 +1094,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
 
                 <button 
                   onClick={() => setEditingId(null)}
-                  className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded text-[10px] font-black text-slate-500 hover:bg-slate-100 uppercase tracking-widest transition-all"
+                  className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded text-[12px] font-black text-slate-500 hover:bg-slate-100 uppercase tracking-widest transition-all"
                 >
                   <XCircle className="w-3.5 h-3.5" />
                   Cancel
@@ -1118,7 +1118,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                   <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">
                     {isDriveActive ? "google drive mp3library folder" : "local mp3 library"}
                   </h3>
-                  <p className="text-[7px] text-slate-400 font-bold uppercase">
+                  <p className="text-[12px] text-slate-400 font-bold uppercase">
                     Source: {isDriveActive ? `Google Drive mp3library folder (${DRIVE_FOLDERS.mp3s})` : 'Bundled Local Audio Assets'}
                   </p>
                 </div>
@@ -1136,7 +1136,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                   placeholder="Filter resources..." 
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-4 py-2 bg-slate-100 rounded text-[10px] font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+                  className="w-full pl-8 pr-4 py-2 bg-slate-100 rounded text-[12px] font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all"
                 />
               </div>
               
@@ -1162,27 +1162,27 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                       )} />
                       <div className="min-w-0">
                         <p className={cn(
-                          "text-[10px] font-bold truncate leading-none",
+                          "text-[12px] font-bold truncate leading-none",
                           !file.name.toLowerCase().endsWith('.mp3') ? "text-orange-700" : "text-slate-700 group-hover:text-blue-700"
                         )}>{file.name}</p>
-                        <p className="text-[7px] text-slate-400 mt-1 font-mono">{file.path}</p>
+                        <p className="text-[12px] text-slate-400 mt-1 font-mono">{file.path}</p>
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className="text-[7px] font-black text-slate-300 uppercase leading-none">{file.size}</span>
+                      <span className="text-[12px] font-black text-slate-300 uppercase leading-none">{file.size}</span>
                       {!file.name.toLowerCase().endsWith('.mp3') && (
-                        <span className="text-[5px] font-black text-orange-500 uppercase bg-orange-100 px-1 rounded">No .mp3 extension</span>
+                        <span className="text-[12px] font-black text-orange-500 uppercase bg-orange-100 px-1 rounded">No .mp3 extension</span>
                       )}
                     </div>
                   </button>
                 )) : (
                   <div className="py-12 text-center">
                     <AlertCircle className="w-8 h-8 text-amber-500/60 mx-auto mb-2" />
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                    <p className="text-[12px] font-bold text-slate-500 uppercase tracking-widest">
                       {isDriveActive ? "No files inside Drive folder" : "No matching resources"}
                     </p>
                     {isDriveActive && (
-                      <p className="text-[8px] text-slate-400 mt-2 max-w-[225px] mx-auto leading-relaxed uppercase font-bold">
+                      <p className="text-[12px] text-slate-400 mt-2 max-w-[225px] mx-auto leading-relaxed uppercase font-bold">
                         Please upload your custom .mp3 files into the Google Drive "mp3library" folder!
                       </p>
                     )}
@@ -1193,7 +1193,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
             
             {isDriveActive && (
               <div className="p-3 bg-slate-50 border-t border-slate-100 text-center">
-                <p className="text-[7px] text-slate-400 font-bold uppercase italic leading-relaxed">
+                <p className="text-[12px] text-slate-400 font-bold uppercase italic leading-relaxed">
                   * Real-time sync with default folder "google drive mp3library folder" enabled.<br/>
                   Drive Location Target: google drive mp3library folder (ID: {DRIVE_FOLDERS.mp3s})
                 </p>

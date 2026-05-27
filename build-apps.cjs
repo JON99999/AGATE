@@ -159,20 +159,54 @@ try {
     if (!pkg.build.win) pkg.build.win = {};
     pkg.build.win.icon = "build/icon.ico";
 
-    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+    // Configure Windows specific artifactNames dynamically in running package settings
+    if (!pkg.build.nsis) pkg.build.nsis = {};
+    pkg.build.nsis.differentialPackage = false;
+    pkg.build.nsis.artifactName = "${productName}-${version}-Windows-Installer.${ext}";
+
+    if (!pkg.build.portable) pkg.build.portable = {};
+    pkg.build.portable.artifactName = "${productName}-${version}-Windows-Portable.${ext}";
 
     console.log(`Packaging Electron app for mode: ${mode}...`);
     // Only publish on GitHub Actions when GH_TOKEN/GITHUB_TOKEN is present, fallback to local packaging (publish never) otherwise
     const isCI = process.env.GITHUB_ACTIONS === 'true';
     const publishFlag = isCI ? '--publish always' : '--publish never';
 
-    // Target current platform and define the desired architectures (macOS: arm64 + x64, Windows: x64)
-    const platformFlag = process.platform === 'darwin' ? '--mac --x64 --arm64' : process.platform === 'win32' ? '--win --x64' : '';
+    if (process.platform === 'darwin') {
+      console.log(`Packaging Electron app for Mac x64 (Intel)...`);
+      pkg.build.mac.artifactName = "${productName}-${version}-Apple-Intel-(older)-Installer.${ext}";
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
-    execSync(`npx electron-builder ${platformFlag} ${publishFlag}`, {
-      stdio: 'inherit',
-      env: { ...process.env }
-    });
+      execSync(`npx electron-builder --mac --x64 ${publishFlag}`, {
+        stdio: 'inherit',
+        env: { ...process.env }
+      });
+
+      console.log(`Packaging Electron app for Mac arm64 (Apple Silicon)...`);
+      pkg.build.mac.artifactName = "${productName}-${version}-Apple-Silicon-(newer-arm64)-Installer.${ext}";
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+
+      execSync(`npx electron-builder --mac --arm64 ${publishFlag}`, {
+        stdio: 'inherit',
+        env: { ...process.env }
+      });
+    } else if (process.platform === 'win32') {
+      console.log(`Packaging Electron app for Windows...`);
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+
+      execSync(`npx electron-builder --win --x64 ${publishFlag}`, {
+        stdio: 'inherit',
+        env: { ...process.env }
+      });
+    } else {
+      console.log(`Packaging Electron app for default platform...`);
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+
+      execSync(`npx electron-builder --publish never`, {
+        stdio: 'inherit',
+        env: { ...process.env }
+      });
+    }
     console.log(`Successfully completed packaging for mode: ${mode}!`);
   };
 

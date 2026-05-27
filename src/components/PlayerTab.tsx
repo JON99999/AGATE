@@ -33,6 +33,111 @@ export default function PlayerTab({
   const [playingSlotKey, setPlayingSlotKey] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
 
+  const [cacheDisplayStatus, setCacheDisplayStatus] = useState<'idle' | 'caching' | 'all-cached'>('idle');
+  const [prevActiveUrlsHash, setPrevActiveUrlsHash] = useState<string>('');
+
+  // Compute active verified Schedules and their cache status
+  const activeVerifiedSchedules = useMemo(() => {
+    return schedules.filter(s => {
+      if (!s.enabled || !s.mp3Url) return false;
+      const status = getMP3Status(s.mp3Url);
+      return status.exists && status.valid;
+    });
+  }, [schedules]);
+
+  const activeMp3Urls = useMemo(() => {
+    return activeVerifiedSchedules.map(s => s.mp3Url);
+  }, [activeVerifiedSchedules]);
+
+  useEffect(() => {
+    const hash = activeMp3Urls.join(',');
+    
+    let hasNewUncached = false;
+    if (hash !== prevActiveUrlsHash) {
+      setPrevActiveUrlsHash(hash);
+      let uncached = 0;
+      activeMp3Urls.forEach(url => {
+        const fileInCache = availableFilesCache.get(url);
+        const resolvedUrl = fileInCache ? fileInCache.path : url;
+        const isCached = mp3BlobCache.has(resolvedUrl) || mp3BlobCache.has(url) || getPlayableUrl(url).startsWith('blob:');
+        if (!isCached) {
+          uncached++;
+        }
+      });
+      if (uncached > 0) {
+        hasNewUncached = true;
+      }
+    }
+
+    const checkStatus = () => {
+      let uncached = 0;
+      activeMp3Urls.forEach(url => {
+        const fileInCache = availableFilesCache.get(url);
+        const resolvedUrl = fileInCache ? fileInCache.path : url;
+        const isCached = mp3BlobCache.has(resolvedUrl) || mp3BlobCache.has(url) || getPlayableUrl(url).startsWith('blob:');
+        if (!isCached) {
+          uncached++;
+        }
+      });
+      return uncached;
+    };
+
+    const currentUncached = checkStatus();
+
+    if (currentUncached > 0) {
+      if (cacheDisplayStatus !== 'caching') {
+        setCacheDisplayStatus('caching');
+      }
+    } else {
+      if (cacheDisplayStatus === 'caching') {
+        setCacheDisplayStatus('all-cached');
+        const timer = setTimeout(() => {
+          setCacheDisplayStatus('idle');
+        }, 4000);
+        return () => clearTimeout(timer);
+      }
+    }
+
+    if (cacheDisplayStatus === 'caching' || hasNewUncached) {
+      const interval = setInterval(() => {
+        const uncached = checkStatus();
+        if (uncached === 0) {
+          setCacheDisplayStatus('all-cached');
+          clearInterval(interval);
+          const timer = setTimeout(() => {
+            setCacheDisplayStatus('idle');
+          }, 4000);
+          return () => clearTimeout(timer);
+        }
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [activeMp3Urls, scrollTrigger, cacheDisplayStatus, prevActiveUrlsHash]);
+
+  const renderCacheStatusMessage = () => {
+    if (cacheDisplayStatus === 'idle') return null;
+
+    if (cacheDisplayStatus === 'caching') {
+      return (
+        <div id="global-cache-status-caching" className="flex items-center gap-1.5 text-[12px] font-bold text-white/95 uppercase tracking-wider animate-pulse select-none shrink-0 ml-2">
+          <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0 text-white" />
+          <span>Caching mp3's</span>
+        </div>
+      );
+    }
+
+    if (cacheDisplayStatus === 'all-cached') {
+      return (
+        <div id="global-cache-status-cached" className="flex items-center gap-1.5 text-[12px] font-bold text-emerald-200 uppercase tracking-wider select-none shrink-0 ml-2">
+          <CheckCircle className="w-3.5 h-3.5 text-emerald-300 shrink-0 fill-emerald-500/20" />
+          <span>All cached</span>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
   // Sync ref with state
   useEffect(() => {
     playingAudioRef.current = playingAudio;
@@ -52,21 +157,25 @@ export default function PlayerTab({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const activeItemRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll logic: centered on "now" indicator
+  // Auto-scroll logic: centered on "now" indicator or scrolled to top for Prerecord
   useEffect(() => {
-    if (scrollTrigger > 0) {
-      // Small timeout to ensure DOM layout has settled after data load/render
-      const timer = setTimeout(() => {
+    // Small timeout to ensure DOM layout has settled after data load/render
+    const timer = setTimeout(() => {
+      if (playMode === 'Prerecord') {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      } else {
         if (activeItemRef.current) {
           activeItemRef.current.scrollIntoView({ 
             behavior: 'smooth', 
             block: 'center' 
           });
         }
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [scrollTrigger]);
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [scrollTrigger, playMode]);
 
   useEffect(() => {
     if (!playingAudio) return;
@@ -231,20 +340,22 @@ export default function PlayerTab({
               {isPre && index === 0 && (
                 <div 
                   ref={activeItemRef}
-                  className="bg-purple-600 h-6 flex items-center justify-center rounded shadow-sm border border-purple-500 mx-1"
+                  className="bg-purple-600 h-6 flex items-center justify-between px-3 rounded shadow-sm border border-purple-500 mx-1"
                   id="prerecord-start-indicator"
                 >
-                  <span className="text-[10px] font-black uppercase text-white tracking-widest font-sans">Prerecord Start</span>
+                  <span className="text-[12px] font-black uppercase text-white tracking-widest font-sans">Prerecord Start</span>
+                  {renderCacheStatusMessage()}
                 </div>
               )}
 
               {isPresent && (
                 <div 
                   ref={activeItemRef}
-                  className="bg-blue-600 h-6 flex items-center justify-center rounded shadow-sm border border-blue-500 mx-1"
+                  className="bg-blue-600 h-6 flex items-center justify-between px-3 rounded shadow-sm border border-blue-500 mx-1"
                   id="now-indicator"
                 >
-                  <span className="text-[10px] font-black uppercase text-white tracking-widest font-sans">now</span>
+                  <span className="text-[12px] font-black uppercase text-white tracking-widest font-sans">now</span>
+                  {renderCacheStatusMessage()}
                 </div>
               )}
               
@@ -269,35 +380,56 @@ export default function PlayerTab({
                 const fileInCache = availableFilesCache.get(s.mp3Url);
                 const resolvedUrl = fileInCache ? fileInCache.path : s.mp3Url;
                 const isCached = mp3BlobCache.has(resolvedUrl) || mp3BlobCache.has(s.mp3Url) || getPlayableUrl(s.mp3Url).startsWith('blob:');
+
+                const cardBorderClass = !isVerified
+                  ? "border-red-500"
+                  : isCurrentlyPlaying || isUpcoming
+                    ? (isPre ? "border-purple-600 ring-1 ring-purple-600/30" : "border-blue-600 ring-1 ring-blue-600/30")
+                    : (isMissedRecent || isMissedOld)
+                      ? "border-amber-600"
+                      : (isPast && played)
+                        ? "border-emerald-600"
+                        : "border-slate-500";
+
+                const cardBgClass = !isVerified
+                  ? "bg-red-50/10"
+                  : isCurrentlyPlaying
+                    ? "bg-white"
+                    : isUpcoming
+                      ? (isPre ? "bg-purple-50/20" : "bg-blue-50/20")
+                      : (isMissedRecent || isMissedOld)
+                        ? "bg-amber-50/20"
+                        : (isPast && played)
+                          ? "bg-emerald-50/5"
+                          : isPresent
+                            ? (isPre ? "bg-purple-50/30" : "bg-blue-50/30")
+                            : "bg-white";
+
+                const cardOpacityClass = (isPast && played && !isCurrentlyPlaying)
+                  ? "opacity-75"
+                  : (isMissedRecent || isMissedOld) && !isCurrentlyPlaying
+                    ? "opacity-95"
+                    : "opacity-100";
                 
                 return (
                   <div 
                     key={`${slot.toISOString()}-${s.id}-${idx}`}
                     onClick={() => isVerified ? handlePlay(s, slot) : null}
                     className={cn(
-                      "bg-white rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 select-none cursor-pointer hover:shadow hover:border-slate-300 active:scale-[99.5%] active:bg-slate-50/30",
-                      isCurrentlyPlaying || isUpcoming 
-                        ? (isPre ? "border-purple-500 ring-1 ring-purple-500/20" : "border-blue-500 ring-1 ring-blue-500/20") 
-                        : "border-slate-200",
-                      isUpcoming ? (isPre ? "bg-purple-50/20" : "bg-blue-50/20") : "",
-                      // Highlight missed items (both old and recent) with a muted, less prominent color scheme
-                      (isMissedRecent || isMissedOld) && !isCurrentlyPlaying
-                        ? "bg-amber-50/20 border-amber-200/50 opacity-75 shadow-none"
-                        : (isPast && played && !isCurrentlyPlaying)
-                          ? "opacity-50" // Only successfully played past items get muted
-                          : "",
-                      isPresent && !isCurrentlyPlaying ? (isPre ? "bg-purple-50/30 border-purple-200" : "bg-blue-50/30 border-blue-200") : "",
-                      !isVerified ? "border-red-100 bg-red-50/10" : ""
+                      "rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 select-none cursor-pointer hover:shadow hover:border-slate-300 active:scale-[99.5%] active:bg-slate-50/30 text-left",
+                      cardBorderClass,
+                      cardBgClass,
+                      cardOpacityClass
                     )}
                   >
                 {/* Header: Date & Time */}
                 <div className="flex justify-between items-center bg-slate-50 -mx-2 -mt-2 px-2 py-1 rounded-t">
                   <div className="flex items-center gap-2">
-                    <span className="text-[8px] uppercase font-black text-slate-500 tracking-tighter">
+                    <span className="text-[12px] uppercase font-black text-slate-500 tracking-tighter">
                       {format(slot, 'MMM dd')}
                     </span>
                     <span className={cn(
-                      "text-[10px] font-mono font-black",
+                      "text-[12px] font-mono font-black",
                       isMissedRecent && !isCurrentlyPlaying ? "text-amber-800" : (isPresent || isCurrentlyPlaying || isUpcoming) ? (isPre ? "text-purple-600" : "text-blue-600") : "text-slate-900"
                     )}>
                       {format(slot, 'HH:mm')}
@@ -305,41 +437,37 @@ export default function PlayerTab({
                   </div>
                   {isCurrentlyPlaying ? (
                     <div className={cn(
-                      "flex items-center gap-1 text-[8px] font-black uppercase animate-pulse",
+                      "flex items-center gap-1 text-[12px] font-black uppercase",
                       isPre ? "text-purple-600" : "text-blue-600"
                     )}>
                       <div className={cn("w-1.5 h-1.5 rounded-full", isPre ? "bg-purple-600" : "bg-blue-600")}></div>
                       {isPre ? "Prerecord" : "Live"}
                     </div>
                   ) : isPresent ? (
-                    <span className={cn("text-[8px] text-white px-1 py-0.5 rounded font-black uppercase leading-none", isPre ? "bg-purple-600" : "bg-blue-600")}>Next</span>
+                    <span className={cn("text-[12px] text-white px-1 py-0.5 rounded font-black uppercase leading-none", isPre ? "bg-purple-600" : "bg-blue-600")}>Next</span>
                   ) : isUpcoming ? (
-                    <span className={cn("text-[8px] text-white px-1 py-0.5 rounded font-black uppercase leading-none shadow-sm animate-pulse", isPre ? "bg-purple-500 shadow-purple-200" : "bg-blue-500 shadow-blue-200")}>Upcoming</span>
+                    <span className={cn("text-[12px] text-white px-1 py-0.5 rounded font-black uppercase leading-none shadow-sm animate-pulse", isPre ? "bg-purple-500 shadow-purple-200" : "bg-blue-500 shadow-blue-200")}>Next</span>
                   ) : null}
                 </div>
 
                 {/* Track Row: Title + Play/Stop Icon */}
                 <div className="flex items-center justify-between gap-2">
                   <div className={cn(
-                    "text-[10px] font-bold leading-tight break-words line-clamp-2 flex-1",
+                    "text-[12px] font-bold leading-tight break-words line-clamp-2 flex-1",
                     isCurrentlyPlaying ? (isPre ? "text-purple-700" : "text-blue-700") : "text-slate-800"
                   )}>
                     {s.name}
                   </div>
                   
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (isVerified) handlePlay(s, slot);
-                    }}
+                  <div 
                     className={cn(
                       "shrink-0 p-1 rounded-full transition-all shadow-sm",
-                      !isVerified ? "bg-red-50 text-red-300 cursor-not-allowed" :
+                      !isVerified ? "bg-red-50 text-red-300" :
                       isCurrentlyPlaying ? "bg-slate-900 text-white" :
-                      played ? "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-600 transition-colors" :
-                      isMissedRecent ? "bg-slate-500 text-white hover:bg-slate-600" :
+                      played ? "bg-slate-100 text-slate-500" :
+                      isMissedRecent ? "bg-slate-500 text-white" :
                       isPresent || isUpcoming ? (isPre ? "bg-purple-600 text-white shadow-md shadow-purple-200" : "bg-blue-600 text-white shadow-md shadow-blue-200") :
-                      "bg-slate-700 text-white hover:bg-slate-900"
+                      "bg-slate-700 text-white"
                     )}
                     title={!isVerified ? "Invalid or missing file" : played ? "Play Again" : undefined}
                   >
@@ -352,7 +480,7 @@ export default function PlayerTab({
                     ) : (
                       <Play className="w-2.5 h-2.5 fill-current" />
                     )}
-                  </button>
+                  </div>
                 </div>
 
                 {/* Status & Details */}
@@ -363,46 +491,40 @@ export default function PlayerTab({
                         {(played || isCurrentlyPlaying) ? (
                           <>
                             <CheckCircle className="w-2.5 h-2.5 text-green-500" />
-                            <span className="text-[8px] font-bold text-green-600 uppercase tracking-tighter">
+                            <span className="text-[12px] font-bold text-green-600 uppercase tracking-tighter">
                               Played {playedLog ? format(parseISO(playedLog.timestamp), 'HH:mm') : ''}
                             </span>
                           </>
                         ) : isMissedRecent || isMissedOld ? (
                           <>
                             <AlertCircle className="w-2.5 h-2.5 text-orange-600" />
-                            <span className="text-[8px] font-bold text-orange-600 uppercase tracking-tighter">Missed</span>
+                            <span className="text-[12px] font-bold text-orange-600 uppercase tracking-tighter">Missed</span>
                           </>
                         ) : (
                           <>
                             <Clock className="w-2.5 h-2.5 text-slate-400" />
-                            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">To be played</span>
+                            <span className="text-[12px] font-bold text-slate-400 uppercase tracking-tighter">To be played</span>
                           </>
                         )}
-                      </div>
-                      <div className="flex items-center gap-1 opacity-80 leading-none py-0.5">
-                        <div className={cn("w-1 h-1 rounded-full shrink-0", isCached ? "bg-emerald-500" : (isPre ? "bg-purple-400 animate-pulse" : "bg-blue-400 animate-pulse"))} />
-                        <span className="text-[6.5px] font-black text-slate-400 uppercase tracking-tighter leading-none">
-                          {isCached ? "Cached" : "Caching..."}
-                        </span>
                       </div>
                     </div>
                   ) : (
                     <div className="flex items-center gap-1">
                       <AlertCircle className="w-2.5 h-2.5 text-red-500" />
-                      <span className="text-[8px] font-bold text-red-600 uppercase tracking-tighter">
+                      <span className="text-[12px] font-bold text-red-600 uppercase tracking-tighter">
                         {!status.exists ? "File not found." : "File not mp3."}
                       </span>
                     </div>
                   )}
                   
                   {isCurrentlyPlaying ? (
-                    <div className={cn("flex items-center gap-1 text-[8px] font-mono font-bold leading-none", isPre ? "text-purple-600" : "text-blue-600")}>
+                    <div className={cn("flex items-center gap-1 text-[12px] font-mono font-bold leading-none", isPre ? "text-purple-600" : "text-blue-600")}>
                       <span>{formatTime(currentTime)}</span>
                       <span className="opacity-30">/</span>
                       <span>{formatTime(duration)}</span>
                     </div>
                   ) : isVerified ? (
-                    <span className="text-[8px] font-mono font-bold text-slate-400 leading-none">
+                    <span className="text-[12px] font-mono font-bold text-slate-400 leading-none">
                       {mp3DurationCache.get(s.mp3Url) || s.duration || '--:--'}
                     </span>
                   ) : null}

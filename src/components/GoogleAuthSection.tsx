@@ -53,6 +53,18 @@ export default function GoogleAuthSection({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
 
+  // Auto-open Advanced options and select Option 3 when running in AI Studio and not authenticated
+  useEffect(() => {
+    const hostname = window.location.hostname;
+    const isAIStudio = hostname.includes('.run.app') || 
+                      hostname.includes('aistudio') || 
+                      hostname.includes('googleusercontent.com');
+    if (isAIStudio && !token) {
+      setShowAdvanced(true);
+      setActiveTab('direct-token');
+    }
+  }, [token]);
+
   // Save the Client ID and selected method when modified
   const handleClientIdChange = (id: string) => {
     setGoogleClientId(id);
@@ -264,17 +276,17 @@ export default function GoogleAuthSection({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className={cn("w-3.5 h-3.5", user ? "text-emerald-400" : "text-slate-500")} />
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Account Authorization Status</span>
+            <span className="text-[12px] font-black uppercase tracking-wider text-slate-400">Account Authorization Status</span>
           </div>
           {user ? (
-            <span className="text-[10.5px] bg-emerald-950/30 text-emerald-400 border border-emerald-900/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Authenticated</span>
+            <span className="text-[14px] bg-emerald-950/30 text-emerald-400 border border-emerald-900/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Authenticated</span>
           ) : (
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={handleLaunchAutopilot}
                 disabled={isPollingExternal || !googleClientId.trim()}
-                className="py-0.5 px-2 text-[10px] font-black uppercase tracking-wider bg-blue-600 hover:bg-blue-500 disabled:bg-slate-850 disabled:text-slate-500 text-white border border-blue-550 rounded transition-colors duration-150 flex items-center gap-1 cursor-pointer shrink-0"
+                className="py-0.5 px-2 text-[12px] font-black uppercase tracking-wider bg-blue-600 hover:bg-blue-500 disabled:bg-slate-850 disabled:text-slate-500 text-white border border-blue-550 rounded transition-colors duration-150 flex items-center gap-1 cursor-pointer shrink-0"
               >
                 {isPollingExternal ? (
                   <>
@@ -285,7 +297,7 @@ export default function GoogleAuthSection({
                   <span>Connect</span>
                 )}
               </button>
-              <span className="text-[10.5px] bg-red-950/20 text-red-400 border border-red-955 px-1.5 py-0.5 rounded font-black uppercase tracking-wider animate-pulse">Disconnected</span>
+              <span className="text-[14px] bg-red-950/20 text-red-400 border border-red-955 px-1.5 py-0.5 rounded font-black uppercase tracking-wider animate-pulse">Disconnected</span>
             </div>
           )}
         </div>
@@ -294,22 +306,22 @@ export default function GoogleAuthSection({
           <div className="space-y-2 pt-0.5">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-mono text-slate-200 truncate">{user.email}</p>
+                <p className="text-[14px] font-mono text-slate-200 truncate">{user.email}</p>
                 {token && (
-                  <p className="text-[10px] font-mono text-slate-500 mt-0.5">Token: {token.substring(0, 10)}...{token.substring(token.length - 10)}</p>
+                  <p className="text-[12px] font-mono text-slate-500 mt-0.5">Token: {token.substring(0, 10)}...{token.substring(token.length - 10)}</p>
                 )}
               </div>
               <button
                 type="button"
                 onClick={handleAuthSignOut}
-                className="py-1 px-2.5 text-[10.5px] font-black bg-red-950/25 text-red-400 border border-red-900/40 hover:bg-red-900 hover:text-white rounded transition-colors duration-150 uppercase tracking-wider cursor-pointer"
+                className="py-1 px-2.5 text-[14px] font-black bg-red-950/25 text-red-400 border border-red-900/40 hover:bg-red-900 hover:text-white rounded transition-colors duration-150 uppercase tracking-wider cursor-pointer"
               >
                 Disconnect
               </button>
             </div>
           </div>
         ) : (
-          <p className="text-[10px] font-sans text-slate-400 leading-normal">
+          <p className="text-[12px] font-sans text-slate-400 leading-normal">
             Authenticate Interstitial-er with Google Drive to access core configurations and directories.
           </p>
         )}
@@ -322,16 +334,16 @@ export default function GoogleAuthSection({
             <button
               type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-slate-200 cursor-pointer flex items-center gap-1"
+              className="text-[12px] font-black uppercase tracking-wider text-slate-400 hover:text-slate-200 cursor-pointer flex items-center gap-1"
             >
-              <span className="text-[11px] text-blue-500">{showAdvanced ? "▼" : "▶"}</span>
+              <span className="text-[14px] text-blue-500">{showAdvanced ? "▼" : "▶"}</span>
               <span>Advanced connection options</span>
             </button>
             {showAdvanced && (
               <button
                 type="button"
                 onClick={() => setIsHelpOpen(true)}
-                className="text-[10px] font-black uppercase tracking-wider text-blue-400 hover:text-blue-300 cursor-pointer flex items-center gap-1 bg-blue-950/20 border border-blue-900/30 px-2 py-0.5 rounded transition-all shrink-0"
+                className="text-[12px] font-black uppercase tracking-wider text-blue-400 hover:text-blue-300 cursor-pointer flex items-center gap-1 bg-blue-950/20 border border-blue-900/30 px-2 py-0.5 rounded transition-all shrink-0"
               >
                 <HelpCircle className="w-2.5 h-2.5" />
                 <span>Authorization Help</span>
@@ -346,7 +358,7 @@ export default function GoogleAuthSection({
                   type="button"
                   onClick={() => setActiveTab('autopilot')}
                   className={cn(
-                    "flex-1 py-1 text-[10.5px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
+                    "flex-1 py-1 text-[14px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
                     activeTab === 'autopilot' 
                       ? "bg-blue-600/15 text-blue-400 border border-blue-500/25" 
                       : "text-slate-400 hover:text-slate-200"
@@ -358,7 +370,7 @@ export default function GoogleAuthSection({
                   type="button"
                   onClick={() => setActiveTab('manual-transfer')}
                   className={cn(
-                    "flex-1 py-1 text-[10.5px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
+                    "flex-1 py-1 text-[14px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
                     activeTab === 'manual-transfer' 
                       ? "bg-blue-600/15 text-blue-400 border border-blue-500/25" 
                       : "text-slate-400 hover:text-slate-200"
@@ -370,7 +382,7 @@ export default function GoogleAuthSection({
                   type="button"
                   onClick={() => setActiveTab('direct-token')}
                   className={cn(
-                    "flex-1 py-1 text-[10.5px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
+                    "flex-1 py-1 text-[14px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
                     activeTab === 'direct-token' 
                       ? "bg-blue-600/15 text-blue-400 border border-blue-500/25" 
                       : "text-slate-400 hover:text-slate-200"
@@ -395,21 +407,21 @@ export default function GoogleAuthSection({
                       <div className="flex items-start gap-1.5 text-blue-400">
                         <Globe className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <div className="space-y-1">
-                          <span className="text-[10px] font-black uppercase tracking-wider block">Option 1: Desktop Browser Loopback Autopilot</span>
-                          <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
+                          <span className="text-[12px] font-black uppercase tracking-wider block">Option 1: Desktop Browser Loopback Autopilot</span>
+                          <p className="text-[12px] text-slate-400 leading-relaxed font-sans">
                             Launches your default web browser to authorize access. Interstitial-er automatically captures the token via localhost loopback callback.
                           </p>
                         </div>
                       </div>
 
                       <div className="space-y-1.5 p-2 bg-slate-950/60 border border-slate-800 rounded">
-                        <label className="text-[10px] text-slate-400 block font-black uppercase tracking-wider">Google OAuth Client ID</label>
+                        <label className="text-[12px] text-slate-400 block font-black uppercase tracking-wider">Google OAuth Client ID</label>
                         <input
                           type="text"
                           placeholder="Paste google_client_id here..."
                           value={googleClientId}
                           onChange={(e) => handleClientIdChange(e.target.value)}
-                          className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[11px] font-mono text-slate-200 outline-none"
+                          className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[14px] font-mono text-slate-200 outline-none"
                         />
                       </div>
 
@@ -418,7 +430,7 @@ export default function GoogleAuthSection({
                           type="button"
                           onClick={handleLaunchAutopilot}
                           disabled={isPollingExternal || !googleClientId.trim()}
-                          className="w-full py-1 text-[10.5px] font-black uppercase tracking-wider bg-blue-600 hover:bg-blue-500 disabled:bg-slate-850 disabled:text-slate-500 text-white rounded transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer"
+                          className="w-full py-1 text-[14px] font-black uppercase tracking-wider bg-blue-600 hover:bg-blue-500 disabled:bg-slate-850 disabled:text-slate-500 text-white rounded transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           {isPollingExternal ? (
                             <>
@@ -430,7 +442,7 @@ export default function GoogleAuthSection({
                           )}
                         </button>
                         
-                        <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
+                        <div className="flex items-center justify-between text-[12px] font-mono text-slate-500">
                           <span>Callback URI: 127.0.0.1:{window.location.port || '3000'}</span>
                           <button
                             type="button"
@@ -456,40 +468,40 @@ export default function GoogleAuthSection({
                       <div className="flex items-start gap-1.5 text-blue-400">
                         <FileCode className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <div className="space-y-1">
-                          <span className="text-[10px] font-black uppercase tracking-wider block">Option 2: Browser Verification with Copy-Paste</span>
-                          <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
+                          <span className="text-[12px] font-black uppercase tracking-wider block">Option 2: Browser Verification with Copy-Paste</span>
+                          <p className="text-[12px] text-slate-400 leading-relaxed font-sans">
                             Failsafe method for restricted machines. Launches Google auth, redirects to a page where your token is displayed. Copy and paste it here.
                           </p>
                         </div>
                       </div>
 
                       <div className="space-y-1.5 p-2 bg-slate-950/60 border border-slate-800 rounded">
-                        <label className="text-[10px] text-slate-400 block font-black uppercase tracking-wider">Google OAuth Client ID</label>
+                        <label className="text-[12px] text-slate-400 block font-black uppercase tracking-wider">Google OAuth Client ID</label>
                         <input
                           type="text"
                           placeholder="Paste google_client_id here..."
                           value={googleClientId}
                           onChange={(e) => handleClientIdChange(e.target.value)}
-                          className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[11px] font-mono text-slate-200 outline-none"
+                          className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[14px] font-mono text-slate-200 outline-none"
                         />
                       </div>
 
                       <div className="grid grid-cols-[1fr_auto] gap-1.5 p-2 bg-slate-950/60 border border-slate-800 rounded">
                         <div className="space-y-1">
-                          <label className="text-[10px] text-slate-400 block font-black uppercase tracking-wider">Paste Authorized Access Token</label>
+                          <label className="text-[12px] text-slate-400 block font-black uppercase tracking-wider">Paste Authorized Access Token</label>
                           <input
                             type="password"
                             placeholder="Paste verification token here (Bearer)..."
                             value={manualCodeToken}
                             onChange={(e) => setManualCodeToken(e.target.value)}
-                            className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[11px] font-mono text-slate-250 outline-none"
+                            className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[14px] font-mono text-slate-250 outline-none"
                           />
                         </div>
                         <div className="flex flex-col justify-end">
                           <button
                             type="button"
                             onClick={handleApplyManualHelperToken}
-                            className="px-2.5 py-1 text-[10.5px] font-black bg-blue-600 hover:bg-blue-500 text-white rounded uppercase tracking-wider transition cursor-pointer"
+                            className="px-2.5 py-1 text-[14px] font-black bg-blue-600 hover:bg-blue-500 text-white rounded uppercase tracking-wider transition cursor-pointer"
                           >
                             Apply
                           </button>
@@ -500,7 +512,7 @@ export default function GoogleAuthSection({
                         type="button"
                         onClick={handleLaunchManualHelper}
                         disabled={!googleClientId.trim()}
-                        className="w-full py-1 text-[10.5px] font-black uppercase tracking-wider bg-slate-805 hover:bg-slate-750 text-slate-200 border border-slate-705 rounded transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="w-full py-1 text-[14px] font-black uppercase tracking-wider bg-slate-805 hover:bg-slate-750 text-slate-200 border border-slate-705 rounded transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <span>1. Get Token from Browser</span>
                         <ExternalLink className="w-2.5 h-2.5" />
@@ -520,29 +532,40 @@ export default function GoogleAuthSection({
                       <div className="flex items-start gap-1.5 text-blue-400">
                         <Key className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <div className="space-y-1">
-                          <span className="text-[10px] font-black uppercase tracking-wider block">Option 3: Direct Manual Access Token</span>
-                          <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
+                          <span className="text-[12px] font-black uppercase tracking-wider block">Option 3: Direct Manual Access Token</span>
+                          <p className="text-[12px] text-slate-400 leading-relaxed font-sans">
                             Instant developer bypass. Paste any valid Google Access Token (e.g. from Google OAuth Playground) with drive scope to sign in.
                           </p>
+                          <div className="pt-1.5 select-text">
+                            <a
+                              href="https://developers.google.com/oauthplayground"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[12px] text-blue-400 hover:text-blue-300 font-bold inline-flex items-center gap-1 underline cursor-pointer break-all"
+                            >
+                              <span>Authorize Drive API v3 &gt; https://www.googleapis.com/auth/drive to obtain "access token" here.</span>
+                              <ExternalLink className="w-3 h-3 shrink-0" />
+                            </a>
+                          </div>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-[1fr_auto] gap-1.5 p-2 bg-slate-950/60 border border-slate-800 rounded">
                         <div className="space-y-1">
-                          <label className="text-[10px] text-slate-400 block font-black uppercase tracking-wider">Access Token (Bearer)</label>
+                          <label className="text-[12px] text-slate-400 block font-black uppercase tracking-wider">Access Token (Bearer)</label>
                           <input
                             type="password"
                             placeholder="Paste raw oauth access token here..."
                             value={localManualToken}
                             onChange={(e) => setLocalManualToken(e.target.value)}
-                            className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[11px] font-mono text-slate-250 outline-none"
+                            className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[14px] font-mono text-slate-250 outline-none"
                           />
                         </div>
                         <div className="flex flex-col justify-end">
                           <button
                             type="button"
                             onClick={handleApplyDirectToken}
-                            className="px-2.5 py-1 text-[10.5px] font-black bg-blue-600 hover:bg-blue-500 text-white rounded uppercase tracking-wider transition cursor-pointer"
+                            className="px-2.5 py-1 text-[14px] font-black bg-blue-600 hover:bg-blue-500 text-white rounded uppercase tracking-wider transition cursor-pointer"
                           >
                             Apply
                           </button>
@@ -561,23 +584,23 @@ export default function GoogleAuthSection({
 
       {/* Shared Diagnostic Warning Streams */}
       {driveValidationError && (
-        <div className="p-3.5 bg-red-955/15 border border-red-900/40 rounded-lg text-[11px] text-red-300 space-y-2 max-w-full">
-          <div className="flex items-center gap-1.5 font-bold uppercase text-red-400 text-[10px]">
+        <div className="p-3.5 bg-red-955/15 border border-red-900/40 rounded-lg text-[14px] text-red-300 space-y-2 max-w-full">
+          <div className="flex items-center gap-1.5 font-bold uppercase text-red-400 text-[12px]">
             <AlertCircle className="w-3 h-3 shrink-0" />
             <span>Authorization Diagnostic Stream</span>
           </div>
           <p className="font-sans leading-relaxed text-slate-300">
             The authorization sequence returned an issue:
           </p>
-          <div className="p-1 px-2 bg-slate-950 rounded border border-slate-800 font-mono text-[10px] text-slate-400 select-all overflow-x-auto whitespace-pre block max-w-full">
+          <div className="p-1 px-2 bg-slate-950 rounded border border-slate-800 font-mono text-[12px] text-slate-400 select-all overflow-x-auto whitespace-pre block max-w-full">
             {driveValidationError}
           </div>
-          <ul className="list-disc pl-3.5 space-y-1 text-slate-400 text-[10px] leading-relaxed">
+          <ul className="list-disc pl-3.5 space-y-1 text-slate-400 text-[12px] leading-relaxed">
             <li>
               <strong className="text-slate-350">GCP Redirect Restrictions:</strong> Google tightly restricts redirects of custom protocols or localhost. Verify client credentials.
             </li>
             <li>
-              <strong className="text-slate-350">Authorized Origins Check:</strong> Confirm that <code className="bg-slate-900 border border-slate-800 px-1 py-0.2 rounded font-mono select-all text-[10px]">{window.location.origin}</code> and loopbacks are whitelisted in your Google Cloud platform credentials settings.
+              <strong className="text-slate-350">Authorized Origins Check:</strong> Confirm that <code className="bg-slate-900 border border-slate-800 px-1 py-0.2 rounded font-mono select-all text-[12px]">{window.location.origin}</code> and loopbacks are whitelisted in your Google Cloud platform credentials settings.
             </li>
           </ul>
         </div>

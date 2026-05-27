@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, Menu } = require('electron');
+const { app, BrowserWindow, screen, Menu, session, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -130,6 +130,25 @@ function createWindow() {
 app.on('ready', async () => {
   await startServer();
   createWindow();
+
+  session.defaultSession.on('will-download', (event, item, webContents) => {
+    // Set standard default path to Downloads folder
+    const fileName = item.getFilename();
+    const defaultPath = path.join(app.getPath('downloads'), fileName);
+
+    // Show native save dialog synchronously
+    const filePath = dialog.showSaveDialogSync(BrowserWindow.getFocusedWindow() || mainWindow, {
+      title: 'Save Exported Log File',
+      defaultPath: defaultPath,
+      buttonLabel: 'Save'
+    });
+
+    if (filePath) {
+      item.setSavePath(filePath);
+    } else {
+      event.preventDefault();
+    }
+  });
 });
 
 app.on('window-all-closed', function () {

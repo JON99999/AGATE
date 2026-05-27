@@ -4,6 +4,7 @@ import {
   Search, 
   Music
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { LogEntry } from '../types';
 import { cn, getMP3Status } from '../lib/utils';
 
@@ -16,6 +17,8 @@ type SortOrder = 'asc' | 'desc';
 
 export default function LogTab({ logs }: LogTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [startDateStr, setStartDateStr] = useState('');
+  const [endDateStr, setEndDateStr] = useState('');
   const [sortField, setSortField] = useState<SortField>('timestamp');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
@@ -36,7 +39,6 @@ export default function LogTab({ logs }: LogTabProps) {
 
     const doDrag = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startX;
-      // Dragging Time or Schedule right increases, ID decreases width unless inverted
       const direction = col === 'id' ? -1 : 1;
       const newWidth = Math.max(70, Math.min(600, startWidth + deltaX * direction));
       setColWidths(prev => ({
@@ -67,10 +69,25 @@ export default function LogTab({ logs }: LogTabProps) {
     }
   };
 
-  const filteredAndSortedLogs = useMemo(() => {
+  // Filter logs by query and start/end dates
+  const filteredLogsBase = useMemo(() => {
     let result = [...logs];
 
-    // Filter
+    // Filter by start date
+    if (startDateStr) {
+      const start = new Date(startDateStr);
+      start.setHours(0, 0, 0, 0);
+      result = result.filter(l => new Date(l.timestamp).getTime() >= start.getTime());
+    }
+
+    // Filter by end date
+    if (endDateStr) {
+      const end = new Date(endDateStr);
+      end.setHours(23, 59, 59, 999);
+      result = result.filter(l => new Date(l.timestamp).getTime() <= end.getTime());
+    }
+
+    // Filter by search query
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(l => {
@@ -90,7 +107,13 @@ export default function LogTab({ logs }: LogTabProps) {
       });
     }
 
-    // Sort
+    return result;
+  }, [logs, searchQuery, startDateStr, endDateStr]);
+
+  // Sort the fully filtered logs
+  const sortedAndFilteredLogsAll = useMemo(() => {
+    const result = [...filteredLogsBase];
+
     result.sort((a, b) => {
       let valA: any = a[sortField];
       let valB: any = b[sortField];
@@ -116,10 +139,60 @@ export default function LogTab({ logs }: LogTabProps) {
       return 0;
     });
 
-    return result.slice(0, DISPLAY_LIMIT);
-  }, [logs, searchQuery, sortField, sortOrder]);
+    return result;
+  }, [filteredLogsBase, sortField, sortOrder]);
 
-  // Sort Arrow component that renders both Up/Down arrows and bolds the active direction
+  // Sliced logs to show on screen for memory reasons
+  const displayedLogs = useMemo(() => {
+    return sortedAndFilteredLogsAll.slice(0, DISPLAY_LIMIT);
+  }, [sortedAndFilteredLogsAll]);
+
+  // Export to CSV
+  const handleExportCSV = () => {
+    const headers = ['Scheduled Date', 'Scheduled Time', 'Actual Playback Time', 'Schedule Name', 'Play Mode', 'MP3 File', 'Schedule ID'];
+    const rows = sortedAndFilteredLogsAll.map(log => [
+      format(new Date(log.timestamp), 'yyyy-MM-dd'),
+      format(new Date(log.timestamp), 'HH:mm:ss'),
+      log.logTimeStamp ? format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss') : '-',
+      log.scheduleName,
+      log.playMode || 'Live',
+      log.mp3Name,
+      log.scheduleId
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(r => r.map(val => `"${val.replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `interstititaler_logs_${format(new Date(), 'yyyyMMdd_HHmmss')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Export to XLSX
+  const handleExportXLSX = () => {
+    const exportData = sortedAndFilteredLogsAll.map(log => ({
+      'Scheduled Date': format(new Date(log.timestamp), 'yyyy-MM-dd'),
+      'Scheduled Time': format(new Date(log.timestamp), 'HH:mm:ss'),
+      'Actual Playback Time': log.logTimeStamp ? format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss') : '-',
+      'Schedule Name': log.scheduleName,
+      'Play Mode': log.playMode || 'Live',
+      'MP3 File': log.mp3Name,
+      'Schedule ID': log.scheduleId
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Filtered Logs');
+    XLSX.writeFile(wb, `interstititaler_logs_${format(new Date(), 'yyyyMMdd_HHmmss')}.xlsx`);
+  };
+
   const SortArrow = ({ field }: { field: SortField }) => {
     const isActive = sortField === field;
     const isAsc = isActive && sortOrder === 'asc';
@@ -128,13 +201,13 @@ export default function LogTab({ logs }: LogTabProps) {
     return (
       <span className="inline-flex flex-col ml-1 shrink-0 select-none leading-none -space-y-0.5">
         <span className={cn(
-          "text-[7px] leading-none transition-all",
+          "text-[12px] leading-none transition-all",
           isAsc 
             ? "text-blue-600 font-black scale-125" 
             : "text-slate-300 font-normal opacity-50"
         )}>▲</span>
         <span className={cn(
-          "text-[7px] leading-none transition-all",
+          "text-[12px] leading-none transition-all",
           isDesc 
             ? "text-blue-600 font-black scale-125" 
             : "text-slate-300 font-normal opacity-50"
@@ -145,26 +218,85 @@ export default function LogTab({ logs }: LogTabProps) {
 
   return (
     <div className="flex flex-col h-full space-y-3">
-      {/* Tidy Search & Record Count on Same Line */}
-      <div className="bg-white rounded-xl border border-slate-200 p-2.5 shadow-sm shrink-0 flex items-center justify-between gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder="Filter logs by name, playback, or ID..." 
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200/80 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500/80 transition-all font-sans"
-          />
+      {/* Search, Range, Count & Exports unified in a single compact bar */}
+      <div className="bg-white rounded-xl border border-slate-200 p-2.5 shadow-sm shrink-0 flex flex-wrap items-center gap-3 justify-between">
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
+          {/* Search filter */}
+          <div className="relative w-full max-w-[210px] shrink-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Filter logs by name..." 
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200/80 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500/80 transition-all font-sans"
+            />
+          </div>
+          
+          {/* Date Range filters */}
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            <div className="flex items-center gap-1">
+              <span className="text-[12px] font-black text-slate-400 uppercase tracking-wider shrink-0">From:</span>
+              <input 
+                type="date" 
+                value={startDateStr}
+                onChange={e => setStartDateStr(e.target.value)}
+                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-700 cursor-pointer transition-colors"
+              />
+            </div>
+            
+            <div className="flex items-center gap-1">
+              <span className="text-[12px] font-black text-slate-400 uppercase tracking-wider shrink-0">To:</span>
+              <input 
+                type="date" 
+                value={endDateStr}
+                onChange={e => setEndDateStr(e.target.value)}
+                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-700 cursor-pointer transition-colors"
+                title="End Date (inclusive)"
+              />
+            </div>
+
+            {(startDateStr || endDateStr) && (
+              <button 
+                onClick={() => { setStartDateStr(''); setEndDateStr(''); }}
+                className="text-[11px] text-slate-450 hover:text-slate-600 font-bold underline cursor-pointer ml-1 select-none"
+              >
+                Clear Dates
+              </button>
+            )}
+          </div>
         </div>
-        
-        {/* Count Label placed inline */}
-        <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 shrink-0 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100">
-          <span>Count:</span>
-          <span className="text-xs font-black text-slate-900 tabular-nums">{logs.length}</span>
-          {logs.length > DISPLAY_LIMIT && (
-            <span className="text-[8px] font-black text-blue-500 bg-blue-50 px-1 py-0.5 rounded ml-1 tracking-normal">Last {DISPLAY_LIMIT}</span>
-          )}
+
+        {/* Count and Exports bundle */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Count and limit indicators */}
+          <div className="text-[12px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 shrink-0 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100">
+            <span>Count:</span>
+            <span className="text-xs font-black text-slate-900 tabular-nums">{filteredLogsBase.length}</span>
+            {filteredLogsBase.length > DISPLAY_LIMIT && (
+              <span className="text-[11px] font-black text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded ml-1 tracking-normal border border-amber-250">
+                (limited to {DISPLAY_LIMIT} items)
+              </span>
+            )}
+          </div>
+
+          {/* Export buttons */}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={handleExportCSV}
+              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-[12px] font-bold text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+              title="Export filtered logs as CSV"
+            >
+              CSV
+            </button>
+            <button
+              onClick={handleExportXLSX}
+              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-[12px] font-bold text-emerald-700 transition-colors flex items-center gap-1 cursor-pointer"
+              title="Export filtered logs as Excel"
+            >
+              XLSX
+            </button>
+          </div>
         </div>
       </div>
 
@@ -172,7 +304,7 @@ export default function LogTab({ logs }: LogTabProps) {
       <div className="flex-1 overflow-y-auto min-h-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
         
         {/* Header containing the dynamic incorporated sorts with 2 row headers */}
-        <div className="bg-slate-50 border-b border-slate-200 py-2 flex items-stretch text-[9px] font-black text-slate-400 uppercase tracking-wider shrink-0 select-none">
+        <div className="bg-slate-50 border-b border-slate-200 py-2 flex items-stretch text-[12px] font-black text-slate-400 uppercase tracking-wider shrink-0 select-none">
           
           {/* 1st Column: Timestamp (2 rows: Scheduled & Actual) */}
           <div style={{ width: `${colWidths.time}px` }} className="flex flex-col justify-center gap-1.5 pr-2 pl-4 shrink-0 overflow-hidden">
@@ -265,8 +397,8 @@ export default function LogTab({ logs }: LogTabProps) {
         
         {/* Rows viewport */}
         <div className="flex-1 overflow-y-auto">
-          {filteredAndSortedLogs.length > 0 ? (
-            filteredAndSortedLogs.map((log, i) => (
+          {displayedLogs.length > 0 ? (
+            displayedLogs.map((log, i) => (
               <div 
                 key={`${log.scheduleId}-${log.timestamp}-${i}`}
                 className={cn(
@@ -275,17 +407,20 @@ export default function LogTab({ logs }: LogTabProps) {
                 )}
               >
                 {/* Timestamp cell mapped to Schedule/Actual */}
-                <div style={{ width: `${colWidths.time}px` }} className="text-[11px] font-mono font-bold text-slate-900 tabular-nums leading-none flex flex-col justify-center gap-1.5 pr-2 pl-4 shrink-0 overflow-hidden py-2.5">
-                  <div className="flex items-center truncate">
-                    <span>{format(new Date(log.timestamp), 'yyyy-MM-dd')}</span>
-                    <span className="text-slate-400 font-medium ml-1.5">{format(new Date(log.timestamp), 'HH:mm:ss')}</span>
+                <div style={{ width: `${colWidths.time}px` }} className="text-[14px] font-mono font-bold text-slate-900 tabular-nums flex flex-col justify-center gap-1.5 pr-2 pl-4 shrink-0 overflow-hidden py-2.5">
+                  <div className="leading-tight line-clamp-2 text-ellipsis overflow-hidden" title={`${format(new Date(log.timestamp), 'yyyy-MM-dd')} ${format(new Date(log.timestamp), 'HH:mm:ss')}`}>
+                    <span className="inline-block mr-1.5">{format(new Date(log.timestamp), 'yyyy-MM-dd')}</span>
+                    <span className="text-slate-400 font-medium inline-block">{format(new Date(log.timestamp), 'HH:mm:ss')}</span>
                   </div>
                   {log.logTimeStamp ? (
-                    <span className="text-[8px] font-mono font-medium text-slate-400 tracking-tighter leading-none truncate">
+                    <span 
+                      className="text-[12px] font-mono font-medium text-slate-400 tracking-tighter leading-tight line-clamp-2 text-ellipsis overflow-hidden"
+                      title={`ACTL: ${format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss')}`}
+                    >
                       ACTL: {format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss')}
                     </span>
                   ) : (
-                    <span className="text-[8px] font-mono font-medium text-slate-300 leading-none truncate">-</span>
+                    <span className="text-[12px] font-mono font-medium text-slate-300 leading-tight">-</span>
                   )}
                 </div>
 
@@ -294,12 +429,12 @@ export default function LogTab({ logs }: LogTabProps) {
                 
                 {/* Schedule details cell mapped to Name/PlayMode */}
                 <div style={{ width: `${colWidths.schedule}px` }} className="px-2 flex flex-col justify-center gap-1 shrink-0 overflow-hidden py-2.5">
-                  <span className="text-[11px] font-bold text-slate-800 line-clamp-2 leading-tight truncate">
+                  <span className="text-[14px] font-bold text-slate-800 line-clamp-2 leading-tight truncate">
                     {log.scheduleName}
                   </span>
                   <div>
                     <span className={cn(
-                      "inline-block text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none border",
+                      "inline-block text-[12px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none border",
                       log.playMode === 'Prerecord' 
                         ? "bg-purple-50 text-purple-600 border-purple-100" 
                         : "bg-blue-50 text-blue-600 border-blue-100"
@@ -316,7 +451,7 @@ export default function LogTab({ logs }: LogTabProps) {
                 <div className="flex-1 min-w-0 px-2 flex items-center py-2.5">
                   <div className="flex items-center gap-1.5 min-w-0 w-full">
                     <Music className="w-3 h-3 text-slate-300 shrink-0" />
-                    <span className="text-[10px] font-mono text-slate-400 truncate w-full" title={log.mp3Name}>
+                    <span className="text-[12px] font-mono text-slate-400 truncate w-full" title={log.mp3Name}>
                       {getMP3Status(log.mp3Name).filename}
                     </span>
                   </div>
@@ -327,7 +462,7 @@ export default function LogTab({ logs }: LogTabProps) {
                 
                 {/* ID cell */}
                 <div style={{ width: `${colWidths.id}px` }} className="pr-4 pl-2 text-right flex items-center justify-end shrink-0 overflow-hidden py-2.5">
-                  <span className="text-[9px] font-black text-slate-300 uppercase truncate">
+                  <span className="text-[12px] font-black text-slate-300 uppercase truncate">
                     #{log.scheduleId}
                   </span>
                 </div>

@@ -82,8 +82,8 @@ By default, custom Google Cloud projects exist in "Testing Mode." Google blocks 
 ### Setup Step: Option 3 (Direct Token)
 To test with Google's temporary Playground:
 1. Navigate to the [Google OAuth Playground](https://developers.google.com/oauthplayground).
-2. Under "Select & authorize APIs," enter `https://www.googleapis.com/auth/drive` into the input bar and click **Authorize APIs**.
-3. Authorize via your account.
-4. On step 2 in the playground, click **Exchange authorization code for tokens**.
-5. Copy the **Access Token** value.
-6. Open Interstitial-er, navigate to Option 3, paste the token, and click **Apply**.
+2. Under Step 1 "Select & authorize APIs," enter `https://www.googleapis.com/auth/drive` into the input bar and click **Authorize APIs**.
+3. Authorize via your Google account.
+4. On Step 2 in the playground, click the **Exchange authorization code for tokens** button.
+5. Copy the **Access Token** value from the input/details panel.
+6. Open Interstitial-er settings, expand Advanced connection options, select Option 3, paste the access token, and click **Apply**.

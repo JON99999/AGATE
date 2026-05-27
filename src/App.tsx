@@ -746,6 +746,7 @@ export default function App() {
       setShowPrerecordConfirmStep(false);
       setShowPrerecordModal(false);
       setPrerecordConfirmDetails(null);
+      handleRefresh();
     }
   };
 
@@ -1175,7 +1176,7 @@ export default function App() {
                )}
             >
               <Play className="w-3.5 h-3.5" />
-              <span className="text-[10px] font-bold uppercase tracking-tighter hide-player-name">Player</span>
+              <span className="text-[12px] font-bold uppercase tracking-tighter hide-player-name">Player</span>
             </button>
             {!isPlayerMode && (
               <button
@@ -1188,7 +1189,7 @@ export default function App() {
                  )}
               >
                 <Calendar className="w-3.5 h-3.5" />
-                <span className="text-[10px] font-bold uppercase tracking-tighter hide-scheduler-name">Scheduler</span>
+                <span className="text-[12px] font-bold uppercase tracking-tighter hide-scheduler-name">Scheduler</span>
               </button>
             )}
             <button
@@ -1201,7 +1202,7 @@ export default function App() {
                )}
             >
               <History className="w-3.5 h-3.5" />
-              <span className="text-[10px] font-bold uppercase tracking-tighter hide-log-name">Log</span>
+              <span className="text-[12px] font-bold uppercase tracking-tighter hide-log-name">Log</span>
             </button>
           </div>
         </div>
@@ -1212,25 +1213,25 @@ export default function App() {
         <div className="max-w-[400px] mx-auto flex items-center justify-between gap-4">
           {isPre ? (
             <div className="flex flex-col py-0.5">
-              <p className="text-[8px] uppercase text-purple-600 font-black tracking-widest leading-none">Prerecord time and date</p>
+              <p className="text-[12px] uppercase text-purple-600 font-black tracking-widest leading-none">Prerecord time and date</p>
               <p className="text-xs font-mono font-black text-slate-900 tabular-nums mt-1 leading-none">
                 {prerecordDate ? format(prerecordDate, 'yyyy-MM-dd HH:mm') : ''}
               </p>
             </div>
           ) : (
             <div className="flex items-center gap-3">
-              <p className="text-[9px] uppercase text-slate-400 font-black tracking-tighter">Time</p>
-              <p className="text-[9px] font-mono font-black text-slate-900 tabular-nums leading-none">{format(now, 'HH:mm:ss')}</p>
+              <p className="text-[12px] uppercase text-slate-400 font-black tracking-tighter">Time</p>
+              <p className="text-[12px] font-mono font-black text-slate-900 tabular-nums leading-none">{format(now, 'HH:mm:ss')}</p>
             </div>
           )}
           
           <div className="flex items-center gap-2">
             {isPre ? (
-              <span className="text-[8px] bg-purple-100 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded font-black uppercase leading-none tracking-wider whitespace-nowrap">
+              <span className="text-[12px] bg-purple-100 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded font-black uppercase leading-none tracking-wider whitespace-nowrap">
                 PAUSED
               </span>
             ) : (
-              <p className="text-[8px] uppercase text-blue-600 font-black tracking-tight leading-none whitespace-nowrap">Refresh: {formatCountdown(countdown)}</p>
+              <p className="text-[12px] uppercase text-blue-600 font-black tracking-tight leading-none whitespace-nowrap">Refresh: {formatCountdown(countdown)}</p>
             )}
             <button 
               onClick={handleRefresh}
@@ -1242,7 +1243,7 @@ export default function App() {
               title={isPre ? "Refresh disabled in prerecord mode" : "Reload Status"}
             >
               <RefreshCw className={cn("w-3 h-3 font-bold transition-transform duration-500", !isPre && "group-hover:rotate-180")} />
-              <span className="text-[9px] font-black uppercase tracking-tighter">Now</span>
+              <span className="text-[12px] font-black uppercase tracking-tighter">Now</span>
             </button>
           </div>
         </div>
@@ -1259,11 +1260,11 @@ export default function App() {
             return (
               <div className="max-w-[400px] mx-auto px-4 mt-3">
                 <div className="bg-amber-950/20 border border-amber-500/20 text-amber-500 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
-                  <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider">
+                  <div className="flex items-center gap-1.5 text-[12px] font-black uppercase tracking-wider">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                     Resource Warning
                   </div>
-                  <p className="text-[10px] leading-relaxed text-slate-400">
+                  <p className="text-[12px] leading-relaxed text-slate-400">
                     {isMissingSchedules && isMissingMP3s ? (
                       "Schedules config (schedules.json) and .mp3s could not be found."
                     ) : isMissingSchedules ? (
@@ -1276,7 +1277,7 @@ export default function App() {
                   <div className="mt-1">
                     <button
                       onClick={() => setShowLocationsModal(true)}
-                      className="flex items-center gap-1.5 py-1 px-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[9px] uppercase tracking-wider rounded border border-amber-400 transition cursor-pointer"
+                      className="flex items-center gap-1.5 py-1 px-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[12px] uppercase tracking-wider rounded border border-amber-400 transition cursor-pointer"
                     >
                       <Folder className="w-3 h-3 shrink-0" />
                       <span>Configure folders</span>
@@ -1357,7 +1358,7 @@ export default function App() {
         <div className="max-w-[400px] mx-auto flex justify-between items-center gap-2">
           <button
             onClick={() => setShowLocationsModal(true)}
-            className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 transition-all cursor-pointer shadow-sm text-[9px] font-black uppercase tracking-widest leading-none"
+            className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 transition-all cursor-pointer shadow-sm text-[12px] font-black uppercase tracking-widest leading-none"
           >
             <Folder className="w-3.5 h-3.5" />
             <span>Folders</span>
@@ -1365,7 +1366,7 @@ export default function App() {
 
           {/* DEMO Indicator displayed only in Demo storage Mode */}
           {locationMode === 'Demo' && (
-            <span className="text-[9px] font-black tracking-widest text-[#F59E0B] animate-pulse bg-amber-950/40 px-2 py-1 rounded border border-amber-500/20 leading-none">
+            <span className="text-[12px] font-black tracking-widest text-[#F59E0B] animate-pulse bg-amber-950/40 px-2 py-1 rounded border border-amber-500/20 leading-none">
               DEMO
             </span>
           )}
@@ -1377,10 +1378,11 @@ export default function App() {
                 if (isPre) {
                   setPlayMode('Live');
                   setPrerecordDate(null);
+                  handleRefresh();
                 }
               }}
               className={cn(
-                "px-2 px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
+                "px-2 px-2.5 py-1 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                 !isPre 
                   ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]" 
                   : "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45"
@@ -1401,7 +1403,7 @@ export default function App() {
                 }
               }}
               className={cn(
-                "px-2 px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
+                "px-2 px-2.5 py-1 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                 isPre 
                   ? "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]" 
                   : "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45"
@@ -1458,7 +1460,7 @@ export default function App() {
 
                       <div className="space-y-2 pt-1">
                         <div className="flex flex-col">
-                          <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Air Date</span>
+                          <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">Air Date</span>
                           <span className="text-xs font-bold text-purple-400">
                             {format(prerecordConfirmDetails.startDate, 'EEEE, MMMM do, yyyy')}
                           </span>
@@ -1466,13 +1468,13 @@ export default function App() {
 
                         <div className="grid grid-cols-2 gap-2">
                           <div className="flex flex-col">
-                            <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Start Time (24h)</span>
+                            <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">Start Time (24h)</span>
                             <span className="text-xs font-black font-mono text-purple-400">
                               {format(prerecordConfirmDetails.startDate, 'HH:mm')}
                             </span>
                           </div>
                           <div className="flex flex-col">
-                            <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Start Time (12h)</span>
+                            <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">Start Time (12h)</span>
                             <span className="text-xs font-black font-mono text-purple-400">
                               {format(prerecordConfirmDetails.startDate, 'h:mm a')}
                             </span>
@@ -1480,7 +1482,7 @@ export default function App() {
                         </div>
 
                         <div className="flex flex-col">
-                          <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Show Length / Duration</span>
+                          <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">Show Length / Duration</span>
                           <span className="text-xs font-bold text-purple-400">
                             {parseInt(prerecordHoursInput, 10) > 0 ? `${prerecordHoursInput} ${parseInt(prerecordHoursInput, 10) === 1 ? 'hour' : 'hours'}` : ''}
                             {parseInt(prerecordHoursInput, 10) > 0 && parseInt(prerecordMinutesInput, 10) > 0 ? ' and ' : ''}
@@ -1490,13 +1492,13 @@ export default function App() {
 
                         <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-900/60">
                           <div className="flex flex-col">
-                            <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Calculated End (24h)</span>
+                            <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">Calculated End (24h)</span>
                             <span className="text-xs font-black font-mono text-emerald-400">
                               {format(addMinutes(prerecordConfirmDetails.startDate, prerecordConfirmDetails.totalMinutes), 'HH:mm')}
                             </span>
                           </div>
                           <div className="flex flex-col">
-                            <span className="text-[8px] font-black uppercase text-slate-500 tracking-wider">Calculated End (12h)</span>
+                            <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">Calculated End (12h)</span>
                             <span className="text-xs font-black font-mono text-emerald-400">
                               {format(addMinutes(prerecordConfirmDetails.startDate, prerecordConfirmDetails.totalMinutes), 'h:mm a')}
                             </span>
@@ -1505,7 +1507,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <p className="text-[9px] text-slate-400 leading-normal bg-slate-950/25 p-2 rounded border border-slate-850/50">
+                    <p className="text-[12px] text-slate-400 leading-normal bg-slate-950/25 p-2 rounded border border-slate-850/50">
                       Pro-tip: Double-check that your desktop clock matches your scheduled timezone settings.
                     </p>
                   </div>
@@ -1518,14 +1520,14 @@ export default function App() {
                         setShowPrerecordConfirmStep(false);
                         setPrerecordConfirmDetails(null);
                       }}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[10px] font-bold uppercase tracking-wider rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
+                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase tracking-wider rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
                     >
                       Adjust
                     </button>
                     <button
                       type="button"
                       onClick={handleFinalConfirmPrerecord}
-                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black uppercase tracking-wider rounded shadow-md shadow-emerald-950/20 transition cursor-pointer active:translate-y-px"
+                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-black uppercase tracking-wider rounded shadow-md shadow-emerald-950/20 transition cursor-pointer active:translate-y-px"
                     >
                       OK - Activate
                     </button>
@@ -1550,14 +1552,14 @@ export default function App() {
 
                   {/* Modal Content */}
                   <div className="p-5 space-y-4">
-                    <p className="text-[10px] leading-relaxed text-slate-300">
+                    <p className="text-[12px] leading-relaxed text-slate-300">
                       Set the Date and Time of when the prerecord will air.
                     </p>
 
                     <div className="space-y-3">
                       {/* Date picker */}
                       <div>
-                        <label className="block text-[8px] font-black uppercase tracking-wider text-slate-400 mb-1">Air Date of Prerecord</label>
+                        <label className="block text-[12px] font-black uppercase tracking-wider text-slate-400 mb-1">Air Date of Prerecord</label>
                         <input 
                           type="date" 
                           required
@@ -1569,7 +1571,7 @@ export default function App() {
 
                       {/* Time picker (24h input mask) */}
                       <div>
-                        <label className="block text-[8px] font-black uppercase tracking-wider text-slate-400 mb-1">Show Start Time (24h - HH:mm)</label>
+                        <label className="block text-[12px] font-black uppercase tracking-wider text-slate-400 mb-1">Show Start Time (24h - HH:mm)</label>
                         <input 
                           type="text" 
                           required
@@ -1583,7 +1585,7 @@ export default function App() {
 
                       {/* Show Length pickers */}
                       <div>
-                        <label className="block text-[8px] font-black uppercase tracking-wider text-slate-450 mb-1">Show Length</label>
+                        <label className="block text-[12px] font-black uppercase tracking-wider text-slate-450 mb-1">Show Length</label>
                         <div className="grid grid-cols-2 gap-2">
                           <div className="relative">
                             <input 
@@ -1593,9 +1595,9 @@ export default function App() {
                               max={999}
                               value={prerecordHoursInput}
                               onChange={e => setPrerecordHoursInput(e.target.value)}
-                              className="w-full pl-3 pr-8 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all"
+                              className="w-full pl-3 pr-10 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all [&::-webkit-inner-spin-button]:mr-6 [&::-webkit-inner-spin-button]:cursor-pointer"
                             />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-slate-500 pointer-events-none uppercase">Hrs</span>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-bold text-slate-500 pointer-events-none uppercase">Hrs</span>
                           </div>
                           <div className="relative">
                             <input 
@@ -1605,9 +1607,9 @@ export default function App() {
                               max={59}
                               value={prerecordMinutesInput}
                               onChange={e => setPrerecordMinutesInput(e.target.value)}
-                              className="w-full pl-3 pr-8 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all"
+                              className="w-full pl-3 pr-10 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none focus:ring-1 focus:ring-purple-500 transition-all [&::-webkit-inner-spin-button]:mr-6 [&::-webkit-inner-spin-button]:cursor-pointer"
                             />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-slate-500 pointer-events-none uppercase">Min</span>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[12px] font-bold text-slate-500 pointer-events-none uppercase">Min</span>
                           </div>
                         </div>
                       </div>
@@ -1616,7 +1618,7 @@ export default function App() {
                     {prerecordError && (
                       <div className="bg-red-500/10 border border-red-500/20 rounded p-2.5 flex items-start gap-2 text-red-400">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                        <span className="text-[10px] leading-tight font-medium">{prerecordError}</span>
+                        <span className="text-[12px] leading-tight font-medium">{prerecordError}</span>
                       </div>
                     )}
                   </div>
@@ -1626,13 +1628,13 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setShowPrerecordModal(false)}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[10px] font-bold uppercase tracking-wider rounded border border-slate-700 transition"
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase tracking-wider rounded border border-slate-700 transition"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[10px] font-black uppercase tracking-wider rounded shadow-md shadow-purple-950/20 transition"
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[12px] font-black uppercase tracking-wider rounded shadow-md shadow-purple-950/20 transition"
                     >
                       Activate
                     </button>
@@ -1667,13 +1669,13 @@ export default function App() {
                   
                   {/* Mode Selector Row */}
                   <div className="space-y-1.5">
-                    <p className="text-[8px] font-black uppercase text-slate-400 tracking-widest leading-none">Select Workspace Mode</p>
+                    <p className="text-[12px] font-black uppercase text-slate-400 tracking-widest leading-none">Select Workspace Mode</p>
                     <div className="p-1.5 bg-slate-950 border border-slate-900 rounded-lg flex gap-1.5 items-center shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)]">
                       <button
                         type="button"
                         onClick={() => setLocationMode('Demo')}
                         className={cn(
-                          "flex-1 py-1 text-[9px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
+                          "flex-1 py-1 text-[12px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
                           locationMode === 'Demo'
                             ? "bg-gradient-to-b from-amber-500 to-amber-600 border-[#F59E0B] border-t-amber-400 border-b-amber-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] font-black"
                             : "bg-amber-950/10 border-amber-900/15 text-amber-500/50 hover:text-amber-400 hover:bg-amber-950/20"
@@ -1691,7 +1693,7 @@ export default function App() {
                         type="button"
                         onClick={() => setLocationMode('Drive')}
                         className={cn(
-                          "flex-1 py-1 text-[9px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
+                          "flex-1 py-1 text-[12px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
                           locationMode === 'Drive'
                             ? "bg-gradient-to-b from-blue-500 to-blue-600 border-[#3B82F6] border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] font-black"
                             : "bg-blue-950/10 border-blue-900/15 text-blue-500/50 hover:text-blue-400 hover:bg-blue-950/20"
@@ -1709,7 +1711,7 @@ export default function App() {
                         type="button"
                         onClick={() => setLocationMode('Local')}
                         className={cn(
-                          "flex-1 py-1 text-[9px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
+                          "flex-1 py-1 text-[12px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
                           locationMode === 'Local'
                             ? "bg-gradient-to-b from-purple-500 to-purple-600 border-[#8B5CF6] border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] font-black"
                             : "bg-purple-950/10 border-purple-900/15 text-purple-500/50 hover:text-purple-400 hover:bg-purple-950/20"
@@ -1731,11 +1733,11 @@ export default function App() {
                     <div className="space-y-3">
                       <div>
                         <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Local Schedules Path</label>
+                          <label className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Local Schedules Path</label>
                           {!draftLocalPathSchedules ? (
-                            <span className="text-[8px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">To be set</span>
+                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">To be set</span>
                           ) : (
-                            <span className="text-[8px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">Configured</span>
+                            <span className="text-[12px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">Configured</span>
                           )}
                         </div>
                         <input 
@@ -1749,7 +1751,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => handleBrowseNative('schedules')}
-                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                           >
                             Edit
                           </button>
@@ -1757,22 +1759,22 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => handleOpenLocalPath(draftLocalPathSchedules)}
-                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                             >
                               Open
                             </button>
                           )}
                         </div>
-                        <p className="text-[8px] text-slate-500 mt-0.5">Directory where Interstitial-er saves the schedules configuration.</p>
+                        <p className="text-[12px] text-slate-500 mt-0.5">Directory where Interstitial-er saves the schedules configuration.</p>
                       </div>
  
                       <div>
                         <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Local MP3s Directory Path</label>
+                          <label className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Local MP3s Directory Path</label>
                           {!draftLocalPathMP3s ? (
-                            <span className="text-[8px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">To be set</span>
+                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">To be set</span>
                           ) : (
-                            <span className="text-[8px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">Configured</span>
+                            <span className="text-[12px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">Configured</span>
                           )}
                         </div>
                         <input 
@@ -1786,7 +1788,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => handleBrowseNative('mp3s')}
-                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                           >
                             Edit
                           </button>
@@ -1794,22 +1796,22 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => handleOpenLocalPath(draftLocalPathMP3s)}
-                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                             >
                               Open
                             </button>
                           )}
                         </div>
-                        <p className="text-[8px] text-slate-500 mt-0.5">Absolute path containing your secondary .mp3 playback audio files.</p>
+                        <p className="text-[12px] text-slate-500 mt-0.5">Absolute path containing your secondary .mp3 playback audio files.</p>
                       </div>
  
                       <div>
                         <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] font-black uppercase text-blue-400 tracking-wider">Local Play Log Records Path</label>
+                          <label className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Local Play Log Records Path</label>
                           {!draftLocalPathLogs ? (
-                            <span className="text-[8px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">To be set</span>
+                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">To be set</span>
                           ) : (
-                            <span className="text-[8px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">Configured</span>
+                            <span className="text-[12px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">Configured</span>
                           )}
                         </div>
                         <input 
@@ -1823,7 +1825,7 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => handleBrowseNative('logs')}
-                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                           >
                             Edit
                           </button>
@@ -1831,17 +1833,17 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => handleOpenLocalPath(draftLocalPathLogs)}
-                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[9px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                             >
                               Open
                             </button>
                           )}
                         </div>
-                        <p className="text-[8px] text-slate-500 mt-0.5">Directory location where logs are stored sequentially.</p>
+                        <p className="text-[12px] text-slate-500 mt-0.5">Directory location where logs are stored sequentially.</p>
                       </div>
  
                       {localPathsUnavailable && (
-                        <div className="p-3 bg-amber-950/20 border border-amber-900/40 text-amber-400 rounded text-[9px] leading-relaxed">
+                        <div className="p-3 bg-amber-950/20 border border-amber-900/40 text-amber-400 rounded text-[12px] leading-relaxed">
                           ⚠️ One or more specified local directories are missing or inaccessible. Please verify paths are correct and physically exist on host desktop folders.
                         </div>
                       )}
@@ -1853,14 +1855,14 @@ export default function App() {
                       {/* Preferences/Schedules Container */}
                       <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2">
                         <div className="flex justify-between items-center">
-                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">Schedules & Preferences File</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Schedules & Preferences File</span>
                           {draftDriveFolderPreferences ? (
-                            <span className="text-[8.5px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
+                            <span className="text-[12px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
                           ) : (
-                            <span className="text-[8.5px] bg-amber-950 text-amber-500 border border-amber-950/45 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">To be set</span>
+                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-950/45 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">To be set</span>
                           )}
                         </div>
-                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
                           {driveFolderDescMap[draftDriveFolderPreferences] || "No directory folder configured yet"}
                         </p>
                         <div className="flex items-center gap-1.5 pt-0.5">
@@ -1870,7 +1872,7 @@ export default function App() {
                               setEditingDriveField('preferences');
                               setTempPasteLink(draftDriveFolderPreferences);
                             }}
-                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Edit
                           </button>
@@ -1878,7 +1880,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => handleOpenDriveFolder(draftDriveFolderPreferences)}
-                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
                             >
                               Open
                             </button>
@@ -1889,14 +1891,14 @@ export default function App() {
                       {/* MP3s Folder Container */}
                       <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2">
                         <div className="flex justify-between items-center">
-                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">Audio Playback Files (.mp3)</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Audio Playback Files (.mp3)</span>
                           {draftDriveFolderMP3s ? (
-                            <span className="text-[8.5px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
+                            <span className="text-[12px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
                           ) : (
-                            <span className="text-[8.5px] bg-amber-950 text-amber-500 border border-amber-950/45 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">To be set</span>
+                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-950/45 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">To be set</span>
                           )}
                         </div>
-                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
                           {driveFolderDescMap[draftDriveFolderMP3s] || "No directory folder configured yet"}
                         </p>
                         <div className="flex items-center gap-1.5 pt-0.5">
@@ -1906,7 +1908,7 @@ export default function App() {
                               setEditingDriveField('mp3s');
                               setTempPasteLink(draftDriveFolderMP3s);
                             }}
-                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Edit
                           </button>
@@ -1914,7 +1916,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => handleOpenDriveFolder(draftDriveFolderMP3s)}
-                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
                             >
                               Open
                             </button>
@@ -1925,14 +1927,14 @@ export default function App() {
                       {/* Logs Folder Container */}
                       <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2">
                         <div className="flex justify-between items-center">
-                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">System Execution Logs</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">System Execution Logs</span>
                           {draftDriveFolderLogs ? (
-                            <span className="text-[8.5px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
+                            <span className="text-[12px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
                           ) : (
-                            <span className="text-[8.5px] bg-amber-950 text-amber-500 border border-amber-955 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">To be set</span>
+                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-955 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">To be set</span>
                           )}
                         </div>
-                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
                           {driveFolderDescMap[draftDriveFolderLogs] || "No directory folder configured yet"}
                         </p>
                         <div className="flex items-center gap-1.5 pt-0.5">
@@ -1942,7 +1944,7 @@ export default function App() {
                               setEditingDriveField('logs');
                               setTempPasteLink(draftDriveFolderLogs);
                             }}
-                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Edit
                           </button>
@@ -1950,7 +1952,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => handleOpenDriveFolder(draftDriveFolderLogs)}
-                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
                             >
                               Open
                             </button>
@@ -1982,25 +1984,24 @@ export default function App() {
  
                   {locationMode === 'Demo' && (
                     <div className="space-y-4">
-                      <div className="p-3 bg-amber-950/15 border border-amber-900/35 rounded-lg whitespace-pre-line text-[9px] leading-relaxed text-amber-500">
-                        Demo workspace mode retrieves configurations automatically from general demonstration Google Drive directories. 
-                        Custom file configurations are disabled in Demo workspace mode.
+                      <div className="p-3 bg-amber-950/15 border border-amber-900/35 rounded-lg whitespace-pre-line text-[12px] leading-relaxed text-amber-500">
+                        Demo for crstl.fm testing/learning.  The data is shared, but not for production.  Change, modify, etc everything.
                       </div>
 
                       {/* Demo Schedules Container */}
                       <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1.5">
                         <div className="flex justify-between items-center">
-                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">Demo Schedules & Preferences File</span>
-                          <span className="text-[8.5px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Demo Schedules & Preferences File</span>
+                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
                         </div>
-                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
                           {driveFolderDescMap['1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED'] || 'scheduledata'}
                         </p>
                         <div className="flex items-center gap-1.5 pt-0.5">
                           <button
                             type="button"
                             onClick={() => handleOpenDriveFolder('1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED')}
-                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Open
                           </button>
@@ -2010,17 +2011,17 @@ export default function App() {
                       {/* Demo MP3s Folder Container */}
                       <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1.5">
                         <div className="flex justify-between items-center">
-                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">Demo Audio Playback Files (.mp3)</span>
-                          <span className="text-[8.5px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Demo Audio Playback Files (.mp3)</span>
+                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
                         </div>
-                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
                           {driveFolderDescMap['11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch'] || 'mp3library'}
                         </p>
                         <div className="flex items-center gap-1.5 pt-0.5">
                           <button
                             type="button"
                             onClick={() => handleOpenDriveFolder('11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch')}
-                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Open
                           </button>
@@ -2030,17 +2031,17 @@ export default function App() {
                       {/* Demo Logs Folder Container */}
                       <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1.5">
                         <div className="flex justify-between items-center">
-                          <span className="text-[8px] font-black uppercase text-blue-400 tracking-wider">Demo System Execution Logs</span>
-                          <span className="text-[8.5px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Demo System Execution Logs</span>
+                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
                         </div>
-                        <p className="text-[10px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
                           {driveFolderDescMap['1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx'] || 'logs'}
                         </p>
                         <div className="flex items-center gap-1.5 pt-0.5">
                           <button
                             type="button"
                             onClick={() => handleOpenDriveFolder('1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx')}
-                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Open
                           </button>
@@ -2074,14 +2075,14 @@ export default function App() {
                   {locationsError && (
                     <div className="bg-red-500/10 border border-red-500/20 rounded p-2.5 flex items-start gap-2 text-red-400">
                       <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <span className="text-[9px] leading-normal font-bold">{locationsError}</span>
+                      <span className="text-[12px] leading-normal font-bold">{locationsError}</span>
                     </div>
                   )}
 
                   {locationsSuccess && (
                     <div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-2.5 flex items-start gap-2 text-emerald-400">
                       <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <span className="text-[9px] leading-normal font-bold">{locationsSuccess}</span>
+                      <span className="text-[12px] leading-normal font-bold">{locationsSuccess}</span>
                     </div>
                   )}
 
@@ -2092,14 +2093,14 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setShowLocationsModal(false)}
-                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[10px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isSyncing || isValidatingDrive}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded shadow transition disabled:opacity-50 cursor-pointer"
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-black uppercase rounded shadow transition disabled:opacity-50 cursor-pointer"
                   >
                     {isSyncing || isValidatingDrive ? 'Verifying...' : 'Save and Close'}
                   </button>
@@ -2139,7 +2140,7 @@ export default function App() {
               </div>
 
               <div className="space-y-2">
-                <span className="text-[8px] font-black uppercase tracking-wider text-slate-400 block">
+                <span className="text-[12px] font-black uppercase tracking-wider text-slate-400 block">
                   Paste Google Drive Share Link or ID
                 </span>
                 <textarea
@@ -2149,7 +2150,7 @@ export default function App() {
                   placeholder="Paste folders/ browser URL (e.g. https://drive.google.com/drive/folders/...) or raw folder ID here..."
                   className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-300 outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-700 resize-none"
                 />
-                <p className="text-[7.5px] leading-normal text-slate-500">
+                <p className="text-[12px] leading-normal text-slate-500">
                   Simply paste the raw share URL or standard folder ID. It will extract the ID key automatically.
                 </p>
               </div>
@@ -2161,7 +2162,7 @@ export default function App() {
                     setEditingDriveField(null);
                     setTempPasteLink('');
                   }}
-                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[10px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -2189,7 +2190,7 @@ export default function App() {
                       } catch (err) {}
                     }
                   }}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded shadow cursor-pointer active:translate-y-px"
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-black uppercase rounded shadow cursor-pointer active:translate-y-px"
                 >
                   Apply
                 </button>

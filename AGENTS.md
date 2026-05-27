@@ -30,10 +30,10 @@ This application is primarily a **Desktop Application** built with Electron and 
 - **No Unsolicited Rebranding**: Avoid decorative tags, marketing slogans, or secondary descriptors. Only use straightforward, literal functional labels which align with the authentic **Interstitial-er** design.
 - **No Editorializing**: Respect the clean aesthetic of **Interstitial-er** and do not add any unsolicited titles, headings, or branding elements in the UI.
 - **Enforced Minimum Font Size & Readability Hierarchy**: 
-  - Enforce a absolute minimum font size of **10px** unless explicitly directed. Readability and usability are highly important for large screens with high resolution.
-  - Convert any existing font size styles of **9px or lower by increasing them by 2px** (e.g., 8px becomes 10px, 9px becomes 11px, 8.5px becomes 10.5px, etc.).
-  - Convert any existing font size styles of **10px or 11px by increasing them by 1px** (e.g., 10px becomes 11px, 11px becomes 12px).
-  - Update any underlying design hierarchies and component layout structures to reflect these new font size baselines. Let the structure adapt as necessary to handle the increased text sizes.
+  - Enforce an absolute minimum font size of **12px** unless explicitly directed. Readability and usability are highly important for large screens with high resolution. While screen real estate in player is restricted, in general, assume that readability and usability is important for large screens with high resolution.
+  - Add **2 more px** to every font size style. If the pixel size is generally chosen based on a design hierarchy of size by type of usage of the text, update that hierarchy concept to reflect these new settings.
+  - If the pixel size is somehow non-standard when adding 2 (e.g. fractional, or uncommon numbers), slide it up to the next highest standard pixel size (e.g. 10.5px + 2px = 12.5px -> slide up to 13px or 14px as appropriate, ensuring minimum is always at least 12px).
+  - Update any underlying design hierarchies and component layout structures to reflect these new font size baselines. Let the structure adapt as necessary to handle the increased text sizes. Only adjust font pixel sizes or font sizing guidelines; let layouts fail or overlap. Do not adjust icons, spacing, layout, etc. unless explicitly asked.
 
 
 ## Communication & Description Guidelines
