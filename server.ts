@@ -471,7 +471,7 @@ async function startServer() {
             name: f,
             size: `${(stats.size / (1024 * 1024)).toFixed(1)} MB`,
             duration: '0:15', // Default starting duration
-            path: `http://localhost:${PORT}/api/stream-local?file=${encodeURIComponent(f)}`
+            path: `/api/stream-local?file=${encodeURIComponent(f)}`
           };
         });
       res.json(mp3List);

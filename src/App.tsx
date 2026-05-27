@@ -276,6 +276,24 @@ export default function App() {
   // Google Auth initialization with Validation
   useEffect(() => {
     const settings = getSavedSettings();
+    let hasPrepopulated = false;
+    if (!settings.driveFolderLogs) {
+      settings.driveFolderLogs = '1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx';
+      hasPrepopulated = true;
+    }
+    if (!settings.driveFolderMP3s) {
+      settings.driveFolderMP3s = '11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch';
+      hasPrepopulated = true;
+    }
+    if (!settings.driveFolderPreferences) {
+      settings.driveFolderPreferences = '1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED';
+      hasPrepopulated = true;
+    }
+
+    if (hasPrepopulated) {
+      localStorage.setItem('interstitialer_location_settings', JSON.stringify(settings));
+    }
+
     setLocationMode(settings.mode);
     setLocalPathMP3s(settings.localPathMP3s || '');
     setLocalPathLogs(settings.localPathLogs || '');

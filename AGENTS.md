@@ -29,6 +29,12 @@ This application is primarily a **Desktop Application** built with Electron and 
 - **Strict App Naming**: The name of the application is **Interstitial-er**. Under no circumstances should custom, editorialized, or alternative names (e.g., "Remote Broadcast Synchronizer", "Desktop Application Broadcast Synch Controller") be added to the interface without explicit permission.
 - **No Unsolicited Rebranding**: Avoid decorative tags, marketing slogans, or secondary descriptors. Only use straightforward, literal functional labels which align with the authentic **Interstitial-er** design.
 - **No Editorializing**: Respect the clean aesthetic of **Interstitial-er** and do not add any unsolicited titles, headings, or branding elements in the UI.
+- **Enforced Minimum Font Size & Readability Hierarchy**: 
+  - Enforce a absolute minimum font size of **10px** unless explicitly directed. Readability and usability are highly important for large screens with high resolution.
+  - Convert any existing font size styles of **9px or lower by increasing them by 2px** (e.g., 8px becomes 10px, 9px becomes 11px, 8.5px becomes 10.5px, etc.).
+  - Convert any existing font size styles of **10px or 11px by increasing them by 1px** (e.g., 10px becomes 11px, 11px becomes 12px).
+  - Update any underlying design hierarchies and component layout structures to reflect these new font size baselines. Let the structure adapt as necessary to handle the increased text sizes.
+
 
 ## Communication & Description Guidelines
 
