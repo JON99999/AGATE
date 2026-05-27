@@ -4,7 +4,6 @@ const path = require('path');
 
 const pkgPath = path.join(__dirname, 'package.json');
 const pkgBakPath = path.join(__dirname, 'package.json.bak');
-const globalReleaseBackupDir = path.join(__dirname, 'global-release-backup');
 
 console.log('Starting custom double-build process (Player/Admin)...');
 
@@ -23,9 +22,6 @@ function restorePkg() {
       fs.copyFileSync(pkgBakPath, pkgPath);
       fs.unlinkSync(pkgBakPath);
       console.log('Successfully restored original package.json.');
-    }
-    if (fs.existsSync(globalReleaseBackupDir)) {
-      fs.rmSync(globalReleaseBackupDir, { recursive: true, force: true });
     }
   } catch (err) {
     console.error('Critical: Failed to restore package.json!', err);
@@ -171,31 +167,58 @@ try {
     if (!pkg.build.portable) pkg.build.portable = {};
     pkg.build.portable.artifactName = "${productName}-${version}-Windows-Portable.${ext}";
 
-    const backupReleaseAssets = () => {
-      if (fs.existsSync('release')) {
-        if (!fs.existsSync(globalReleaseBackupDir)) {
-          fs.mkdirSync(globalReleaseBackupDir, { recursive: true });
-        }
-        fs.readdirSync('release').forEach(file => {
-          const src = path.join('release', file);
-          const dest = path.join(globalReleaseBackupDir, file);
-          try {
-            const stat = fs.statSync(src);
-            if (stat.isFile()) {
-              fs.copyFileSync(src, dest);
-              console.log(`[Backup] Copying ${file} to global release backup directory.`);
-            }
-          } catch (e) {
-            console.error(`Failed to back up asset: ${file}`, e);
-          }
-        });
-      }
-    };
-
     console.log(`Packaging Electron app for mode: ${mode}...`);
     // Only publish on GitHub Actions when GH_TOKEN/GITHUB_TOKEN is present, fallback to local packaging (publish never) otherwise
     const isCI = process.env.GITHUB_ACTIONS === 'true';
     const publishFlag = isCI ? '--publish always' : '--publish never';
+
+    const backupReleaseDir = path.join(__dirname, 'release_backup_temp');
+    const releaseDir = path.join(__dirname, 'release');
+
+    const backupFiles = () => {
+      if (fs.existsSync(releaseDir)) {
+        if (!fs.existsSync(backupReleaseDir)) {
+          fs.mkdirSync(backupReleaseDir, { recursive: true });
+        }
+        const files = fs.readdirSync(releaseDir);
+        for (const file of files) {
+          const src = path.join(releaseDir, file);
+          const dest = path.join(backupReleaseDir, file);
+          if (fs.statSync(src).isFile()) {
+            fs.copyFileSync(src, dest);
+          }
+        }
+      }
+    };
+
+    const restoreFiles = () => {
+      if (fs.existsSync(backupReleaseDir)) {
+        if (!fs.existsSync(releaseDir)) {
+          fs.mkdirSync(releaseDir, { recursive: true });
+        }
+        const files = fs.readdirSync(backupReleaseDir);
+        for (const file of files) {
+          const src = path.join(backupReleaseDir, file);
+          const dest = path.join(releaseDir, file);
+          if (!fs.existsSync(dest)) {
+            fs.copyFileSync(src, dest);
+            console.log(`Preserved previously compiled release asset: ${file}`);
+          }
+        }
+      }
+    };
+
+    const runElectronBuilder = (command) => {
+      backupFiles();
+      try {
+        execSync(command, {
+          stdio: 'inherit',
+          env: { ...process.env }
+        });
+      } finally {
+        restoreFiles();
+      }
+    };
 
     if (process.platform === 'darwin') {
       console.log(`Packaging Electron app for Mac x64 (Intel)...`);
@@ -206,41 +229,24 @@ try {
       pkg.build.dmg.artifactName = "${productName}-${version}-Apple-Intel-(older)-Installer.${ext}";
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
-      execSync(`npx electron-builder --mac --x64 ${publishFlag}`, {
-        stdio: 'inherit',
-        env: { ...process.env }
-      });
-      // Back up x64 DMG immediately to prevent overwrite/clean sweeps by subsequent builds
-      backupReleaseAssets();
+      runElectronBuilder(`npx electron-builder --mac --x64 ${publishFlag}`);
 
       console.log(`Packaging Electron app for Mac arm64 (Apple Silicon)...`);
       pkg.build.mac.artifactName = "${productName}-${version}-Apple-Silicon-(newer-arm64)-Installer.${ext}";
       pkg.build.dmg.artifactName = "${productName}-${version}-Apple-Silicon-(newer-arm64)-Installer.${ext}";
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
-      execSync(`npx electron-builder --mac --arm64 ${publishFlag}`, {
-        stdio: 'inherit',
-        env: { ...process.env }
-      });
-      backupReleaseAssets();
+      runElectronBuilder(`npx electron-builder --mac --arm64 ${publishFlag}`);
     } else if (process.platform === 'win32') {
       console.log(`Packaging Electron app for Windows...`);
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
-      execSync(`npx electron-builder --win --x64 ${publishFlag}`, {
-        stdio: 'inherit',
-        env: { ...process.env }
-      });
-      backupReleaseAssets();
+      runElectronBuilder(`npx electron-builder --win --x64 ${publishFlag}`);
     } else {
       console.log(`Packaging Electron app for default platform...`);
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
-      execSync(`npx electron-builder --publish never`, {
-        stdio: 'inherit',
-        env: { ...process.env }
-      });
-      backupReleaseAssets();
+      runElectronBuilder(`npx electron-builder --publish never`);
     }
     console.log(`Successfully completed packaging for mode: ${mode}!`);
   };
@@ -261,26 +267,6 @@ try {
   compileAssets('Player');
   packageApp('Player');
 
-  // Restore all accumulated release assets back inside the release/ target folder
-  if (fs.existsSync(globalReleaseBackupDir)) {
-    console.log('\nRestoring all accumulated package assets to the final release folder...');
-    if (!fs.existsSync('release')) {
-      fs.mkdirSync('release', { recursive: true });
-    }
-    fs.readdirSync(globalReleaseBackupDir).forEach(file => {
-      const src = path.join(globalReleaseBackupDir, file);
-      const dest = path.join('release', file);
-      try {
-        fs.copyFileSync(src, dest);
-        console.log(`[Restore] Restored and consolidated ${file} into final release directory.`);
-      } catch (e) {
-        console.error(`Failed to restore backup asset: ${file}`, e);
-      }
-    });
-    // Clean up temporary backup folder
-    fs.rmSync(globalReleaseBackupDir, { recursive: true, force: true });
-  }
-
   console.log('\nDouble-build packaged successfully!');
 
 } catch (err) {
@@ -288,4 +274,13 @@ try {
   process.exitCode = 1;
 } finally {
   restorePkg();
+  const backupReleaseDir = path.join(__dirname, 'release_backup_temp');
+  if (fs.existsSync(backupReleaseDir)) {
+    try {
+      fs.rmSync(backupReleaseDir, { recursive: true, force: true });
+      console.log('Successfully cleared temporary release backups.');
+    } catch (e) {
+      console.error('Failed to clear temporary release backups:', e);
+    }
+  }
 }
