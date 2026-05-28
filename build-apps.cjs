@@ -171,9 +171,8 @@ try {
     pkg.build.afterAllArtifactBuild = "./afterAllArtifactBuild.cjs";
 
     console.log(`Packaging Electron app for mode: ${mode}...`);
-    // Only publish on GitHub Actions when GH_TOKEN/GITHUB_TOKEN is present, fallback to local packaging (publish never) otherwise
-    const isCI = process.env.GITHUB_ACTIONS === 'true';
-    const publishFlag = isCI ? '--publish always' : '--publish never';
+    // Force '--publish never' so on-disk renaming can happen on macOS cleanly, allowing GitHub Actions release upload to capture the renamed files
+    const publishFlag = '--publish never';
 
     if (process.platform === 'darwin') {
       console.log(`Packaging Electron app for Mac...`);
