@@ -48,4 +48,9 @@ This application is primarily a **Desktop Application** built with Electron and 
 
 - **Never Fake a Schedule or MP3 File**: Do not construct simulated, preset, or fake schedule arrays or MP3 database file listings in any mode (including Demo mode). Always read directly from designated directory stores; if folders are unconfigured or files are not found, state clearly that they cannot be found.
 
+## Versioning Alignment Workflows
+
+- **Check Version References Everywhere**: When commanded to update, check, or reset the application's version, the agent **MUST** perform a global search across the workspace to locate and align all instances. This includes modifying `package.json`, `package-lock.json`, and companion developer instructions/distribution guides like `HOW_TO_RELEASE_IN_GITHUB_ONLINE.md`. All version tags (e.g., `v0.7.5`) must remain strictly in sync with the core version string.
+
+
 
