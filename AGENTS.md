@@ -23,6 +23,7 @@ This application is primarily a **Desktop Application** built with Electron and 
 - Use `electron-builder` for distribution.
 - Configurations for all three priorities must be maintained in `package.json`.
 - Distribution should focus on `dmg` and `zip` for Mac, and `nsis` (installer) or `portable` for Windows.
+- **No Staging or Backup Workarounds for Mac packaging**: Under no circumstances should Mac builds be split into multiple sequential `electron-builder` invocations requiring backup files, manual file moving, or custom renaming/staging workarounds in `build-apps.cjs`. Always run a single unified compile invocation: `npx electron-builder --mac --x64 --arm64` to output both targets in one clean pass.
 
 ## UI Styling & Naming Guidelines
 

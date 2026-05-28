@@ -172,81 +172,30 @@ try {
     const isCI = process.env.GITHUB_ACTIONS === 'true';
     const publishFlag = isCI ? '--publish always' : '--publish never';
 
-    const backupReleaseDir = path.join(__dirname, 'release_backup_temp');
-    const releaseDir = path.join(__dirname, 'release');
-
-    const backupFiles = () => {
-      if (fs.existsSync(releaseDir)) {
-        if (!fs.existsSync(backupReleaseDir)) {
-          fs.mkdirSync(backupReleaseDir, { recursive: true });
-        }
-        const files = fs.readdirSync(releaseDir);
-        for (const file of files) {
-          const src = path.join(releaseDir, file);
-          const dest = path.join(backupReleaseDir, file);
-          if (fs.statSync(src).isFile()) {
-            fs.copyFileSync(src, dest);
-          }
-        }
-      }
-    };
-
-    const restoreFiles = () => {
-      if (fs.existsSync(backupReleaseDir)) {
-        if (!fs.existsSync(releaseDir)) {
-          fs.mkdirSync(releaseDir, { recursive: true });
-        }
-        const files = fs.readdirSync(backupReleaseDir);
-        for (const file of files) {
-          const src = path.join(backupReleaseDir, file);
-          const dest = path.join(releaseDir, file);
-          if (!fs.existsSync(dest)) {
-            fs.copyFileSync(src, dest);
-            console.log(`Preserved previously compiled release asset: ${file}`);
-          }
-        }
-      }
-    };
-
-    const runElectronBuilder = (command) => {
-      backupFiles();
-      try {
-        execSync(command, {
-          stdio: 'inherit',
-          env: { ...process.env }
-        });
-      } finally {
-        restoreFiles();
-      }
-    };
-
     if (process.platform === 'darwin') {
-      console.log(`Packaging Electron app for Mac x64 (Intel)...`);
-      if (!pkg.build.dmg) pkg.build.dmg = {};
-      if (!pkg.build.mac) pkg.build.mac = {};
-      
-      pkg.build.mac.artifactName = "${productName}-${version}-Apple-Intel-(older)-Installer.${ext}";
-      pkg.build.dmg.artifactName = "${productName}-${version}-Apple-Intel-(older)-Installer.${ext}";
+      console.log(`Packaging Electron app for Mac...`);
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
-      runElectronBuilder(`npx electron-builder --mac --x64 ${publishFlag}`);
-
-      console.log(`Packaging Electron app for Mac arm64 (Apple Silicon)...`);
-      pkg.build.mac.artifactName = "${productName}-${version}-Apple-Silicon-(newer-arm64)-Installer.${ext}";
-      pkg.build.dmg.artifactName = "${productName}-${version}-Apple-Silicon-(newer-arm64)-Installer.${ext}";
-      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
-
-      runElectronBuilder(`npx electron-builder --mac --arm64 ${publishFlag}`);
+      execSync(`npx electron-builder --mac --x64 --arm64 ${publishFlag}`, {
+        stdio: 'inherit',
+        env: { ...process.env }
+      });
     } else if (process.platform === 'win32') {
       console.log(`Packaging Electron app for Windows...`);
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
-      runElectronBuilder(`npx electron-builder --win --x64 ${publishFlag}`);
+      execSync(`npx electron-builder --win --x64 ${publishFlag}`, {
+        stdio: 'inherit',
+        env: { ...process.env }
+      });
     } else {
       console.log(`Packaging Electron app for default platform...`);
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
 
-      runElectronBuilder(`npx electron-builder --publish never`);
+      execSync(`npx electron-builder --publish never`, {
+        stdio: 'inherit',
+        env: { ...process.env }
+      });
     }
     console.log(`Successfully completed packaging for mode: ${mode}!`);
   };
