@@ -277,7 +277,7 @@ export default function GoogleAuthSection({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className={cn("w-3.5 h-3.5", user ? (driveValidationError ? "text-orange-400" : "text-emerald-400") : "text-slate-500")} />
-            <span className="text-[14px] font-black uppercase tracking-wider text-slate-400">Account Authorization Status</span>
+            <span className="text-[14px] font-black uppercase tracking-wider text-slate-400">Google Drive Status</span>
           </div>
           {user ? (
             driveValidationError ? (
@@ -327,7 +327,7 @@ export default function GoogleAuthSection({
           </div>
         ) : (
           <p className="text-[14px] font-sans text-slate-400 leading-normal">
-            Authenticate Interstitial-er with Google Drive to access core configurations and directories.
+            Connect to Google Drive.
           </p>
         )}
       </div>
@@ -351,7 +351,7 @@ export default function GoogleAuthSection({
                 className="text-[12px] font-black uppercase tracking-wider text-blue-400 hover:text-blue-300 cursor-pointer flex items-center gap-1 bg-blue-950/20 border border-blue-900/30 px-2 py-0.5 rounded transition-all shrink-0"
               >
                 <HelpCircle className="w-2.5 h-2.5" />
-                <span>Authorization Help</span>
+                <span>Help</span>
               </button>
             )}
           </div>
@@ -369,8 +369,9 @@ export default function GoogleAuthSection({
                       : "text-slate-400 hover:text-slate-200"
                   )}
                 >
-                  Option 1: Autopilot
+                  Option: Preapproved
                 </button>
+                {/*
                 <button
                   type="button"
                   onClick={() => setActiveTab('manual-transfer')}
@@ -381,8 +382,9 @@ export default function GoogleAuthSection({
                       : "text-slate-400 hover:text-slate-200"
                   )}
                 >
-                  Option 2: Copy-Paste
+                  Untested Option: Copy-Paste
                 </button>
+                */}
                 <button
                   type="button"
                   onClick={() => setActiveTab('direct-token')}
@@ -393,7 +395,7 @@ export default function GoogleAuthSection({
                       : "text-slate-400 hover:text-slate-200"
                   )}
                 >
-                  Option 3: Direct Token
+                  Option: Access Token
                 </button>
               </div>
 
@@ -412,9 +414,9 @@ export default function GoogleAuthSection({
                       <div className="flex items-start gap-1.5 text-blue-400">
                         <Globe className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <div className="space-y-1">
-                          <span className="text-[12px] font-black uppercase tracking-wider block">Option 1: Desktop Browser Loopback Autopilot</span>
+                          <span className="text-[12px] font-black uppercase tracking-wider block">Option: Login using OAUTH client ID</span>
                           <p className="text-[12px] text-slate-400 leading-relaxed font-sans">
-                            Launches your default web browser to authorize access. Interstitial-er automatically captures the token via localhost loopback callback.
+                            With a OAUTH Client ID, Interstitial-er opens a pop-up login window.  Google user email must be preapproved in that Client ID in Google OAUTH.  See your admin to be added.
                           </p>
                         </div>
                       </div>
@@ -443,20 +445,9 @@ export default function GoogleAuthSection({
                               <span>Polling Local Port Callback...</span>
                             </>
                           ) : (
-                            <span>Launch Autopilot Login</span>
+                            <span>Login</span>
                           )}
                         </button>
-                        
-                        <div className="flex items-center justify-between text-[12px] font-mono text-slate-500">
-                          <span>Callback URI: 127.0.0.1:{window.location.port || '3000'}</span>
-                          <button
-                            type="button"
-                            onClick={handleCopyLoopbackUri}
-                            className="hover:text-slate-300 underline uppercase cursor-pointer"
-                          >
-                            {copied ? 'Copied' : 'Copy URI'}
-                          </button>
-                        </div>
                       </div>
                     </motion.div>
                   )}
@@ -473,7 +464,7 @@ export default function GoogleAuthSection({
                       <div className="flex items-start gap-1.5 text-blue-400">
                         <FileCode className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <div className="space-y-1">
-                          <span className="text-[12px] font-black uppercase tracking-wider block">Option 2: Browser Verification with Copy-Paste</span>
+                          <span className="text-[12px] font-black uppercase tracking-wider block">Untested Option: Browser Verification with Copy-Paste</span>
                           <p className="text-[12px] text-slate-400 leading-relaxed font-sans">
                             Failsafe method for restricted machines. Launches Google auth, redirects to a page where your token is displayed. Copy and paste it here.
                           </p>
@@ -483,7 +474,7 @@ export default function GoogleAuthSection({
                       <div className="space-y-1.5 p-2 bg-slate-950/60 border border-slate-800 rounded">
                         <label className="text-[12px] text-slate-400 block font-black uppercase tracking-wider">Google OAuth Client ID</label>
                         <input
-                          type="text"
+                           type="text"
                           placeholder="Paste google_client_id here..."
                           value={googleClientId}
                           onChange={(e) => handleClientIdChange(e.target.value)}
@@ -522,6 +513,10 @@ export default function GoogleAuthSection({
                         <span>1. Get Token from Browser</span>
                         <ExternalLink className="w-2.5 h-2.5" />
                       </button>
+
+                      <div className="text-[11px] text-amber-550 italic font-mono leading-relaxed pt-1 bg-amber-950/10 border border-amber-900/20 rounded p-2">
+                        * Note: Future developers might want to try to implement the "Untested Option" in code.
+                      </div>
                     </motion.div>
                   )}
 
@@ -537,9 +532,9 @@ export default function GoogleAuthSection({
                       <div className="flex items-start gap-1.5 text-blue-400">
                         <Key className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <div className="space-y-1">
-                          <span className="text-[14px] font-black uppercase tracking-wider block">Option 3: Direct Manual Access Token</span>
+                          <span className="text-[14px] font-black uppercase tracking-wider block">Option: Direct Access Token</span>
                           <p className="text-[14px] text-slate-400 leading-relaxed font-sans font-medium">
-                            Instant developer bypass. Paste any valid Google Access Token (e.g. from Google OAuth Playground) with drive scope to sign in.
+                            {"Uses Google OAuth Playground.  To obtain \"Access Token\".  Open 'Drive API v3'. Check 'https://www.googleapis.com/auth/drive'.  Click 'Authorize APIs'.  Log in.  Click 'Exchange authorization code for tokens'.  Copy the text of the \"access_token\".  Paste below."}
                           </p>
                           <div className="pt-1.5 select-text">
                             <a
@@ -548,7 +543,7 @@ export default function GoogleAuthSection({
                               rel="noopener noreferrer"
                               className="text-[14px] text-blue-400 hover:text-blue-300 font-bold inline-flex items-center gap-1 underline cursor-pointer break-all"
                             >
-                              <span>Authorize Drive API v3 &gt; https://www.googleapis.com/auth/drive to obtain "access token" here.</span>
+                              <span>Click here to start</span>
                               <ExternalLink className="w-3 h-3 shrink-0" />
                             </a>
                           </div>
@@ -557,7 +552,7 @@ export default function GoogleAuthSection({
 
                       <div className="grid grid-cols-[1fr_auto] gap-1.5 p-2 bg-slate-950/60 border border-slate-800 rounded">
                         <div className="space-y-1">
-                          <label className="text-[14px] text-slate-400 block font-black uppercase tracking-wider">Access Token (Bearer)</label>
+                          <label className="text-[14px] text-slate-400 block font-black uppercase tracking-wider">access_token value</label>
                           <input
                             type="password"
                             placeholder="Paste raw oauth access token here..."

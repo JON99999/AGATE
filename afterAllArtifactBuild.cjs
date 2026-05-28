@@ -18,33 +18,29 @@ module.exports = async function (context) {
 
     if (ext === '.dmg') {
       let suffix = '';
-      if (basename.includes('x64')) {
-        suffix = 'Apple-Intel-(older)-Installer';
-      } else if (basename.includes('arm64')) {
-        suffix = 'Apple-Silicon-(newer-arm64)-Installer';
+      if (basename.includes('arm64')) {
+        suffix = 'Apple-Silicon-newer-arm64-Installer';
+      } else {
+        suffix = 'Apple-Intel-older-Installer';
       }
 
-      if (suffix) {
-        const newBasename = `${productName}-${version}-${suffix}.dmg`;
-        const parentDir = path.dirname(artifactPath);
-        const newPath = path.join(parentDir, newBasename);
+      const newBasename = `${productName}-${version}-${suffix}.dmg`;
+      const parentDir = path.dirname(artifactPath);
+      const newPath = path.join(parentDir, newBasename);
 
-        if (fs.existsSync(artifactPath)) {
-          console.log(`[afterAllArtifactBuild] Renaming DMG: ${basename} -> ${newBasename}`);
-          fs.renameSync(artifactPath, newPath);
-          renameMap.set(basename, newBasename);
-          finalPaths.push(newPath);
+      if (fs.existsSync(artifactPath)) {
+        console.log(`[afterAllArtifactBuild] Renaming DMG: ${basename} -> ${newBasename}`);
+        fs.renameSync(artifactPath, newPath);
+        renameMap.set(basename, newBasename);
+        finalPaths.push(newPath);
 
-          // If blockmap exists in the same folder, rename it as well
-          const blockmapPath = artifactPath + '.blockmap';
-          const newBlockmapPath = newPath + '.blockmap';
-          if (fs.existsSync(blockmapPath)) {
-            console.log(`[afterAllArtifactBuild] Renaming companion blockmap: ${path.basename(blockmapPath)} -> ${path.basename(newBlockmapPath)}`);
-            fs.renameSync(blockmapPath, newBlockmapPath);
-            renameMap.set(path.basename(blockmapPath), path.basename(newBlockmapPath));
-          }
-        } else {
-          finalPaths.push(artifactPath);
+        // If blockmap exists in the same folder, rename it as well
+        const blockmapPath = artifactPath + '.blockmap';
+        const newBlockmapPath = newPath + '.blockmap';
+        if (fs.existsSync(blockmapPath)) {
+          console.log(`[afterAllArtifactBuild] Renaming companion blockmap: ${path.basename(blockmapPath)} -> ${path.basename(newBlockmapPath)}`);
+          fs.renameSync(blockmapPath, newBlockmapPath);
+          renameMap.set(path.basename(blockmapPath), path.basename(newBlockmapPath));
         }
       } else {
         finalPaths.push(artifactPath);
@@ -61,20 +57,16 @@ module.exports = async function (context) {
     const ext = path.extname(p);
 
     if (basename.endsWith('.dmg.blockmap')) {
-      // If it was already renamed, its file is already renamed.
-      // We check if we have a mapped blockmap name, or compute it.
       let mappedName = renameMap.get(basename);
       if (!mappedName) {
         let suffix = '';
-        if (basename.includes('x64')) {
-          suffix = 'Apple-Intel-(older)-Installer';
-        } else if (basename.includes('arm64')) {
-          suffix = 'Apple-Silicon-(newer-arm64)-Installer';
+        if (basename.includes('arm64')) {
+          suffix = 'Apple-Silicon-newer-arm64-Installer';
+        } else {
+          suffix = 'Apple-Intel-older-Installer';
         }
 
-        if (suffix) {
-          mappedName = `${productName}-${version}-${suffix}.dmg.blockmap`;
-        }
+        mappedName = `${productName}-${version}-${suffix}.dmg.blockmap`;
       }
 
       if (mappedName) {
@@ -85,7 +77,6 @@ module.exports = async function (context) {
         updatedPaths.push(p);
       }
     } else if (ext === '.yml' || ext === '.yaml') {
-      // It's likely latest-mac.yml or similar
       if (fs.existsSync(p)) {
         let content = fs.readFileSync(p, 'utf8');
         let modified = false;
@@ -109,6 +100,11 @@ module.exports = async function (context) {
     }
   }
 
-  console.log(`[afterAllArtifactBuild] Completed. Final published artifact paths:`, updatedPaths);
-  return updatedPaths;
+  // Mutate context.artifactPaths in-place to ensure downstream systems see the changes
+  if (context.artifactPaths) {
+    context.artifactPaths.splice(0, context.artifactPaths.length, ...updatedPaths);
+  }
+
+  console.log(`[afterAllArtifactBuild] Completed. Final published artifact paths:`, context.artifactPaths);
+  return context.artifactPaths;
 };

@@ -38,7 +38,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
           {/* Welcome Intro */}
           <div className="space-y-1.5">
             <p>
-              This guide explains how the three link methods work in <strong>Interstitial-er</strong> and how to retrieve or set up Google API credentials for secure synchronization across automated broadcast endpoints.
+              This guide explains how the connection methods work in <strong>Interstitial-er</strong> and how to retrieve or set up Google API credentials for secure synchronization across automated broadcast endpoints.
             </p>
           </div>
 
@@ -52,36 +52,25 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
             </h3>
 
             <div className="grid grid-cols-1 gap-3">
-              {/* Option 1 */}
+              {/* Option: Preapproved */}
               <div className="bg-slate-950/40 border border-blue-900/20 rounded-lg p-3 space-y-1.5">
                 <div className="flex items-center gap-1.5 text-blue-400 font-bold uppercase text-[14px]">
                   <Globe className="w-3.5 h-3.5" />
-                  <span>Option 1: Autopilot (Local Loopback) — RECOMMENDED RECOMMENDED DEFAULT</span>
+                  <span>Option: Preapproved (Pop-up login using OAUTH Client ID)</span>
                 </div>
                 <p className="text-slate-450 leading-relaxed">
-                  The primary connection standard. Clicking <strong>Connect</strong> opens your web browser to perform the Google login. Once approved, Google redirects back to the app's embedded local port callback (<code className="text-blue-300 font-mono">127.0.0.1:3000/api/oauth-callback</code>). The running application automatically captures the temporary token, applies it to the active player session, and closes the browser tab.
+                  With an OAUTH Client ID, Interstitial-er opens a pop-up login window. Google user email must be preapproved in that Client ID in Google OAUTH. See your admin to be added.
                 </p>
                 <div className="text-[14px] text-slate-500 font-mono italic">
-                  * Note: Once configure steps are set, Option 1 is utilized as the default standard option for regular operation.
+                  * Note: Once configured, this is utilized as the primary, default standard connection for regular operation.
                 </div>
               </div>
 
-              {/* Option 2 */}
-              <div className="bg-slate-950/40 border border-purple-900/20 rounded-lg p-3 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-purple-400 font-bold uppercase text-[14px]">
-                  <FileCode className="w-3.5 h-3.5" />
-                  <span>Option 2: Browser Verification with Copy-Paste</span>
-                </div>
-                <p className="text-slate-450 leading-relaxed">
-                  Designed as an absolute failsafe for restricted environments. When you click <strong>Get Token from Browser</strong>, you authorize access via Google webpage. On the landing callback page, the screen outputs a secure copyable text string. Paste that string into Interstitial-er and select <strong>Apply</strong>. Bypasses automatic network listener ports.
-                </p>
-              </div>
-
-              {/* Option 3 */}
+              {/* Option: Access Token */}
               <div className="bg-slate-950/40 border border-emerald-900/20 rounded-lg p-3 space-y-2">
                 <div className="flex items-center gap-1.5 text-emerald-400 font-bold uppercase text-[14px]">
                   <Key className="w-3.5 h-3.5" />
-                  <span>Option 3: Direct Manual Access Token (Bypass)</span>
+                  <span>Option: Access Token (Direct Bypass)</span>
                 </div>
                 <p className="text-slate-450 leading-relaxed">
                   Instant developer bypass. Skip browser redirects entirely by supplying any active standard Google Access Token (such as a temporary token generated externally via Google OAuth Playground). Useful for diagnostic scripts or sandbox testing.
@@ -94,8 +83,8 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
                     <li>Under Step 1 "Select &amp; authorize APIs," type <code className="bg-slate-950 border border-slate-800 px-1 py-0.2 rounded font-mono text-emerald-300">https://www.googleapis.com/auth/drive</code> into the input bar and click <strong>Authorize APIs</strong>.</li>
                     <li>Sufficiently authorize via your Google account.</li>
                     <li>On Step 2 in the playground, click the <strong>Exchange authorization code for tokens</strong> button.</li>
-                    <li>Copy the <strong>Access Token</strong> value from the input/details panel.</li>
-                    <li>Open Interstitial-er settings, expand Advanced options, select Option 3, paste the access token, and click <strong>Apply</strong>.</li>
+                    <li>Copy the <strong>Access Token</strong> value from the input/details panel (this is the <code className="text-emerald-300 font-mono">access_token</code> value).</li>
+                    <li>Open Interstitial-er settings, expand Advanced options, select Option: Access Token, paste the access_token value, and click <strong>Connect</strong>.</li>
                   </ol>
                 </div>
 
@@ -103,6 +92,25 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
                   * Note: Standard Google Bearer tokens automatically expire after 60 minutes.
                 </div>
               </div>
+            </div>
+          </div>
+
+          <hr className="border-slate-800" />
+
+          {/* Subsection: Original Commented Out Method */}
+          <div className="space-y-3 bg-slate-950/25 border border-slate-800 p-4 rounded-lg">
+            <h4 className="text-[13px] font-black uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
+              <FileCode className="w-3.5 h-3.5" />
+              <span>Sub Section: Commented Out / Untested Connection Option</span>
+            </h4>
+            <div className="text-slate-400 leading-relaxed text-[13px] space-y-1">
+              <p className="font-bold">Untested Option: Browser Verification with Copy-Paste (Failsafe)</p>
+              <p>
+                Designed as an absolute failsafe for restricted environments. Selecting this launches Google auth in your browser, then redirects to a static page where your authorization string is displayed. You copy that string and paste it into the application to configure.
+              </p>
+            </div>
+            <div className="text-[12px] text-amber-500/80 font-sans italic">
+              * Note: This method is currently disabled/commented-out in the configuration interface. Future developers might want to try to implement the "Untested Option" in code.
             </div>
           </div>
 

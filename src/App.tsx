@@ -1655,22 +1655,22 @@ export default function App() {
               className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-slate-100 flex flex-col max-h-[90vh]"
             >
               {/* Modal Header */}
-              <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+              <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
                 <div className="flex items-center gap-2 text-blue-400">
                   <Folder className="w-5 h-5" />
-                  <h3 className="text-xs font-black uppercase tracking-widest text-white">Default Storage Folders</h3>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-white">Storage Folders</h3>
                 </div>
               </div>
 
               {/* Modal Core Form */}
               <form onSubmit={handleSaveLocations} className="flex flex-col flex-1 overflow-hidden">
                 {/* Modal Content */}
-                <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+                <div className="p-3.5 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
                   
                   {/* Mode Selector Row */}
                   <div className="space-y-1.5">
-                    <p className="text-[12px] font-black uppercase text-slate-400 tracking-widest leading-none">Select Workspace Mode</p>
-                    <div className="p-1.5 bg-slate-950 border border-slate-900 rounded-lg flex gap-1.5 items-center shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)]">
+                    <p className="text-[12px] font-black uppercase text-slate-400 tracking-widest leading-none">Select Mode</p>
+                    <div className="p-1 bg-slate-950 border border-slate-900 rounded-lg flex gap-1 items-center shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)]">
                       <button
                         type="button"
                         onClick={() => setLocationMode('Demo')}
@@ -1687,7 +1687,7 @@ export default function App() {
                             ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]" 
                             : "bg-slate-800"
                         )} />
-                        Demo Mode
+                        Demo
                       </button>
                       <button
                         type="button"
@@ -1851,11 +1851,11 @@ export default function App() {
                   )}
 
                   {locationMode === 'Drive' && (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       {/* Preferences/Schedules Container */}
-                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2">
+                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Schedules & Preferences File</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Schedule</span>
                           {draftDriveFolderPreferences ? (
                             <span className="text-[12px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
                           ) : (
@@ -1889,9 +1889,9 @@ export default function App() {
                       </div>
 
                       {/* MP3s Folder Container */}
-                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2">
+                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Audio Playback Files (.mp3)</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">mp3's</span>
                           {draftDriveFolderMP3s ? (
                             <span className="text-[12px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
                           ) : (
@@ -1925,9 +1925,9 @@ export default function App() {
                       </div>
 
                       {/* Logs Folder Container */}
-                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-2">
+                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">System Execution Logs</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Play Logs</span>
                           {draftDriveFolderLogs ? (
                             <span className="text-[12px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Configured</span>
                           ) : (
@@ -1983,16 +1983,16 @@ export default function App() {
                   )}
  
                   {locationMode === 'Demo' && (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       <div className="p-3 bg-amber-950/15 border border-amber-900/35 rounded-lg whitespace-pre-line text-[12px] leading-relaxed text-amber-500">
                         Demo for crstl.fm testing/learning.  The data is shared, but not for production.  Change, modify, etc everything.
                       </div>
 
                       {/* Demo Schedules Container */}
-                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1.5">
+                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Demo Schedules & Preferences File</span>
-                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Demo Schedule</span>
+                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo</span>
                         </div>
                         <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
                           {driveFolderDescMap['1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED'] || 'scheduledata'}
@@ -2009,10 +2009,10 @@ export default function App() {
                       </div>
  
                       {/* Demo MP3s Folder Container */}
-                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1.5">
+                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Demo Audio Playback Files (.mp3)</span>
-                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Demo mp3's</span>
+                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo</span>
                         </div>
                         <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
                           {driveFolderDescMap['11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch'] || 'mp3library'}
@@ -2029,10 +2029,10 @@ export default function App() {
                       </div>
  
                       {/* Demo Logs Folder Container */}
-                      <div className="p-3 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1.5">
+                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Demo System Execution Logs</span>
-                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo Mode</span>
+                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">Demo Play Logs</span>
+                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Demo</span>
                         </div>
                         <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
                           {driveFolderDescMap['1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx'] || 'logs'}
@@ -2089,7 +2089,7 @@ export default function App() {
                 </div>
 
                 {/* Submit Actions */}
-                <div className="px-5 py-3.5 border-t border-slate-800 bg-slate-950/20 flex gap-2 justify-end">
+                <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-950/20 flex gap-2 justify-end">
                   <button
                     type="button"
                     onClick={() => setShowLocationsModal(false)}
