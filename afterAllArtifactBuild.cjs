@@ -19,9 +19,9 @@ module.exports = async function (context) {
     if (ext === '.dmg') {
       let suffix = '';
       if (basename.includes('arm64')) {
-        suffix = 'Apple-Silicon-newer-arm64-Installer';
+        suffix = 'Mac-Silicon-new';
       } else {
-        suffix = 'Apple-Intel-older-Installer';
+        suffix = 'Mac-Intel-legacy';
       }
 
       const newBasename = `${productName}-${version}-${suffix}.dmg`;
@@ -61,9 +61,9 @@ module.exports = async function (context) {
       if (!mappedName) {
         let suffix = '';
         if (basename.includes('arm64')) {
-          suffix = 'Apple-Silicon-newer-arm64-Installer';
+          suffix = 'Mac-Silicon-new';
         } else {
-          suffix = 'Apple-Intel-older-Installer';
+          suffix = 'Mac-Intel-legacy';
         }
 
         mappedName = `${productName}-${version}-${suffix}.dmg.blockmap`;
