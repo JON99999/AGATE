@@ -167,6 +167,9 @@ try {
     if (!pkg.build.portable) pkg.build.portable = {};
     pkg.build.portable.artifactName = "${productName}-${version}-Windows-Portable.${ext}";
 
+    // Register custom afterAllArtifactBuild hook for renaming Mac artifacts dynamically
+    pkg.build.afterAllArtifactBuild = "./afterAllArtifactBuild.cjs";
+
     console.log(`Packaging Electron app for mode: ${mode}...`);
     // Only publish on GitHub Actions when GH_TOKEN/GITHUB_TOKEN is present, fallback to local packaging (publish never) otherwise
     const isCI = process.env.GITHUB_ACTIONS === 'true';
