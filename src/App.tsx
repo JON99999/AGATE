@@ -763,6 +763,21 @@ export default function App() {
   };
 
   const handleBrowseNative = async (targetField: 'schedules' | 'mp3s' | 'logs') => {
+    // Direct native route for Tauri container
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      try {
+        const selectedPath = await (window as any).__TAURI__.invoke('browse_folder');
+        if (selectedPath) {
+          if (targetField === 'schedules') setDraftLocalPathSchedules(selectedPath);
+          else if (targetField === 'mp3s') setDraftLocalPathMP3s(selectedPath);
+          else if (targetField === 'logs') setDraftLocalPathLogs(selectedPath);
+        }
+        return;
+      } catch (err) {
+        console.warn('Failed to browse folder via Tauri native command:', err);
+      }
+    }
+
     try {
       const res = await fetch('/api/browse-folder', { method: 'POST' });
       const data = await res.json();
@@ -806,9 +821,18 @@ export default function App() {
     }
   };
 
-  const handleOpenDriveFolder = (folderId: string) => {
+  const handleOpenDriveFolder = async (folderId: string) => {
     if (!folderId) return;
-    window.open(`https://drive.google.com/drive/folders/${folderId}`, '_blank');
+    const url = `https://drive.google.com/drive/folders/${folderId}`;
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      try {
+        await (window as any).__TAURI__.invoke('open_url', { url });
+        return;
+      } catch (err) {
+        console.warn('Failed to open external url in Tauri:', err);
+      }
+    }
+    window.open(url, '_blank');
   };
 
   const handleAuthSignIn = async () => {
@@ -895,7 +919,16 @@ export default function App() {
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(googleClientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=https://www.googleapis.com/auth/drive`;
       
       console.log('Launching external browser for Google OAuth Method B:', authUrl);
-      window.open(authUrl, '_blank');
+      if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+        try {
+          await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
+        } catch (err) {
+          console.warn('Failed to open external url under Tauri:', err);
+          window.open(authUrl, '_blank');
+        }
+      } else {
+        window.open(authUrl, '_blank');
+      }
 
       // Start Polling for Registered Token
       let pollCount = 0;

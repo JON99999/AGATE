@@ -98,7 +98,16 @@ export default function GoogleAuthSection({
 
       const authUrl = getOAuthUrl();
       console.log('Launching external browser for Google OAuth Option 1 (Loopback):', authUrl);
-      window.open(authUrl, '_blank');
+      if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+        try {
+          await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
+        } catch (err) {
+          console.warn('Failed to open external url under Tauri:', err);
+          window.open(authUrl, '_blank');
+        }
+      } else {
+        window.open(authUrl, '_blank');
+      }
 
       // Start looping and checking for token
       let pollCount = 0;
@@ -162,13 +171,21 @@ export default function GoogleAuthSection({
   };
 
   // Option 2: Copy-Paste OAuth Helper (Manual Redirection)
-  const handleLaunchManualHelper = () => {
+  const handleLaunchManualHelper = async () => {
     if (!googleClientId.trim()) {
       setDriveValidationError('A Google OAuth Client ID is required to generate the authentication consent link.');
       return;
     }
     const authUrl = getOAuthUrl('manual');
     console.log('Opening OAuth Helper URL:', authUrl);
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      try {
+        await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
+        return;
+      } catch (err) {
+        console.warn('Failed to open external helper url under Tauri:', err);
+      }
+    }
     window.open(authUrl, '_blank');
   };
 

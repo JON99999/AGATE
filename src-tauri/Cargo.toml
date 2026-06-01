@@ -1,6 +1,6 @@
 [package]
 name = "minute-sync-scheduler"
-version = "0.8.3"
+version = "0.8.4"
 description = "Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows co-developed with Electron."
 authors = ["JON99999"]
 edition = "2021"
@@ -9,7 +9,7 @@ edition = "2021"
 tauri-build = { version = "1.5" }
 
 [dependencies]
-tauri = { version = "1.5", features = [ "shell-open" ] }
+tauri = { version = "1.5", features = [ "shell-open", "api-all", "dialog" ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
