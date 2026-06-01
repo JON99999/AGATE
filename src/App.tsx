@@ -40,6 +40,18 @@ import {
 
 export default function App() {
   const isPlayerMode = (import.meta as any).env?.VITE_APP_MODE === 'Player';
+
+  // Custom fetch override to support local/Tauri environment ports transparently
+  const fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    let url = typeof input === 'string' ? input : input.toString();
+    if (url.startsWith('/api/')) {
+      const isCustomProtocol = typeof window !== 'undefined' && !window.location.protocol.startsWith('http');
+      const baseUrl = isCustomProtocol ? 'http://127.0.0.1:3000' : '';
+      url = `${baseUrl}${url}`;
+    }
+    return window.fetch(url, init);
+  };
+
   const [activeTab, setActiveTab] = useState<'player' | 'scheduler' | 'log'>('player');
   const [durationUpdates, setDurationUpdates] = useState(0);
 
@@ -768,6 +780,17 @@ export default function App() {
 
   const handleOpenLocalPath = async (dirPath: string) => {
     if (!dirPath) return;
+
+    // Direct native route for Tauri container
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      try {
+        await (window as any).__TAURI__.invoke('open_folder', { path: dirPath });
+        return;
+      } catch (err) {
+        console.warn('Failed to open local folder via Tauri system command:', err);
+      }
+    }
+
     try {
       const res = await fetch('/api/open-local-folder', {
         method: 'POST',

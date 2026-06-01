@@ -661,7 +661,7 @@ async function startServer() {
 
       const { exec } = require('child_process');
       const startCmd = process.platform === 'win32' 
-        ? `start ""` 
+        ? 'explorer' 
         : process.platform === 'darwin' 
           ? 'open' 
           : 'xdg-open';

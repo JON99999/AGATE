@@ -197,74 +197,115 @@ async function syncRemoteIcons() {
       // Save revised tauri.conf.json
       fs.writeFileSync(tauriConfPath, JSON.stringify(tConf, null, 2));
 
-      console.log(`Packaging Tauri app for mode: ${mode}...`);
-      
-      // Determine what command to run
-      // In CI, we build Tauri directly
-      let cmd = 'npx tauri build';
+      // Determine targets to build
+      let targets = [];
       if (process.platform === 'darwin') {
-        // macOS compile target setup can be passed directly
-        console.log(`Packaging Tauri app for Mac...`);
+        console.log(`Packaging Tauri app for Mac (both Intel and Apple Silicon)...`);
+        // Ensure macOS targets are added via rustup
+        try {
+          console.log('Ensuring macOS compilation targets via rustup...');
+          execSync('rustup target add aarch64-apple-darwin x86_64-apple-darwin', { stdio: 'inherit' });
+        } catch (err) {
+          console.log(`[INFO] Could not run rustup targets addition: ${err.message}`);
+        }
+        targets = ['aarch64-apple-darwin', 'x86_64-apple-darwin'];
       } else if (process.platform === 'win32') {
         console.log(`Packaging Tauri app for Windows...`);
-      }
-      
-      execSync(cmd, { stdio: 'inherit', env: { ...process.env } });
-      console.log(`Successfully completed dynamic compiler build step for Tauri mode: ${mode}!`);
-
-      // Let's sweep and rename the output artifact to store in release/tauri/ and append -Tauri
-      const targetDir = path.join(__dirname, 'src-tauri', 'target', 'release', 'bundle');
-      const releaseDestDir = path.join(__dirname, 'release', 'tauri');
-
-      if (!fs.existsSync(releaseDestDir)) {
-        fs.mkdirSync(releaseDestDir, { recursive: true });
+        targets = [null]; // Default host target
+      } else {
+        targets = [null];
       }
 
-      console.log(`Locating and copying Tauri bundles for mode: ${mode}...`);
-      
-      if (fs.existsSync(targetDir)) {
-        // Recursively find .msi, .exe, .dmg, .zip files
-        const filesToCopy = [];
-        const scanDirectory = (dir) => {
-          const files = fs.readdirSync(dir);
-          for (const file of files) {
-            const p = path.join(dir, file);
-            const stat = fs.statSync(p);
-            if (stat.isDirectory()) {
-              scanDirectory(p);
-            } else {
-              const ext = path.extname(file).toLowerCase();
-              if (['.msi', '.exe', '.dmg', '.zip', '.app'].includes(ext)) {
-                filesToCopy.push(p);
+      for (const target of targets) {
+        let cmd = 'npx tauri build';
+        if (target) {
+          cmd += ` --target ${target}`;
+          console.log(`Running Tauri build for target: ${target}`);
+        }
+        
+        try {
+          execSync(cmd, { stdio: 'inherit', env: { ...process.env } });
+          console.log(`Successfully completed build for Tauri mode: ${mode} (${target || 'host'})!`);
+        } catch (buildErr) {
+          console.error(`[ERROR] Build failed for target ${target || 'host'}:`, buildErr.message);
+          if (process.platform === 'darwin' || process.platform === 'win32') {
+            throw buildErr;
+          }
+        }
+
+        // Determine target directory where bundles are generated
+        const targetDir = target
+          ? path.join(__dirname, 'src-tauri', 'target', target, 'release', 'bundle')
+          : path.join(__dirname, 'src-tauri', 'target', 'release', 'bundle');
+          
+        const releaseDestDir = path.join(__dirname, 'release', 'tauri');
+
+        if (!fs.existsSync(releaseDestDir)) {
+          fs.mkdirSync(releaseDestDir, { recursive: true });
+        }
+
+        console.log(`Locating and copying Tauri bundles for mode: ${mode} (${target || 'host'})...`);
+        
+        if (fs.existsSync(targetDir)) {
+          // Recursively find .msi, .exe, .dmg, .zip files
+          const filesToCopy = [];
+          const scanDirectory = (dir) => {
+            const files = fs.readdirSync(dir);
+            for (const file of files) {
+              const p = path.join(dir, file);
+              const stat = fs.statSync(p);
+              if (stat.isDirectory()) {
+                scanDirectory(p);
+              } else {
+                const ext = path.extname(file).toLowerCase();
+                if (['.msi', '.exe', '.dmg', '.zip', '.app'].includes(ext)) {
+                  filesToCopy.push(p);
+                }
               }
             }
+          };
+
+          scanDirectory(targetDir);
+
+          for (const file of filesToCopy) {
+            const ext = path.extname(file);
+            
+            let suffix = '';
+            if (process.platform === 'darwin') {
+              if (target && target.includes('x86_64')) {
+                suffix = 'Mac-Intel-legacy';
+              } else if (target && target.includes('aarch64')) {
+                suffix = 'Mac-Silicon-new';
+              } else {
+                if (file.includes('x64') || file.includes('x86_64')) {
+                  suffix = 'Mac-Intel-legacy';
+                } else {
+                  suffix = 'Mac-Silicon-new';
+                }
+              }
+            } else {
+              // Windows
+              if (ext.toLowerCase() === '.msi') {
+                suffix = 'Windows-Installer';
+              } else if (ext.toLowerCase() === '.zip') {
+                suffix = 'Windows-Portable';
+              } else {
+                suffix = 'Windows';
+              }
+            }
+
+            const finalProductName = `Interstitial-er ${mode}`;
+            const version = tConf.package.version;
+            
+            const tauriRenamed = `${finalProductName}-${version}-${suffix}-tauri${ext}`;
+            const destFilePath = path.join(releaseDestDir, tauriRenamed);
+            
+            fs.copyFileSync(file, destFilePath);
+            console.log(`[Tauri Output] Copied and renamed bundle: ${path.basename(file)} -> release/tauri/${tauriRenamed}`);
           }
-        };
-
-        scanDirectory(targetDir);
-
-        for (const file of filesToCopy) {
-          const ext = path.extname(file);
-          const originalName = path.basename(file, ext);
-          // Standardize naming to match user request (adding "-Tauri" with target details)
-          let tauriRenamed = `${originalName}-Tauri${ext}`;
-          
-          // Inject Mode specifically so users understand clearly
-          if (!tauriRenamed.toLowerCase().includes(mode.toLowerCase())) {
-            tauriRenamed = `Interstitial-er-${mode}-${originalName}-Tauri${ext}`;
-          } else {
-            tauriRenamed = tauriRenamed.replace('Interstitial-er', `Interstitial-er-${mode}`);
-          }
-
-          // Force replace double extensions or double hyphens
-          tauriRenamed = tauriRenamed.replace(/--/g, '-').replace(/_Tauri/g, '-Tauri');
-
-          const destFilePath = path.join(releaseDestDir, tauriRenamed);
-          fs.copyFileSync(file, destFilePath);
-          console.log(`[Tauri Output] Copied and renamed bundle: ${path.basename(file)} -> release/tauri/${tauriRenamed}`);
+        } else {
+          console.log(`[INFO] No bundle folder found inside Tauri target build workspace at: ${targetDir}`);
         }
-      } else {
-        console.log(`[INFO] No bundle folder found inside Tauri target build workspace. (This is normal if dry run or building on non-matching environments).`);
       }
     };
 

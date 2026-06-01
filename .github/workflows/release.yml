@@ -40,6 +40,8 @@ jobs:
 
       - name: Install Rust Toolchain for Tauri
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
 
       - name: Build Tauri App
         run: npm run dist:tauri
@@ -54,9 +56,13 @@ jobs:
             release/*.dmg.blockmap
             release/*.exe
             release/*.zip
+            release/tauri/*-tauri.dmg
             release/tauri/*-Tauri.dmg
+            release/tauri/*-tauri.msi
             release/tauri/*-Tauri.msi
+            release/tauri/*-tauri.exe
             release/tauri/*-Tauri.exe
+            release/tauri/*-tauri.zip
             release/tauri/*-Tauri.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

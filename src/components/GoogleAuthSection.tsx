@@ -114,7 +114,9 @@ export default function GoogleAuthSection({
         }
 
         try {
-          const res = await fetch('/api/check-registered-token');
+          const isCustomProtocol = typeof window !== 'undefined' && !window.location.protocol.startsWith('http');
+          const baseUrl = isCustomProtocol ? 'http://127.0.0.1:3000' : '';
+          const res = await fetch(`${baseUrl}/api/check-registered-token`);
           if (!res.ok) throw new Error('Unreachable loopback callback');
           const data = await res.json();
           if (data.token) {
