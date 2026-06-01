@@ -47,10 +47,11 @@ This application is primarily a **Desktop Application** built with Electron and 
 ## Integrity of Data and Schedules
 
 - **Never Fake a Schedule or MP3 File**: Do not construct simulated, preset, or fake schedule arrays or MP3 database file listings in any mode (including Demo mode). Always read directly from designated directory stores; if folders are unconfigured or files are not found, state clearly that they cannot be found.
+- **Never Fake Application Executable and Installer Icons**: Do not construct, simulate, or use dummy base64/placeholder representations for application executable and installer icons. Always fetch the authentic icon assets from the GitHub `assets` branch or local storage as required; if missing or unconfigured, log the status clearly without embedding fake icons. This rule only applies to application executable and installer icons; do not apply this rule to in-app icons (e.g. standard vector ui icons), which may be generated or modeled normally.
 
 ## Versioning Alignment Workflows
 
-- **Check Version References Everywhere**: When commanded to update, check, or reset the application's version, the agent **MUST** perform a global search across the workspace to locate and align all instances. This includes modifying `package.json`, `package-lock.json`, and companion developer instructions/distribution guides like `HOW_TO_RELEASE_IN_GITHUB_ONLINE.md`. All version tags (e.g., `v0.8.1`) must remain strictly in sync with the core version string.
+- **Check Version References Everywhere**: When commanded to update, check, or reset the application's version, the agent **MUST** perform a global search across the workspace to locate and align all instances. This includes modifying `package.json`, `package-lock.json`, and companion developer instructions/distribution guides like `HOW_TO_RELEASE_IN_GITHUB_ONLINE.md`. All version tags (e.g., `v0.8.2`) must remain strictly in sync with the core version string.
 
 
 

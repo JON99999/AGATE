@@ -1,6 +1,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
 const tauriConfPath = path.join(__dirname, 'src-tauri', 'tauri.conf.json');
 const tauriConfBakPath = path.join(__dirname, 'src-tauri', 'tauri.conf.json.bak');
@@ -33,44 +34,137 @@ function restoreTauriConf() {
   }
 }
 
-// Ensure the local icons directory exists inside src-tauri
-const tauriIconsDir = path.join(__dirname, 'src-tauri', 'icons');
-if (!fs.existsSync(tauriIconsDir)) {
-  fs.mkdirSync(tauriIconsDir, { recursive: true });
+function downloadFile(url, destPath) {
+  return new Promise((resolve, reject) => {
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    const file = fs.createWriteStream(destPath);
+    https.get(url, (response) => {
+      // Handle HTTP redirects
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        https.get(response.headers.location, (redirectResponse) => {
+          if (redirectResponse.statusCode !== 200) {
+            fs.unlink(destPath, () => {});
+            reject(new Error(`Redirect response failed: status ${redirectResponse.statusCode}`));
+            return;
+          }
+          redirectResponse.pipe(file);
+          file.on('finish', () => {
+            file.close();
+            resolve();
+          });
+        }).on('error', (err) => {
+          fs.unlink(destPath, () => {});
+          reject(err);
+        });
+        return;
+      }
+
+      if (response.statusCode !== 200) {
+        fs.unlink(destPath, () => {});
+        reject(new Error(`Request failed: status ${response.statusCode}`));
+        return;
+      }
+
+      response.pipe(file);
+      file.on('finish', () => {
+        file.close();
+        resolve();
+      });
+    }).on('error', (err) => {
+      fs.unlink(destPath, () => {});
+      reject(err);
+    });
+  });
 }
 
-// Copy Electron-builder assets dynamically into the tauri/icons bundle if they exist
-const sourceMacIcon = path.join(__dirname, 'src', 'assets', 'images', 'mac', 'icon.icns');
-const sourceWinIcon = path.join(__dirname, 'src', 'assets', 'images', 'win', 'icon.ico');
-const sourceUserPng = path.join(__dirname, 'src', 'assets', 'images', 'user-icon.png');
-const defaultPng = path.join(__dirname, 'src', 'assets', 'images', 'interstitialer_icon_1779637727966.png');
-
-const fileMap = [
-  { src: sourceMacIcon, dest: path.join(tauriIconsDir, 'icon.icns') },
-  { src: sourceWinIcon, dest: path.join(tauriIconsDir, 'icon.ico') },
-  { src: sourceUserPng, dest: path.join(tauriIconsDir, '128x128.png') },
-  { src: sourceUserPng, dest: path.join(tauriIconsDir, '128x128@2x.png') },
-  { src: sourceUserPng, dest: path.join(tauriIconsDir, '32x32.png') }
-];
-
-fileMap.forEach((m) => {
-  try {
-    let finalSrc = m.src;
-    // Fall back to default placeholder PNG if user-icon.png is not found
-    if (!fs.existsSync(finalSrc) && finalSrc.endsWith('.png') && fs.existsSync(defaultPng)) {
-      finalSrc = defaultPng;
+async function syncRemoteIcons() {
+  console.log('\nSynchronizing remote builder icon assets from GitHub (branch: assets)...');
+  const baseRawUrl = 'https://raw.githubusercontent.com/JON99999/Interstitial-er/assets';
+  
+  const filesToSync = [
+    {
+      remote: `${baseRawUrl}/src/assets/images/user-icon.png`,
+      local: path.join(__dirname, 'src', 'assets', 'images', 'user-icon.png'),
+      name: 'user-icon.png (Application and installer logo)',
+      requiredSpec: 'High-resolution 1024x1024 pixel PNG file.'
+    },
+    {
+      remote: `${baseRawUrl}/src/assets/images/mac/icon.icns`,
+      local: path.join(__dirname, 'src', 'assets', 'images', 'mac', 'icon.icns'),
+      name: 'mac/icon.icns (macOS application icon bundle)',
+      requiredSpec: 'Standard Apple ICNS file containing multiple resolutions up to 1024x1024 pixels.'
+    },
+    {
+      remote: `${baseRawUrl}/src/assets/images/win/icon.ico`,
+      local: path.join(__dirname, 'src', 'assets', 'images', 'win', 'icon.ico'),
+      name: 'win/icon.ico (Windows application icon bundle)',
+      requiredSpec: 'Standard Windows ICO file containing multiple sizes (16, 24, 32, 48, 256 pixels).'
     }
-    if (fs.existsSync(finalSrc)) {
-      fs.copyFileSync(finalSrc, m.dest);
-      console.log(`Copied ${path.basename(finalSrc)} to Tauri icons destination: ${path.basename(m.dest)}`);
+  ];
+
+  for (const item of filesToSync) {
+    try {
+      await downloadFile(item.remote, item.local);
+      console.log(`Successfully downloaded and updated remote icon: ${item.name}`);
+    } catch (err) {
+      console.log(`[INFO] Could not sync remote icon: ${item.name}`);
+      console.log(`       Target URL: ${item.remote}`);
+      console.log(`       Reason: ${err.message}`);
+      if (fs.existsSync(item.local)) {
+        console.log(`       Using existing local cached copy of ${path.basename(item.local)} instead.`);
+      } else {
+        console.log(`       ⚠️ WARNING: Local icon file is missing.`);
+        console.log(`       Please verify you have pushed a valid file at:`);
+        console.log(`       GitHub Branch: assets`);
+        console.log(`       Path: ${item.remote.replace(baseRawUrl + '/', '')}`);
+        console.log(`       Requirements: ${item.requiredSpec}`);
+      }
     }
-  } catch (err) {
-    console.log(`[INFO] Could not sync icon asset to Tauri during script start: ${err.message}`);
   }
-});
+  console.log('GitHub icon assets synchronization complete.\n');
+}
 
 (async () => {
   try {
+    // --- Step 0: Sync Remote Icons from assets branch ---
+    await syncRemoteIcons();
+
+    // Ensure the local icons directory exists inside src-tauri
+    const tauriIconsDir = path.join(__dirname, 'src-tauri', 'icons');
+    if (!fs.existsSync(tauriIconsDir)) {
+      fs.mkdirSync(tauriIconsDir, { recursive: true });
+    }
+
+    // Copy Electron-builder assets dynamically into the tauri/icons bundle if they exist
+    const sourceMacIcon = path.join(__dirname, 'src', 'assets', 'images', 'mac', 'icon.icns');
+    const sourceWinIcon = path.join(__dirname, 'src', 'assets', 'images', 'win', 'icon.ico');
+    const sourceUserPng = path.join(__dirname, 'src', 'assets', 'images', 'user-icon.png');
+    const defaultPng = path.join(__dirname, 'src', 'assets', 'images', 'interstitialer_icon_1779637727966.png');
+
+    const fileMap = [
+      { src: sourceMacIcon, dest: path.join(tauriIconsDir, 'icon.icns') },
+      { src: sourceWinIcon, dest: path.join(tauriIconsDir, 'icon.ico') },
+      { src: sourceUserPng, dest: path.join(tauriIconsDir, '128x128.png') },
+      { src: sourceUserPng, dest: path.join(tauriIconsDir, '128x128@2x.png') },
+      { src: sourceUserPng, dest: path.join(tauriIconsDir, '32x32.png') }
+    ];
+
+    fileMap.forEach((m) => {
+      try {
+        let finalSrc = m.src;
+        // Fall back to default placeholder PNG if user-icon.png is not found
+        if (!fs.existsSync(finalSrc) && finalSrc.endsWith('.png') && fs.existsSync(defaultPng)) {
+          finalSrc = defaultPng;
+        }
+        if (fs.existsSync(finalSrc)) {
+          fs.copyFileSync(finalSrc, m.dest);
+          console.log(`Copied ${path.basename(finalSrc)} to Tauri icons destination: ${path.basename(m.dest)}`);
+        }
+      } catch (err) {
+        console.log(`[INFO] Could not sync icon asset to Tauri during script start: ${err.message}`);
+      }
+    });
+
     const cleanBuild = () => {
       console.log('Cleaning up old build outputs...');
       if (fs.existsSync('dist')) {
