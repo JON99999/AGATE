@@ -1,0 +1,204 @@
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const tauriConfPath = path.join(__dirname, 'src-tauri', 'tauri.conf.json');
+const tauriConfBakPath = path.join(__dirname, 'src-tauri', 'tauri.conf.json.bak');
+
+console.log('Starting custom double-build process for Tauri (Player/Admin)...');
+
+// 1. Back up tauri.conf.json
+try {
+  if (fs.existsSync(tauriConfPath)) {
+    fs.copyFileSync(tauriConfPath, tauriConfBakPath);
+    console.log('Successfully backed up tauri.conf.json.');
+  } else {
+    console.error('Tauri conf file not found at:', tauriConfPath);
+    process.exit(1);
+  }
+} catch (err) {
+  console.error('Failed to back up tauri.conf.json', err);
+  process.exit(1);
+}
+
+function restoreTauriConf() {
+  try {
+    if (fs.existsSync(tauriConfBakPath)) {
+      fs.copyFileSync(tauriConfBakPath, tauriConfPath);
+      fs.unlinkSync(tauriConfBakPath);
+      console.log('Successfully restored original tauri.conf.json.');
+    }
+  } catch (err) {
+    console.error('Critical: Failed to restore tauri.conf.json!', err);
+  }
+}
+
+// Ensure the local icons directory exists inside src-tauri
+const tauriIconsDir = path.join(__dirname, 'src-tauri', 'icons');
+if (!fs.existsSync(tauriIconsDir)) {
+  fs.mkdirSync(tauriIconsDir, { recursive: true });
+}
+
+// Copy Electron-builder assets dynamically into the tauri/icons bundle if they exist
+const sourceMacIcon = path.join(__dirname, 'src', 'assets', 'images', 'mac', 'icon.icns');
+const sourceWinIcon = path.join(__dirname, 'src', 'assets', 'images', 'win', 'icon.ico');
+const sourceUserPng = path.join(__dirname, 'src', 'assets', 'images', 'user-icon.png');
+const defaultPng = path.join(__dirname, 'src', 'assets', 'images', 'interstitialer_icon_1779637727966.png');
+
+const fileMap = [
+  { src: sourceMacIcon, dest: path.join(tauriIconsDir, 'icon.icns') },
+  { src: sourceWinIcon, dest: path.join(tauriIconsDir, 'icon.ico') },
+  { src: sourceUserPng, dest: path.join(tauriIconsDir, '128x128.png') },
+  { src: sourceUserPng, dest: path.join(tauriIconsDir, '128x128@2x.png') },
+  { src: sourceUserPng, dest: path.join(tauriIconsDir, '32x32.png') }
+];
+
+fileMap.forEach((m) => {
+  try {
+    let finalSrc = m.src;
+    // Fall back to default placeholder PNG if user-icon.png is not found
+    if (!fs.existsSync(finalSrc) && finalSrc.endsWith('.png') && fs.existsSync(defaultPng)) {
+      finalSrc = defaultPng;
+    }
+    if (fs.existsSync(finalSrc)) {
+      fs.copyFileSync(finalSrc, m.dest);
+      console.log(`Copied ${path.basename(finalSrc)} to Tauri icons destination: ${path.basename(m.dest)}`);
+    }
+  } catch (err) {
+    console.log(`[INFO] Could not sync icon asset to Tauri during script start: ${err.message}`);
+  }
+});
+
+(async () => {
+  try {
+    const cleanBuild = () => {
+      console.log('Cleaning up old build outputs...');
+      if (fs.existsSync('dist')) {
+        fs.rmSync('dist', { recursive: true, force: true });
+      }
+      fs.mkdirSync('dist');
+    };
+
+    const compileAssets = (mode) => {
+      console.log(`Compiling Vite assets for mode: ${mode}...`);
+      execSync('npx vite build', {
+        env: { ...process.env, VITE_APP_MODE: mode },
+        stdio: 'inherit'
+      });
+
+      // Write app-config.json configuration
+      const configPath = path.join(__dirname, 'dist', 'app-config.json');
+      fs.writeFileSync(configPath, JSON.stringify({ mode }, null, 2));
+      console.log(`Wrote dist/app-config.json for mode: ${mode}.`);
+    };
+
+    const packageAppTauri = (mode) => {
+      console.log(`Updating tauri.conf.json for packaging mode: ${mode}...`);
+      const tConf = JSON.parse(fs.readFileSync(tauriConfBakPath, 'utf8'));
+
+      // Inject App names & IDs
+      tConf.package.productName = `Interstitial-er ${mode}`;
+      tConf.tauri.bundle.identifier = `com.minutesync.scheduler.${mode.toLowerCase()}`;
+      
+      // Save revised tauri.conf.json
+      fs.writeFileSync(tauriConfPath, JSON.stringify(tConf, null, 2));
+
+      console.log(`Packaging Tauri app for mode: ${mode}...`);
+      
+      // Determine what command to run
+      // In CI, we build Tauri directly
+      let cmd = 'npx tauri build';
+      if (process.platform === 'darwin') {
+        // macOS compile target setup can be passed directly
+        console.log(`Packaging Tauri app for Mac...`);
+      } else if (process.platform === 'win32') {
+        console.log(`Packaging Tauri app for Windows...`);
+      }
+      
+      execSync(cmd, { stdio: 'inherit', env: { ...process.env } });
+      console.log(`Successfully completed dynamic compiler build step for Tauri mode: ${mode}!`);
+
+      // Let's sweep and rename the output artifact to store in release/tauri/ and append -Tauri
+      const targetDir = path.join(__dirname, 'src-tauri', 'target', 'release', 'bundle');
+      const releaseDestDir = path.join(__dirname, 'release', 'tauri');
+
+      if (!fs.existsSync(releaseDestDir)) {
+        fs.mkdirSync(releaseDestDir, { recursive: true });
+      }
+
+      console.log(`Locating and copying Tauri bundles for mode: ${mode}...`);
+      
+      if (fs.existsSync(targetDir)) {
+        // Recursively find .msi, .exe, .dmg, .zip files
+        const filesToCopy = [];
+        const scanDirectory = (dir) => {
+          const files = fs.readdirSync(dir);
+          for (const file of files) {
+            const p = path.join(dir, file);
+            const stat = fs.statSync(p);
+            if (stat.isDirectory()) {
+              scanDirectory(p);
+            } else {
+              const ext = path.extname(file).toLowerCase();
+              if (['.msi', '.exe', '.dmg', '.zip', '.app'].includes(ext)) {
+                filesToCopy.push(p);
+              }
+            }
+          }
+        };
+
+        scanDirectory(targetDir);
+
+        for (const file of filesToCopy) {
+          const ext = path.extname(file);
+          const originalName = path.basename(file, ext);
+          // Standardize naming to match user request (adding "-Tauri" with target details)
+          let tauriRenamed = `${originalName}-Tauri${ext}`;
+          
+          // Inject Mode specifically so users understand clearly
+          if (!tauriRenamed.toLowerCase().includes(mode.toLowerCase())) {
+            tauriRenamed = `Interstitial-er-${mode}-${originalName}-Tauri${ext}`;
+          } else {
+            tauriRenamed = tauriRenamed.replace('Interstitial-er', `Interstitial-er-${mode}`);
+          }
+
+          // Force replace double extensions or double hyphens
+          tauriRenamed = tauriRenamed.replace(/--/g, '-').replace(/_Tauri/g, '-Tauri');
+
+          const destFilePath = path.join(releaseDestDir, tauriRenamed);
+          fs.copyFileSync(file, destFilePath);
+          console.log(`[Tauri Output] Copied and renamed bundle: ${path.basename(file)} -> release/tauri/${tauriRenamed}`);
+        }
+      } else {
+        console.log(`[INFO] No bundle folder found inside Tauri target build workspace. (This is normal if dry run or building on non-matching environments).`);
+      }
+    };
+
+    // --- Step 1: Build & Package Admin ---
+    console.log('\n======================================================');
+    console.log(' BUILDING TAURI INTERSTITIAL-ER ADMIN ');
+    console.log('======================================================\n');
+    cleanBuild();
+    compileAssets('Admin');
+    packageAppTauri('Admin');
+
+    // --- Step 2: Build & Package Player ---
+    console.log('\n======================================================');
+    console.log(' BUILDING TAURI INTERSTITIAL-ER PLAYER ');
+    console.log('======================================================\n');
+    cleanBuild();
+    compileAssets('Player');
+    packageAppTauri('Player');
+
+    console.log('\n======================================================');
+    console.log(' TAURI DOUBLE-BUILD COMPLETED ');
+    console.log(' All bundles copied cleanly into release/tauri/ with -Tauri tags!');
+    console.log('======================================================\n');
+
+  } catch (err) {
+    console.error('\nAn error occurred during Tauri build/packaging:', err);
+    process.exitCode = 1;
+  } finally {
+    restoreTauriConf();
+  }
+})();

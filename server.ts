@@ -276,38 +276,50 @@ async function startServer() {
     const hash = window.location.hash;
     const params = new URLSearchParams(hash.substring(1));
     const accessToken = params.get('access_token');
+    const state = params.get('state');
     
     if (accessToken) {
-      fetch('/api/register-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: accessToken })
-      })
-      .then(res => res.json())
-      .then(data => {
+      if (state === 'manual') {
         document.getElementById('loader').style.display = 'none';
         const st = document.getElementById('status');
-        st.innerText = 'AUTHENTICATION COMPLETED';
+        st.innerText = 'MANUAL TOKEN GENERATED';
         st.className = 'status-text status-success';
-        document.getElementById('message').innerHTML = 'Your credentials have been verified and applied.<br>This window will close automatically.';
+        document.getElementById('message').innerText = 'Please copy the secure access token below and paste it into the Interstitial-er Option: Copy-Paste input field.';
         
-        setTimeout(() => {
-          window.close();
-          // Fallback if window.close() is blocked by the browser
-          document.getElementById('message').innerHTML = 'Your login session is fully registered.<br>You can now safely close this browser window/tab.';
-        }, 1200);
-      })
-      .catch(err => {
-        document.getElementById('loader').style.display = 'none';
-        const st = document.getElementById('status');
-        st.innerText = 'AUTOMATION REGISTRATION FAILED';
-        st.className = 'status-text status-error';
-        document.getElementById('message').innerText = 'Failed to transmit token to the local server. Please write down or copy the manual option below to paste in Google settings:';
-        
-        // Show manual fallback only since auto transmission failed
         document.getElementById('token-section').style.display = 'block';
         document.getElementById('token-textarea').value = accessToken;
-      });
+      } else {
+        fetch('/api/register-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: accessToken })
+        })
+        .then(res => res.json())
+        .then(data => {
+          document.getElementById('loader').style.display = 'none';
+          const st = document.getElementById('status');
+          st.innerText = 'AUTHENTICATION COMPLETED';
+          st.className = 'status-text status-success';
+          document.getElementById('message').innerHTML = 'Your credentials have been verified and applied.<br>This window will close automatically.';
+          
+          setTimeout(() => {
+            window.close();
+            // Fallback if window.close() is blocked by the browser
+            document.getElementById('message').innerHTML = 'Your login session is fully registered.<br>You can now safely close this browser window/tab.';
+          }, 1200);
+        })
+        .catch(err => {
+          document.getElementById('loader').style.display = 'none';
+          const st = document.getElementById('status');
+          st.innerText = 'AUTOMATION REGISTRATION FAILED';
+          st.className = 'status-text status-error';
+          document.getElementById('message').innerText = 'Failed to transmit token to the local server. Please write down or copy the manual option below to paste in Google settings:';
+          
+          // Show manual fallback only since auto transmission failed
+          document.getElementById('token-section').style.display = 'block';
+          document.getElementById('token-textarea').value = accessToken;
+        });
+      }
 
       document.getElementById('btn-copy').addEventListener('click', () => {
         const textarea = document.getElementById('token-textarea');

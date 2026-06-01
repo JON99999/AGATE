@@ -73,10 +73,14 @@ export default function GoogleAuthSection({
   };
 
   // Helper to construct the OAuth login URL
-  const getOAuthUrl = () => {
+  const getOAuthUrl = (state?: string) => {
     const port = window.location.port || '3000';
     const redirectUri = `http://127.0.0.1:${port}/api/oauth-callback`;
-    return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(googleClientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=https://www.googleapis.com/auth/drive`;
+    let url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(googleClientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=https://www.googleapis.com/auth/drive`;
+    if (state) {
+      url += `&state=${encodeURIComponent(state)}`;
+    }
+    return url;
   };
 
   // Option 1: Desktop Browser Loopback (Auto Callback)
@@ -161,7 +165,7 @@ export default function GoogleAuthSection({
       setDriveValidationError('A Google OAuth Client ID is required to generate the authentication consent link.');
       return;
     }
-    const authUrl = getOAuthUrl();
+    const authUrl = getOAuthUrl('manual');
     console.log('Opening OAuth Helper URL:', authUrl);
     window.open(authUrl, '_blank');
   };
@@ -363,7 +367,7 @@ export default function GoogleAuthSection({
                   type="button"
                   onClick={() => setActiveTab('autopilot')}
                   className={cn(
-                    "flex-1 py-1 text-[14px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
+                    "flex-1 py-1 text-[16px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
                     activeTab === 'autopilot' 
                       ? "bg-blue-600/15 text-blue-400 border border-blue-500/25" 
                       : "text-slate-400 hover:text-slate-200"
@@ -371,25 +375,23 @@ export default function GoogleAuthSection({
                 >
                   Option: Preapproved
                 </button>
-                {/*
                 <button
                   type="button"
                   onClick={() => setActiveTab('manual-transfer')}
                   className={cn(
-                    "flex-1 py-1 text-[14px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
+                    "flex-1 py-1 text-[16px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
                     activeTab === 'manual-transfer' 
                       ? "bg-blue-600/15 text-blue-400 border border-blue-500/25" 
                       : "text-slate-400 hover:text-slate-200"
                   )}
                 >
-                  Untested Option: Copy-Paste
+                  Option: Copy-Paste
                 </button>
-                */}
                 <button
                   type="button"
                   onClick={() => setActiveTab('direct-token')}
                   className={cn(
-                    "flex-1 py-1 text-[14px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
+                    "flex-1 py-1 text-[16px] font-black uppercase tracking-wider rounded transition-all cursor-pointer",
                     activeTab === 'direct-token' 
                       ? "bg-blue-600/15 text-blue-400 border border-blue-500/25" 
                       : "text-slate-400 hover:text-slate-200"
@@ -464,40 +466,40 @@ export default function GoogleAuthSection({
                       <div className="flex items-start gap-1.5 text-blue-400">
                         <FileCode className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <div className="space-y-1">
-                          <span className="text-[12px] font-black uppercase tracking-wider block">Untested Option: Browser Verification with Copy-Paste</span>
-                          <p className="text-[12px] text-slate-400 leading-relaxed font-sans">
+                          <span className="text-[14px] font-black uppercase tracking-wider block text-blue-500">Option: Copy-Paste</span>
+                          <p className="text-[14px] text-slate-400 leading-relaxed font-sans font-medium">
                             Failsafe method for restricted machines. Launches Google auth, redirects to a page where your token is displayed. Copy and paste it here.
                           </p>
                         </div>
                       </div>
 
                       <div className="space-y-1.5 p-2 bg-slate-950/60 border border-slate-800 rounded">
-                        <label className="text-[12px] text-slate-400 block font-black uppercase tracking-wider">Google OAuth Client ID</label>
+                        <label className="text-[14px] text-slate-400 block font-black uppercase tracking-wider">Google OAuth Client ID</label>
                         <input
-                           type="text"
+                          type="text"
                           placeholder="Paste google_client_id here..."
                           value={googleClientId}
                           onChange={(e) => handleClientIdChange(e.target.value)}
-                          className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[14px] font-mono text-slate-200 outline-none"
+                          className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[16px] font-mono text-slate-200 outline-none"
                         />
                       </div>
 
                       <div className="grid grid-cols-[1fr_auto] gap-1.5 p-2 bg-slate-950/60 border border-slate-800 rounded">
                         <div className="space-y-1">
-                          <label className="text-[12px] text-slate-400 block font-black uppercase tracking-wider">Paste Authorized Access Token</label>
+                          <label className="text-[14px] text-slate-400 block font-black uppercase tracking-wider">Paste Authorized Access Token</label>
                           <input
                             type="password"
                             placeholder="Paste verification token here (Bearer)..."
                             value={manualCodeToken}
                             onChange={(e) => setManualCodeToken(e.target.value)}
-                            className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[14px] font-mono text-slate-250 outline-none"
+                            className="w-full px-2 py-1 bg-slate-950 border border-slate-800 rounded text-[16px] font-mono text-slate-250 outline-none"
                           />
                         </div>
                         <div className="flex flex-col justify-end">
                           <button
                             type="button"
                             onClick={handleApplyManualHelperToken}
-                            className="px-2.5 py-1 text-[14px] font-black bg-blue-600 hover:bg-blue-500 text-white rounded uppercase tracking-wider transition cursor-pointer"
+                            className="px-2.5 py-1 text-[16px] font-black bg-blue-600 hover:bg-blue-500 text-white rounded uppercase tracking-wider transition cursor-pointer"
                           >
                             Apply
                           </button>
@@ -508,14 +510,14 @@ export default function GoogleAuthSection({
                         type="button"
                         onClick={handleLaunchManualHelper}
                         disabled={!googleClientId.trim()}
-                        className="w-full py-1 text-[14px] font-black uppercase tracking-wider bg-slate-805 hover:bg-slate-750 text-slate-200 border border-slate-705 rounded transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="w-full py-1 text-[16px] font-black uppercase tracking-wider bg-slate-805 hover:bg-slate-750 text-slate-200 border border-slate-705 rounded transition-all duration-150 flex items-center justify-center gap-1.5 cursor-pointer"
                       >
                         <span>1. Get Token from Browser</span>
                         <ExternalLink className="w-2.5 h-2.5" />
                       </button>
 
-                      <div className="text-[11px] text-amber-550 italic font-mono leading-relaxed pt-1 bg-amber-950/10 border border-amber-900/20 rounded p-2">
-                        * Note: Future developers might want to try to implement the "Untested Option" in code.
+                      <div className="text-[13px] text-amber-550 italic font-mono leading-relaxed pt-1 bg-amber-950/10 border border-amber-900/20 rounded p-2">
+                        * Note: This Copy-Paste flow is highly recommended for sandboxed test spaces or corporate terminal locations.
                       </div>
                     </motion.div>
                   )}
