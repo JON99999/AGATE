@@ -50,7 +50,7 @@ This application is primarily a **Desktop Application** built with Electron and 
 
 ## Versioning Alignment Workflows
 
-- **Check Version References Everywhere**: When commanded to update, check, or reset the application's version, the agent **MUST** perform a global search across the workspace to locate and align all instances. This includes modifying `package.json`, `package-lock.json`, and companion developer instructions/distribution guides like `HOW_TO_RELEASE_IN_GITHUB_ONLINE.md`. All version tags (e.g., `v0.8.0`) must remain strictly in sync with the core version string.
+- **Check Version References Everywhere**: When commanded to update, check, or reset the application's version, the agent **MUST** perform a global search across the workspace to locate and align all instances. This includes modifying `package.json`, `package-lock.json`, and companion developer instructions/distribution guides like `HOW_TO_RELEASE_IN_GITHUB_ONLINE.md`. All version tags (e.g., `v0.8.1`) must remain strictly in sync with the core version string.
 
 
 
