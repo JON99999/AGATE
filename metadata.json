@@ -1,6 +1,0 @@
-{
-  "name": "Interstitial-er",
-  "description": "Cross-platform Desktop MP3 Scheduler optimized for MacOS (Silicon/Intel) and Windows 10/11.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
