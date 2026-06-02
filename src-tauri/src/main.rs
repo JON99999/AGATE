@@ -113,21 +113,20 @@ fn start_loopback_server() {
             let response = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n";
             let _ = stream.write_all(response.as_bytes());
           } else if request.starts_with("GET /api/register-token") || request.starts_with("GET /register-token") {
-            let mut token = None;
-            let mut owned_token = String::new();
+            let mut token: Option<String> = None;
             if let Some(pos) = request.find("token=") {
               let start = pos + 6;
               if let Some(sub) = request.get(start..) {
                 let end = sub.find('&').or_else(|| sub.find(' ')).unwrap_or(sub.len());
                 let raw_token = &sub[..end];
-                owned_token = raw_token.replace("%2F", "/").replace("%3D", "=").replace("%3F", "?").replace("%26", "&");
-                token = Some(&owned_token);
+                let owned_token = raw_token.replace("%2F", "/").replace("%3D", "=").replace("%3F", "?").replace("%26", "&");
+                token = Some(owned_token);
               }
             }
             
             if let Some(t) = token {
               let mut token_guard = REGISTERED_OAUTH_TOKEN.lock().unwrap();
-              *token_guard = Some(t.to_string());
+              *token_guard = Some(t.clone());
               println!("Token successfully registered in Tauri Rust backend via GET: {}", t);
             }
             
