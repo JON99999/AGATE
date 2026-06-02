@@ -41,38 +41,33 @@ fn open_folder(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
-  #[cfg(target_os = "windows")]
-  {
-    use std::process::Command;
-    Command::new("cmd")
-      .args(["/C", "start", "", &url])
-      .spawn()
-      .map_err(|e| e.to_string())?;
-  }
-  #[cfg(target_os = "macos")]
-  {
-    use std::process::Command;
-    Command::new("open")
-      .arg(&url)
-      .spawn()
-      .map_err(|e| e.to_string())?;
-  }
-  #[cfg(target_os = "linux")]
-  {
-    use std::process::Command;
-    Command::new("xdg-open")
-      .arg(&url)
-      .spawn()
-      .map_err(|e| e.to_string())?;
-  }
-  Ok(())
+  // Use Tauri's native platform-compliant opener
+  tauri::api::shell::open(&tauri::Env::default(), url, None)
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn browse_folder() -> Result<Option<String>, String> {
-  use tauri::api::dialog::blocking::FileDialogBuilder;
-  let path = FileDialogBuilder::new().pick_folder();
-  Ok(path.map(|p| p.to_string_lossy().into_owned()))
+  use std::sync::mpsc::channel;
+  let (tx, rx) = channel();
+  tauri::api::dialog::FileDialogBuilder::new().pick_folder(move |path_buf| {
+    let path_str = path_buf.map(|p| p.to_string_lossy().into_owned());
+    let _ = tx.send(path_str);
+  });
+  rx.recv().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn check_local_paths(
+  mp3s: String,
+  logs: String,
+  schedules: String,
+) -> bool {
+  let mp3_exists = if mp3s.is_empty() { true } else { std::path::Path::new(&mp3s).exists() };
+  let logs_exists = if logs.is_empty() { true } else { std::path::Path::new(&logs).exists() };
+  let sched_exists = if schedules.is_empty() { true } else { std::path::Path::new(&schedules).exists() };
+  
+  mp3_exists && logs_exists && sched_exists
 }
 
 fn start_loopback_server() {
@@ -189,7 +184,7 @@ fn main() {
   start_loopback_server();
 
   tauri::Builder::default()
-    .invoke_handler(tauri::generate_handler![open_folder, open_url, browse_folder])
+    .invoke_handler(tauri::generate_handler![open_folder, open_url, browse_folder, check_local_paths])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

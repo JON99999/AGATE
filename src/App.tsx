@@ -273,6 +273,36 @@ export default function App() {
   // Saving state for Folders Modal to prevent button flickering
   const [isSavingAndVerifying, setIsSavingAndVerifying] = useState(false);
 
+  const checkLocalPathsSafely = async (mp3s: string, logs: string, schedules: string): Promise<boolean> => {
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+      try {
+        const result = await (window as any).__TAURI__.invoke('check_local_paths', {
+          mp3s: mp3s || '',
+          logs: logs || '',
+          schedules: schedules || ''
+        });
+        return !!result;
+      } catch (err) {
+        console.warn('Native check_local_paths failed, falling back:', err);
+      }
+    }
+    try {
+      const res = await fetch('/api/check-local-paths', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          localPathMP3s: mp3s,
+          localPathLogs: logs,
+          localPathSchedules: schedules
+        })
+      });
+      const data = await res.json();
+      return !!data.exists;
+    } catch {
+      return false;
+    }
+  };
+
   // Synchronization hook to update editable drafts when location settings modal opens
   useEffect(() => {
     if (showLocationsModal) {
@@ -322,19 +352,14 @@ export default function App() {
     }).catch(() => {});
 
     if (settings.mode === 'Local') {
-      fetch('/api/check-local-paths', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          localPathMP3s: settings.localPathMP3s,
-          localPathLogs: settings.localPathLogs,
-          localPathSchedules: settings.localPathSchedules
-        })
-      })
-      .then(r => r.json())
-      .then(res => {
+      checkLocalPathsSafely(
+        settings.localPathMP3s || '',
+        settings.localPathLogs || '',
+        settings.localPathSchedules || ''
+      )
+      .then(exists => {
         setIsDriveActive(true);
-        if (res.exists) {
+        if (exists) {
           setIsDriveValidated(true);
           setLocalPathsUnavailable(false);
           fetchDataForMode(settings);
@@ -1069,17 +1094,13 @@ export default function App() {
 
       // For Local mode, run the verify API on back-end
       if (locationMode === 'Local') {
-        const resCheck = await fetch('/api/check-local-paths', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            localPathMP3s: draftLocalPathMP3s,
-            localPathLogs: draftLocalPathLogs,
-            localPathSchedules: draftLocalPathSchedules
-          })
-        }).then(r => r.json()).catch(() => ({ exists: false }));
+        const exists = await checkLocalPathsSafely(
+          draftLocalPathMP3s,
+          draftLocalPathLogs,
+          draftLocalPathSchedules
+        );
         
-        setLocalPathsUnavailable(!resCheck.exists);
+        setLocalPathsUnavailable(!exists);
         await fetchDataForMode(updatedSettings);
         setLocationsSuccess('Local storage configurations updated.');
       } else if (locationMode === 'Drive') {
@@ -1163,19 +1184,15 @@ export default function App() {
       }).catch(() => {});
 
       if (mode === 'Local') {
-        const resCheck = await fetch('/api/check-local-paths', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            localPathMP3s: updatedSettings.localPathMP3s,
-            localPathLogs: updatedSettings.localPathLogs,
-            localPathSchedules: updatedSettings.localPathSchedules
-          })
-        }).then(r => r.json()).catch(() => ({ exists: false }));
+        const exists = await checkLocalPathsSafely(
+          updatedSettings.localPathMP3s || '',
+          updatedSettings.localPathLogs || '',
+          updatedSettings.localPathSchedules || ''
+        );
 
         setIsDriveActive(true);
         setIsDriveValidated(true);
-        setLocalPathsUnavailable(!resCheck.exists);
+        setLocalPathsUnavailable(!exists);
         await fetchDataForMode(updatedSettings);
         
         // Open location selector for Local Mode

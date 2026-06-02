@@ -192,7 +192,7 @@ async function syncRemoteIcons() {
 
       // Inject App names & IDs
       tConf.package.productName = `Interstitial-er ${mode}`;
-      tConf.tauri.bundle.identifier = `com.minutesync.scheduler.${mode.toLowerCase()}`;
+      tConf.tauri.bundle.identifier = `com.interstitial-er.scheduler.${mode.toLowerCase()}`;
       
       // Save revised tauri.conf.json
       fs.writeFileSync(tauriConfPath, JSON.stringify(tConf, null, 2));
