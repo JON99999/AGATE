@@ -19,7 +19,7 @@
       },
       "shell": {
         "all": false,
-        "open": true
+        "open": "^https?://"
       }
     },
     "bundle": {
