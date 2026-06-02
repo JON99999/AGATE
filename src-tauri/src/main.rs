@@ -10,23 +10,6 @@ use std::thread;
 
 static REGISTERED_OAUTH_TOKEN: Mutex<Option<String>> = Mutex::new(None);
 
-fn percent_decode(input: &str) -> String {
-  let mut s = String::new();
-  let mut chars = input.chars();
-  while let Some(c) = chars.next() {
-    if c == '%' {
-      if let (Some(h1), Some(h2)) = (chars.next(), chars.next()) {
-        if let Ok(byte) = u8::from_str_radix(&format!("{}{}", h1, h2), 16) {
-          s.push(byte as char);
-          continue;
-        }
-      }
-    }
-    s.push(c);
-  }
-  s
-}
-
 #[tauri::command]
 fn open_folder(path: String) -> Result<(), String> {
   #[cfg(target_os = "windows")]
@@ -137,7 +120,7 @@ fn start_loopback_server() {
               if let Some(sub) = request.get(start..) {
                 let end = sub.find('&').or_else(|| sub.find(' ')).unwrap_or(sub.len());
                 let raw_token = &sub[..end];
-                owned_token = percent_decode(raw_token);
+                owned_token = raw_token.replace("%2F", "/").replace("%3D", "=").replace("%3F", "?").replace("%26", "&");
                 token = Some(&owned_token);
               }
             }

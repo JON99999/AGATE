@@ -8,15 +8,11 @@
   },
   "package": {
     "productName": "Interstitial-er",
-    "version": "0.8.7"
+    "version": "0.8.8"
   },
   "tauri": {
     "allowlist": {
       "all": false,
-      "dialog": {
-        "all": false,
-        "open": true
-      },
       "shell": {
         "all": false,
         "open": true

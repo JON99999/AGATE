@@ -110,18 +110,7 @@ async function startServer() {
     const { token } = req.body;
     if (token) {
       registeredOAuthToken = token;
-      console.log('Successfully registered OAuth token on local server via POST.');
-      res.json({ success: true });
-    } else {
-      res.status(400).json({ error: 'Token is required' });
-    }
-  });
-
-  app.get('/api/register-token', (req, res) => {
-    const token = req.query.token as string;
-    if (token) {
-      registeredOAuthToken = token;
-      console.log('Successfully registered OAuth token on local server via GET.');
+      console.log('Successfully registered OAuth token on local server.');
       res.json({ success: true });
     } else {
       res.status(400).json({ error: 'Token is required' });

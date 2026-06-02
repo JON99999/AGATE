@@ -100,11 +100,7 @@ export default function GoogleAuthSection({
       console.log('Launching external browser for Google OAuth Option 1 (Loopback):', authUrl);
       if (typeof window !== 'undefined' && (window as any).__TAURI__) {
         try {
-          if ((window as any).__TAURI__.shell && (window as any).__TAURI__.shell.open) {
-            await (window as any).__TAURI__.shell.open(authUrl);
-          } else {
-            await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
-          }
+          await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
         } catch (err) {
           console.warn('Failed to open external url under Tauri:', err);
           window.open(authUrl, '_blank');
@@ -184,13 +180,8 @@ export default function GoogleAuthSection({
     console.log('Opening OAuth Helper URL:', authUrl);
     if (typeof window !== 'undefined' && (window as any).__TAURI__) {
       try {
-        if ((window as any).__TAURI__.shell && (window as any).__TAURI__.shell.open) {
-          await (window as any).__TAURI__.shell.open(authUrl);
-          return;
-        } else {
-          await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
-          return;
-        }
+        await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
+        return;
       } catch (err) {
         console.warn('Failed to open external helper url under Tauri:', err);
       }
