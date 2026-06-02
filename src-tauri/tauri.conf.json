@@ -3,15 +3,20 @@
     "beforeDevCommand": "",
     "beforeBuildCommand": "npm run build",
     "devPath": "http://localhost:3000",
-    "distDir": "../dist"
+    "distDir": "../dist",
+    "withGlobalTauri": true
   },
   "package": {
     "productName": "Interstitial-er",
-    "version": "0.8.4"
+    "version": "0.8.5"
   },
   "tauri": {
     "allowlist": {
       "all": false,
+      "dialog": {
+        "all": false,
+        "open": true
+      },
       "shell": {
         "all": false,
         "open": true

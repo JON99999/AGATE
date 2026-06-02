@@ -10,6 +10,23 @@ use std::thread;
 
 static REGISTERED_OAUTH_TOKEN: Mutex<Option<String>> = Mutex::new(None);
 
+fn percent_decode(input: &str) -> String {
+  let mut s = String::new();
+  let mut chars = input.chars();
+  while let Some(c) = chars.next() {
+    if c == '%' {
+      if let (Some(h1), Some(h2)) = (chars.next(), chars.next()) {
+        if let Ok(byte) = u8::from_str_radix(&format!("{}{}", h1, h2), 16) {
+          s.push(byte as char);
+          continue;
+        }
+      }
+    }
+    s.push(c);
+  }
+  s
+}
+
 #[tauri::command]
 fn open_folder(path: String) -> Result<(), String> {
   #[cfg(target_os = "windows")]
@@ -111,6 +128,32 @@ fn start_loopback_server() {
             let _ = stream.write_all(response.as_bytes());
           } else if request.starts_with("OPTIONS ") {
             let response = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nConnection: close\r\n\r\n";
+            let _ = stream.write_all(response.as_bytes());
+          } else if request.starts_with("GET /api/register-token") || request.starts_with("GET /register-token") {
+            let mut token = None;
+            let mut owned_token = String::new();
+            if let Some(pos) = request.find("token=") {
+              let start = pos + 6;
+              if let Some(sub) = request.get(start..) {
+                let end = sub.find('&').or_else(|| sub.find(' ')).unwrap_or(sub.len());
+                let raw_token = &sub[..end];
+                owned_token = percent_decode(raw_token);
+                token = Some(&owned_token);
+              }
+            }
+            
+            if let Some(t) = token {
+              let mut token_guard = REGISTERED_OAUTH_TOKEN.lock().unwrap();
+              *token_guard = Some(t.to_string());
+              println!("Token successfully registered in Tauri Rust backend via GET: {}", t);
+            }
+            
+            let response_body = "{\"success\":true}";
+            let response = format!(
+              "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+              response_body.len(),
+              response_body
+            );
             let _ = stream.write_all(response.as_bytes());
           } else if request.starts_with("POST /api/register-token") || request.starts_with("POST /register-token") {
             // Find body

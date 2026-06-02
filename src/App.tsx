@@ -766,15 +766,23 @@ export default function App() {
     // Direct native route for Tauri container
     if (typeof window !== 'undefined' && (window as any).__TAURI__) {
       try {
-        const selectedPath = await (window as any).__TAURI__.invoke('browse_folder');
-        if (selectedPath) {
+        let selectedPath: any = null;
+        if ((window as any).__TAURI__.dialog && (window as any).__TAURI__.dialog.open) {
+          selectedPath = await (window as any).__TAURI__.dialog.open({
+            directory: true,
+            multiple: false
+          });
+        } else {
+          selectedPath = await (window as any).__TAURI__.invoke('browse_folder');
+        }
+        if (selectedPath && typeof selectedPath === 'string') {
           if (targetField === 'schedules') setDraftLocalPathSchedules(selectedPath);
           else if (targetField === 'mp3s') setDraftLocalPathMP3s(selectedPath);
           else if (targetField === 'logs') setDraftLocalPathLogs(selectedPath);
         }
         return;
       } catch (err) {
-        console.warn('Failed to browse folder via Tauri native command:', err);
+        console.warn('Failed to browse folder via Tauri native dialog:', err);
       }
     }
 
@@ -826,8 +834,13 @@ export default function App() {
     const url = `https://drive.google.com/drive/folders/${folderId}`;
     if (typeof window !== 'undefined' && (window as any).__TAURI__) {
       try {
-        await (window as any).__TAURI__.invoke('open_url', { url });
-        return;
+        if ((window as any).__TAURI__.shell && (window as any).__TAURI__.shell.open) {
+          await (window as any).__TAURI__.shell.open(url);
+          return;
+        } else {
+          await (window as any).__TAURI__.invoke('open_url', { url });
+          return;
+        }
       } catch (err) {
         console.warn('Failed to open external url in Tauri:', err);
       }
@@ -921,7 +934,11 @@ export default function App() {
       console.log('Launching external browser for Google OAuth Method B:', authUrl);
       if (typeof window !== 'undefined' && (window as any).__TAURI__) {
         try {
-          await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
+          if ((window as any).__TAURI__.shell && (window as any).__TAURI__.shell.open) {
+            await (window as any).__TAURI__.shell.open(authUrl);
+          } else {
+            await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
+          }
         } catch (err) {
           console.warn('Failed to open external url under Tauri:', err);
           window.open(authUrl, '_blank');
@@ -945,7 +962,9 @@ export default function App() {
         }
 
         try {
-          const res = await fetch('/api/check-registered-token');
+          const isCustomProtocol = typeof window !== 'undefined' && !window.location.protocol.startsWith('http');
+          const baseUrl = isCustomProtocol ? 'http://127.0.0.1:3000' : '';
+          const res = await fetch(`${baseUrl}/api/check-registered-token`);
           if (!res.ok) throw new Error('Failed to query local loopback status');
           const data = await res.json();
           if (data.token) {

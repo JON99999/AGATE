@@ -18,8 +18,8 @@ This document explains how to develop, test, and package both **Electron** and *
 ## 2. Dynamic Release Artifacts
 
 Both frameworks are integrated into the automated release pipeline:
-- **Electron Outputs**: Saved as standard desktop installers/portable files inside `/release/` (e.g., `Interstitial-er Player-0.8.4-Windows-Portable.exe`).
-- **Tauri Outputs**: Saved inside a dedicated subfolder `/release/tauri/` with `-tauri` appended to their file names to avoid collisions (e.g., `Interstitial-er Player-0.8.4-Mac-Silicon-new-tauri.dmg`).
+- **Electron Outputs**: Saved as standard desktop installers/portable files inside `/release/` (e.g., `Interstitial-er Player-0.8.5-Windows-Portable.exe`).
+- **Tauri Outputs**: Saved inside a dedicated subfolder `/release/tauri/` with `-tauri` appended to their file names to avoid collisions (e.g., `Interstitial-er Player-0.8.5-Mac-Silicon-new-tauri.dmg`).
 
 ---
 
@@ -66,4 +66,4 @@ npm run dist
 npm run dist:tauri
 ```
 
-Both build pipelines are also fully managed in GitHub Actions on every official tag release (e.g., push `v0.8.4`) inside the `.github/workflows/release.yml` pipeline.
+Both build pipelines are also fully managed in GitHub Actions on every official tag release (e.g., push `v0.8.5`) inside the `.github/workflows/release.yml` pipeline.
