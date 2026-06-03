@@ -1,7 +1,7 @@
 {
-  "name": "minute-sync-scheduler",
+  "name": "interstitial-er",
   "private": true,
-  "version": "0.8.10",
+  "version": "0.8.11",
   "description": "Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.",
   "author": "JON99999",
   "repository": {
@@ -23,7 +23,7 @@
     "dist:tauri": "node build-tauri-apps.cjs"
   },
   "build": {
-    "appId": "com.interstitial-er.scheduler",
+    "appId": "com.interstitialer.scheduler",
     "productName": "Interstitial-er",
     "publish": [
       {

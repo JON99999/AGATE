@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "Interstitial-er",
-    "version": "0.8.10"
+    "version": "0.8.11"
   },
   "tauri": {
     "allowlist": {
@@ -21,7 +21,7 @@
     "bundle": {
       "active": true,
       "targets": "all",
-      "identifier": "com.interstitial-er.scheduler",
+      "identifier": "com.interstitialer.scheduler",
       "icon": [
         "icons/32x32.png",
         "icons/128x128.png",
