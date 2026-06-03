@@ -45,7 +45,15 @@ export default function App() {
   const fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     let url = typeof input === 'string' ? input : input.toString();
     if (url.startsWith('/api/')) {
-      const isCustomProtocol = typeof window !== 'undefined' && !window.location.protocol.startsWith('http');
+      const isTauri = typeof window !== 'undefined' && (
+        (window as any).__TAURI__ !== undefined ||
+        window.location.hostname === 'tauri.localhost' ||
+        window.location.protocol === 'tauri:'
+      );
+      const isCustomProtocol = typeof window !== 'undefined' && (
+        !window.location.protocol.startsWith('http') ||
+        isTauri
+      );
       const baseUrl = isCustomProtocol ? 'http://127.0.0.1:3000' : '';
       url = `${baseUrl}${url}`;
     }
@@ -970,7 +978,15 @@ export default function App() {
         }
 
         try {
-          const isCustomProtocol = typeof window !== 'undefined' && !window.location.protocol.startsWith('http');
+          const isTauri = typeof window !== 'undefined' && (
+            (window as any).__TAURI__ !== undefined ||
+            window.location.hostname === 'tauri.localhost' ||
+            window.location.protocol === 'tauri:'
+          );
+          const isCustomProtocol = typeof window !== 'undefined' && (
+            !window.location.protocol.startsWith('http') ||
+            isTauri
+          );
           const baseUrl = isCustomProtocol ? 'http://127.0.0.1:3000' : '';
           const res = await fetch(`${baseUrl}/api/check-registered-token`);
           if (!res.ok) throw new Error('Failed to query local loopback status');

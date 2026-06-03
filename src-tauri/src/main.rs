@@ -48,7 +48,7 @@ fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn browse_folder() -> Result<Option<String>, String> {
+async fn browse_folder() -> Result<Option<String>, String> {
   use std::sync::mpsc::channel;
   let (tx, rx) = channel();
   tauri::api::dialog::FileDialogBuilder::new().pick_folder(move |path_buf| {
