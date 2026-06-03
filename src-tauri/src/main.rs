@@ -7,6 +7,7 @@ use std::net::TcpListener;
 use std::io::{Read, Write};
 use std::sync::Mutex;
 use std::thread;
+use tauri::Manager;
 
 static REGISTERED_OAUTH_TOKEN: Mutex<Option<String>> = Mutex::new(None);
 
@@ -40,9 +41,9 @@ fn open_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_url(url: String) -> Result<(), String> {
+fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
   // Use Tauri's native platform-compliant opener
-  tauri::api::shell::open(&tauri::Env::default(), url, None)
+  tauri::api::shell::open(&app.shell_scope(), url, None)
     .map_err(|e| e.to_string())
 }
 
