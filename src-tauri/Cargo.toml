@@ -1,6 +1,6 @@
 [package]
 name = "interstitial-er"
-version = "0.8.12"
+version = "0.8.13"
 description = "Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows co-developed with Electron."
 authors = ["JON99999"]
 edition = "2021"
