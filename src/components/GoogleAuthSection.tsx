@@ -98,16 +98,7 @@ export default function GoogleAuthSection({
 
       const authUrl = getOAuthUrl();
       console.log('Launching external browser for Google OAuth Option 1 (Loopback):', authUrl);
-      if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-        try {
-          await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
-        } catch (err) {
-          console.warn('Failed to open external url under Tauri:', err);
-          window.open(authUrl, '_blank');
-        }
-      } else {
-        window.open(authUrl, '_blank');
-      }
+      window.open(authUrl, '_blank');
 
       // Start looping and checking for token
       let pollCount = 0;
@@ -123,15 +114,7 @@ export default function GoogleAuthSection({
         }
 
         try {
-          const isTauri = typeof window !== 'undefined' && (
-            (window as any).__TAURI__ !== undefined ||
-            window.location.hostname === 'tauri.localhost' ||
-            window.location.protocol === 'tauri:'
-          );
-          const isCustomProtocol = typeof window !== 'undefined' && (
-            !window.location.protocol.startsWith('http') ||
-            isTauri
-          );
+          const isCustomProtocol = typeof window !== 'undefined' && !window.location.protocol.startsWith('http');
           const baseUrl = isCustomProtocol ? 'http://127.0.0.1:3000' : '';
           const res = await fetch(`${baseUrl}/api/check-registered-token`);
           if (!res.ok) throw new Error('Unreachable loopback callback');
@@ -186,14 +169,6 @@ export default function GoogleAuthSection({
     }
     const authUrl = getOAuthUrl('manual');
     console.log('Opening OAuth Helper URL:', authUrl);
-    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-      try {
-        await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
-        return;
-      } catch (err) {
-        console.warn('Failed to open external helper url under Tauri:', err);
-      }
-    }
     window.open(authUrl, '_blank');
   };
 

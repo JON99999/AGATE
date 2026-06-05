@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Clock, List, Settings, Plus, Play, CheckCircle, AlertCircle, RefreshCw, LogOut, ChevronLeft, ChevronRight, Save, Trash2, History, Folder, HardDrive, Wifi, WifiOff, ShieldCheck, Mail, Globe, ExternalLink } from 'lucide-react';
+import { Calendar, Clock, List, Settings, Plus, Play, CheckCircle, AlertCircle, RefreshCw, LogOut, ChevronLeft, ChevronRight, Save, Trash2, History, Folder, HardDrive, Wifi, WifiOff, ShieldCheck, Mail, Globe, ExternalLink, Download, FolderOpen, HelpCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, addHours, subHours, isSameMinute, startOfHour, addMinutes, isAfter, isBefore, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { Schedule, ScheduleType, LogEntry } from './types';
@@ -12,6 +12,7 @@ import PlayerTab from './components/PlayerTab';
 import SchedulerTab from './components/SchedulerTab';
 import LogTab from './components/LogTab';
 import GoogleAuthSection from './components/GoogleAuthSection';
+import LocalHelpModal from './components/LocalHelpModal';
 import { cn, extractFolderId } from './lib/utils';
 import { 
   initAuth, 
@@ -41,19 +42,11 @@ import {
 export default function App() {
   const isPlayerMode = (import.meta as any).env?.VITE_APP_MODE === 'Player';
 
-  // Custom fetch override to support local/Tauri environment ports transparently
+  // Custom fetch override to support local environment ports transparently
   const fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     let url = typeof input === 'string' ? input : input.toString();
     if (url.startsWith('/api/')) {
-      const isTauri = typeof window !== 'undefined' && (
-        (window as any).__TAURI__ !== undefined ||
-        window.location.hostname === 'tauri.localhost' ||
-        window.location.protocol === 'tauri:'
-      );
-      const isCustomProtocol = typeof window !== 'undefined' && (
-        !window.location.protocol.startsWith('http') ||
-        isTauri
-      );
+      const isCustomProtocol = typeof window !== 'undefined' && !window.location.protocol.startsWith('http');
       const baseUrl = isCustomProtocol ? 'http://127.0.0.1:3000' : '';
       url = `${baseUrl}${url}`;
     }
@@ -158,6 +151,26 @@ export default function App() {
 
   const isPre = playMode === 'Prerecord';
 
+  // Export Prerecord states
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportState, setExportState] = useState<'idle' | 'configuring' | 'exporting' | 'success' | 'error'>('idle');
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportResult, setExportResult] = useState<{
+    exportFolder: string;
+    copiedCount: number;
+    missingCount: number;
+    totalCount: number;
+    baseFilename?: string;
+    txtFilename?: string;
+    m3uFilename?: string;
+  } | null>(null);
+
+  // Export configuration draft states
+  const [exportDestinationInput, setExportDestinationInput] = useState('');
+  const [exportFolderPrefixInput, setExportFolderPrefixInput] = useState('Prerecord-Export');
+  const [exportTextPrefixInput, setExportTextPrefixInput] = useState('Prerecord schedule');
+  const [exportPlaylistPrefixInput, setExportPlaylistPrefixInput] = useState('Interstitial playlist');
+
   // Custom Folder Location settings matching multi modes: Local, Drive, Demo
   const [locationMode, setLocationMode] = useState<'Local' | 'Drive' | 'Demo'>('Demo');
   const [localPathMP3s, setLocalPathMP3s] = useState('');
@@ -198,6 +211,7 @@ export default function App() {
   const fetchInProgressRef = useRef(false);
   const hasBackedUpThisSessionRef = useRef(false);
   const [showLocationsModal, setShowLocationsModal] = useState(false);
+  const [showLocalHelp, setShowLocalHelp] = useState(false);
   
   // Prerecord Confirmation states
   const [showPrerecordConfirmStep, setShowPrerecordConfirmStep] = useState(false);
@@ -282,18 +296,6 @@ export default function App() {
   const [isSavingAndVerifying, setIsSavingAndVerifying] = useState(false);
 
   const checkLocalPathsSafely = async (mp3s: string, logs: string, schedules: string): Promise<boolean> => {
-    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-      try {
-        const result = await (window as any).__TAURI__.invoke('check_local_paths', {
-          mp3s: mp3s || '',
-          logs: logs || '',
-          schedules: schedules || ''
-        });
-        return !!result;
-      } catch (err) {
-        console.warn('Native check_local_paths failed, falling back:', err);
-      }
-    }
     try {
       const res = await fetch('/api/check-local-paths', {
         method: 'POST',
@@ -795,22 +797,165 @@ export default function App() {
     }
   };
 
-  const handleBrowseNative = async (targetField: 'schedules' | 'mp3s' | 'logs') => {
-    // Direct native route for Tauri container
-    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-      try {
-        const selectedPath = await (window as any).__TAURI__.invoke('browse_folder');
-        if (selectedPath) {
-          if (targetField === 'schedules') setDraftLocalPathSchedules(selectedPath);
-          else if (targetField === 'mp3s') setDraftLocalPathMP3s(selectedPath);
-          else if (targetField === 'logs') setDraftLocalPathLogs(selectedPath);
-        }
-        return;
-      } catch (err) {
-        console.warn('Failed to browse folder via Tauri native command:', err);
-      }
-    }
+  const handleExportPrerecord = () => {
+    if (!prerecordDate) return;
+    setExportDestinationInput(localPathMP3s || '');
+    setExportFolderPrefixInput('Prerecord-Export');
+    setExportTextPrefixInput('Prerecord schedule');
+    setExportPlaylistPrefixInput('Interstitial playlist');
+    setExportState('configuring');
+    setExportError(null);
+    setExportResult(null);
+    setShowExportModal(true);
+  };
 
+  const handleBrowseExportDestination = async () => {
+    try {
+      const res = await fetch('/api/browse-folder', { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.path) {
+        setExportDestinationInput(data.path);
+      } else if (data.error) {
+        alert(data.error);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to open folder selection window.');
+    }
+  };
+
+  const runExportPrerecord = async () => {
+    if (!prerecordDate) return;
+    
+    setExportState('exporting');
+    setExportError(null);
+    setExportResult(null);
+
+    try {
+      // 1. Recreate timeline slots exactly like in PlayerTab
+      const slots = [];
+      let current = new Date(prerecordDate);
+      current.setSeconds(0, 0);
+      
+      const end = new Date(current.getTime() + prerecordLengthMinutes * 60 * 1000);
+      
+      while (current.getTime() < end.getTime()) {
+        slots.push(new Date(current));
+        current = new Date(current.getTime() + 60 * 1000);
+      }
+
+      // 2. Filter & map slot matching schedules
+      const itemsToExport: any[] = [];
+      slots.forEach(slot => {
+        const day = slot.getDay();
+        const hour = slot.getHours();
+        const minute = slot.getMinutes();
+        const dateStr = format(slot, 'yyyy-MM-dd');
+
+        const activeSchedules = schedules.filter(s => {
+          if (!s.enabled) return false;
+          if (s.type === ScheduleType.ONE_TIME) {
+            const hourStr = format(slot, 'HH');
+            return s.date === dateStr && s.minute === minute && s.time === hourStr;
+          }
+          if (s.type === ScheduleType.BASIC_HOURLY) {
+            const afterStart = s.startDate ? !isBefore(slot, parseISO(s.startDate)) : true;
+            const beforeEnd = s.endDate ? !isAfter(slot, parseISO(s.endDate)) : true;
+            return s.minute === minute && afterStart && beforeEnd;
+          }
+          if (s.type === ScheduleType.ADVANCED) {
+            const afterStart = s.startDate ? !isBefore(slot, parseISO(s.startDate)) : true;
+            const beforeEnd = s.endDate ? !isAfter(slot, parseISO(s.endDate)) : true;
+            
+            let ruleMatch = false;
+            if (s.gridRules && s.gridRules.length > 0) {
+              ruleMatch = s.gridRules.includes(`${day}-${hour}`);
+            } else {
+              const dayMatch = s.days?.includes(day);
+              const hourMatch = s.hours?.includes(hour);
+              ruleMatch = !!(dayMatch && hourMatch);
+            }
+            
+            return s.minute === minute && ruleMatch && afterStart && beforeEnd;
+          }
+          return false;
+        });
+
+        activeSchedules.forEach(s => {
+          itemsToExport.push({
+            slotTime: format(slot, 'HH:mm'),
+            fileName: s.mp3Url,
+            scheduleName: s.name,
+            scheduleId: s.id,
+            minute: s.minute
+          });
+        });
+      });
+
+      if (itemsToExport.length === 0) {
+        setExportState('error');
+        setExportError('No active scheduled breaks found in this prerecord timeframe.');
+        return;
+      }
+
+      // 3. Make post request to endpoint
+      const response = await fetch('/api/export-prerecord', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          prerecordDate: prerecordDate.toISOString(),
+          lengthMinutes: prerecordLengthMinutes,
+          items: itemsToExport,
+          exportDestination: exportDestinationInput,
+          folderPrefix: exportFolderPrefixInput,
+          textPrefix: exportTextPrefixInput,
+          playlistPrefix: exportPlaylistPrefixInput
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Server reported failure');
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        setExportState('success');
+        setExportResult({
+          exportFolder: data.exportFolderPath,
+          copiedCount: data.copiedCount,
+          missingCount: data.missingCount,
+          totalCount: data.totalCount,
+          txtFilename: data.txtFilename,
+          m3uFilename: data.m3uFilename,
+          baseFilename: data.exportFolderName
+        });
+      } else {
+        throw new Error(data.error || 'Export files operation failed');
+      }
+    } catch (err: any) {
+      console.error('Export error:', err);
+      setExportState('error');
+      setExportError(err.message || 'An unexpected error occurred during export.');
+    }
+  };
+
+  const handleOpenExportFolder = async (folderPath: string) => {
+    try {
+      await fetch('/api/open-local-folder', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ path: folderPath })
+      });
+    } catch (e) {
+      console.error('Error opening folder:', e);
+    }
+  };
+
+  const handleBrowseNative = async (targetField: 'schedules' | 'mp3s' | 'logs') => {
     try {
       const res = await fetch('/api/browse-folder', { method: 'POST' });
       const data = await res.json();
@@ -828,16 +973,6 @@ export default function App() {
 
   const handleOpenLocalPath = async (dirPath: string) => {
     if (!dirPath) return;
-
-    // Direct native route for Tauri container
-    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-      try {
-        await (window as any).__TAURI__.invoke('open_folder', { path: dirPath });
-        return;
-      } catch (err) {
-        console.warn('Failed to open local folder via Tauri system command:', err);
-      }
-    }
 
     try {
       const res = await fetch('/api/open-local-folder', {
@@ -857,14 +992,6 @@ export default function App() {
   const handleOpenDriveFolder = async (folderId: string) => {
     if (!folderId) return;
     const url = `https://drive.google.com/drive/folders/${folderId}`;
-    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-      try {
-        await (window as any).__TAURI__.invoke('open_url', { url });
-        return;
-      } catch (err) {
-        console.warn('Failed to open external url in Tauri:', err);
-      }
-    }
     window.open(url, '_blank');
   };
 
@@ -952,16 +1079,7 @@ export default function App() {
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(googleClientId.trim())}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=https://www.googleapis.com/auth/drive`;
       
       console.log('Launching external browser for Google OAuth Method B:', authUrl);
-      if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-        try {
-          await (window as any).__TAURI__.invoke('open_url', { url: authUrl });
-        } catch (err) {
-          console.warn('Failed to open external url under Tauri:', err);
-          window.open(authUrl, '_blank');
-        }
-      } else {
-        window.open(authUrl, '_blank');
-      }
+      window.open(authUrl, '_blank');
 
       // Start Polling for Registered Token
       let pollCount = 0;
@@ -978,15 +1096,7 @@ export default function App() {
         }
 
         try {
-          const isTauri = typeof window !== 'undefined' && (
-            (window as any).__TAURI__ !== undefined ||
-            window.location.hostname === 'tauri.localhost' ||
-            window.location.protocol === 'tauri:'
-          );
-          const isCustomProtocol = typeof window !== 'undefined' && (
-            !window.location.protocol.startsWith('http') ||
-            isTauri
-          );
+          const isCustomProtocol = typeof window !== 'undefined' && !window.location.protocol.startsWith('http');
           const baseUrl = isCustomProtocol ? 'http://127.0.0.1:3000' : '';
           const res = await fetch(`${baseUrl}/api/check-registered-token`);
           if (!res.ok) throw new Error('Failed to query local loopback status');
@@ -1249,7 +1359,10 @@ export default function App() {
     <div className="flex flex-col h-screen bg-[#F8FAFC] font-sans overflow-hidden">
       {/* Top Header - Branding & Nav */}
       <header className="bg-[#0F172A] px-3 py-2 shrink-0 z-20">
-        <div className="flex items-center justify-between gap-3 max-w-[400px] mx-auto">
+        <div className={cn(
+          "flex items-center justify-between gap-3 mx-auto transition-all",
+          activeTab === 'player' ? "max-w-[400px]" : "max-w-full px-4 md:px-6 lg:px-8"
+        )}>
           <div className="flex items-center gap-2 text-white">
             <div className={cn("w-6 h-6 rounded flex items-center justify-center", isPre ? "bg-purple-600" : "bg-blue-500")}>
               <Clock className="w-4 h-4" />
@@ -1300,45 +1413,55 @@ export default function App() {
       </header>
 
       {/* Control Strip - Time & Refresh (Collapsed) */}
-      <div className="bg-white border-b border-slate-200 py-1.5 px-2 shrink-0 shadow-sm z-10">
-        <div className="max-w-[400px] mx-auto flex items-center justify-between gap-4">
-          {isPre ? (
-            <div className="flex flex-col py-0.5">
-              <p className="text-[12px] uppercase text-purple-600 font-black tracking-widest leading-none">Prerecord time and date</p>
-              <p className="text-xs font-mono font-black text-slate-900 tabular-nums mt-1 leading-none">
-                {prerecordDate ? format(prerecordDate, 'yyyy-MM-dd HH:mm') : ''}
-              </p>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <p className="text-[12px] uppercase text-slate-400 font-black tracking-tighter">Time</p>
-              <p className="text-[12px] font-mono font-black text-slate-900 tabular-nums leading-none">{format(now, 'HH:mm:ss')}</p>
-            </div>
-          )}
-          
-          <div className="flex items-center gap-2">
+      {activeTab === 'player' && (
+        <div className="bg-white border-b border-slate-200 py-1.5 px-2 shrink-0 shadow-sm z-10">
+          <div className="max-w-[400px] mx-auto flex items-center justify-between gap-4">
             {isPre ? (
-              <span className="text-[12px] bg-purple-100 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded font-black uppercase leading-none tracking-wider whitespace-nowrap">
-                PAUSED
-              </span>
+              <div className="flex flex-col py-0.5">
+                <p className="text-[12px] uppercase text-purple-600 font-black tracking-widest leading-none">Prerecord time and date</p>
+                <p className="text-xs font-mono font-black text-slate-900 tabular-nums mt-1 leading-none">
+                  {prerecordDate ? format(prerecordDate, 'yyyy-MM-dd HH:mm') : ''}
+                </p>
+              </div>
             ) : (
-              <p className="text-[12px] uppercase text-blue-600 font-black tracking-tight leading-none whitespace-nowrap">Refresh: {formatCountdown(countdown)}</p>
+              <div className="flex items-center gap-3">
+                <p className="text-[12px] uppercase text-slate-400 font-black tracking-tighter">Time</p>
+                <p className="text-[12px] font-mono font-black text-slate-900 tabular-nums leading-none">{format(now, 'HH:mm:ss')}</p>
+              </div>
             )}
-            <button 
-              onClick={handleRefresh}
-              disabled={isPre}
-              className={cn(
-                "flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-600 rounded border border-slate-200 transition-colors group",
-                isPre ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-200"
+            
+            <div className="flex items-center gap-2 font-sans">
+              {isPre ? (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleExportPrerecord}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded shadow-sm border border-purple-500 hover:border-purple-600 transition-all font-black uppercase tracking-tighter text-[14px] cursor-pointer"
+                    title="Export prerecord playlist and files"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export</span>
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[12px] uppercase text-blue-600 font-black tracking-tight leading-none whitespace-nowrap">Refresh: {formatCountdown(countdown)}</p>
               )}
-              title={isPre ? "Refresh disabled in prerecord mode" : "Reload Status"}
-            >
-              <RefreshCw className={cn("w-3 h-3 font-bold transition-transform duration-500", !isPre && "group-hover:rotate-180")} />
-              <span className="text-[12px] font-black uppercase tracking-tighter">Now</span>
-            </button>
+              <button 
+                onClick={handleRefresh}
+                disabled={isPre}
+                className={cn(
+                  "flex items-center gap-1.5 px-2 py-1 bg-slate-100 text-slate-600 rounded border border-slate-200 transition-colors group",
+                  isPre ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-200"
+                )}
+                title={isPre ? "Refresh disabled in prerecord mode" : "Reload Status"}
+              >
+                <RefreshCw className={cn("w-3 h-3 font-bold transition-transform duration-500", !isPre && "group-hover:rotate-180")} />
+                <span className="text-[12px] font-black uppercase tracking-tighter">Now</span>
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto bg-[#F8FAFC] pb-2">
@@ -1349,7 +1472,10 @@ export default function App() {
 
           if (isMissingSchedules || isMissingMP3s) {
             return (
-              <div className="max-w-[400px] mx-auto px-4 mt-3">
+              <div className={cn(
+                "mx-auto px-4 mt-3 transition-all",
+                activeTab === 'player' ? "max-w-[400px]" : "max-w-full md:px-6 lg:px-8"
+              )}>
                 <div className="bg-amber-950/20 border border-amber-500/20 text-amber-500 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
                   <div className="flex items-center gap-1.5 text-[12px] font-black uppercase tracking-wider">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -1382,8 +1508,8 @@ export default function App() {
         })()}
 
         <div className={cn(
-          "w-full mx-auto px-1 pt-3 h-full",
-          activeTab === 'player' ? "max-w-[200px]" : "max-w-[1000px]"
+          "w-full mx-auto pt-3 h-full transition-all",
+          activeTab === 'player' ? "max-w-[200px] px-1" : "max-w-full px-4 md:px-6 lg:px-8"
         )}>
           <AnimatePresence mode="wait">
             {activeTab === 'player' ? (
@@ -1446,7 +1572,10 @@ export default function App() {
           ? "bg-amber-950/20 border-amber-900/40 text-amber-100" 
           : "bg-slate-900 border-slate-800 text-slate-100"
       )}>
-        <div className="max-w-[400px] mx-auto flex justify-between items-center gap-2">
+        <div className={cn(
+          "mx-auto flex justify-between items-center gap-2 transition-all",
+          activeTab === 'player' ? "max-w-[400px]" : "max-w-full md:px-6 lg:px-8"
+        )}>
           <button
             onClick={() => setShowLocationsModal(true)}
             className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 transition-all cursor-pointer shadow-sm text-[12px] font-black uppercase tracking-widest leading-none"
@@ -2180,11 +2309,19 @@ export default function App() {
                 </div>
 
                 {/* Submit Actions */}
-                <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-950/20 flex gap-2 justify-end">
+                <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-950/20 flex gap-2 justify-end items-center font-sans">
+                  <button
+                    type="button"
+                    onClick={() => setShowLocalHelp(true)}
+                    className="mr-auto flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Help</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => setShowLocationsModal(false)}
-                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -2286,6 +2423,226 @@ export default function App() {
                   Apply
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <LocalHelpModal isOpen={showLocalHelp} onClose={() => setShowLocalHelp(false)} />
+      <AnimatePresence>
+        {showExportModal && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm pt-2">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl max-w-lg w-full overflow-hidden text-slate-100 flex flex-col p-5 space-y-3 font-sans"
+            >
+              {/* Modal Header */}
+              <div className="flex justify-between items-center pb-2 border-b border-slate-800/60 shrink-0">
+                <div className="flex items-center gap-2 text-purple-400">
+                  <Download className="w-5 h-5 animate-bounce" />
+                  <h3 className="text-[16px] font-black uppercase tracking-widest text-white leading-none">
+                    Export Prerecord Broadcast
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowExportModal(false)}
+                  className="text-slate-550 hover:text-slate-350 font-bold text-[16px]"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Modal Content depending on state */}
+              {exportState === 'configuring' && (
+                <div className="space-y-4 flex flex-col pt-1">
+                  <div className="space-y-1.5">
+                    <label className="block text-[14px] font-black uppercase tracking-wider text-slate-400">
+                      Destination Location
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={exportDestinationInput}
+                        onChange={(e) => setExportDestinationInput(e.target.value)}
+                        placeholder="Select export folder pathway..."
+                        className="flex-1 bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-200 focus:outline-none focus:border-purple-600 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleBrowseExportDestination}
+                        className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[14px] font-black uppercase rounded cursor-pointer whitespace-nowrap active:translate-y-px"
+                      >
+                        Browse
+                      </button>
+                    </div>
+                    <p className="text-[12px] text-slate-500 font-medium leading-normal">
+                      Where the compiled broadcast folder package will be created.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[14px] font-black uppercase tracking-wider text-slate-400">
+                      Folder Name Prefix
+                    </label>
+                    <input
+                      type="text"
+                      value={exportFolderPrefixInput}
+                      onChange={(e) => setExportFolderPrefixInput(e.target.value)}
+                      placeholder="Prerecord-Export"
+                      className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-200 focus:outline-none focus:border-purple-500 font-mono"
+                    />
+                    <p className="text-[12px] text-slate-500 font-medium leading-normal">
+                      Standard part: <span className="text-slate-400 font-mono font-bold">{exportFolderPrefixInput || 'Prerecord-Export'}</span> - [Date]_[Time] - [Duration]m
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[14px] font-black uppercase tracking-wider text-slate-400">
+                      Text File Name Prefix
+                    </label>
+                    <input
+                      type="text"
+                      value={exportTextPrefixInput}
+                      onChange={(e) => setExportTextPrefixInput(e.target.value)}
+                      placeholder="Prerecord schedule"
+                      className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-200 focus:outline-none focus:border-purple-500 font-mono"
+                    />
+                    <p className="text-[12px] text-slate-500 font-medium leading-normal">
+                      Standard part: <span className="text-slate-400 font-mono font-bold">{exportTextPrefixInput || 'Prerecord schedule'}</span> - [Date]_[Time]_[Duration]min.txt
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[14px] font-black uppercase tracking-wider text-slate-400">
+                      Playlist File Name Prefix
+                    </label>
+                    <input
+                      type="text"
+                      value={exportPlaylistPrefixInput}
+                      onChange={(e) => setExportPlaylistPrefixInput(e.target.value)}
+                      placeholder="Interstitial playlist"
+                      className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-200 focus:outline-none focus:border-purple-500 font-mono"
+                    />
+                    <p className="text-[12px] text-slate-500 font-medium leading-normal">
+                      Standard part: <span className="text-slate-400 font-mono font-bold">{exportPlaylistPrefixInput || 'Interstitial playlist'}</span> - [Date]_[Time]_[Duration]min.m3u
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2 justify-end pt-3 border-t border-slate-800/40">
+                    <button
+                      type="button"
+                      onClick={() => setShowExportModal(false)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-350 text-[14px] font-black uppercase rounded border border-slate-700 transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={runExportPrerecord}
+                      className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-[14px] font-black uppercase rounded shadow transition cursor-pointer shadow-purple-950/20"
+                    >
+                      Export Broadcast Package
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {exportState === 'exporting' && (
+                <div className="py-8 flex flex-col items-center justify-center space-y-4">
+                  <RefreshCw className="w-8 h-8 text-purple-500 animate-spin" />
+                  <p className="text-[16px] font-bold text-slate-300">Assembling playlist and copying MP3s...</p>
+                  <p className="text-[14px] text-slate-500">Please do not close this window</p>
+                </div>
+              )}
+
+              {exportState === 'error' && (
+                <div className="space-y-4 pt-1">
+                  <div className="bg-red-500/10 border border-red-500/20 rounded p-3.5 flex items-start gap-2.5 text-red-500">
+                    <AlertCircle className="w-5 h-5 shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-[16px] font-bold">Export Failed</p>
+                      <p className="text-[14px] leading-relaxed mt-1 text-red-400">{exportError}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowExportModal(false)}
+                      className="px-4 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[14px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                    >
+                      Close
+                    </button>
+                    <button
+                      type="button"
+                      onClick={runExportPrerecord}
+                      className="px-4.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[14px] font-black uppercase rounded shadow cursor-pointer shadow-purple-950/20"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {exportState === 'success' && exportResult && (
+                <div className="space-y-4 pt-1 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-3.5 flex items-start gap-2.5 text-emerald-500">
+                    <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-[16px] font-bold text-emerald-400">Export Completed Successfully</p>
+                      <p className="text-[14px] leading-relaxed mt-1 text-emerald-300">
+                        Broadcasting package compiled into local folder:
+                      </p>
+                      <p className="text-[14px] font-mono select-all bg-slate-950 p-2 rounded text-emerald-200 break-all mt-1.5 border border-emerald-900/30">
+                        {exportResult.exportFolder}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-2.5 bg-slate-950/40 rounded border border-slate-800 text-center">
+                      <span className="block text-[20px] font-black font-mono text-purple-400">{exportResult.totalCount}</span>
+                      <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">Scheduled</span>
+                    </div>
+                    <div className="p-2.5 bg-slate-950/40 rounded border border-slate-800 text-center">
+                      <span className="block text-[20px] font-black font-mono text-emerald-400">{exportResult.copiedCount}</span>
+                      <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">Copied</span>
+                    </div>
+                    <div className="p-2.5 bg-slate-950/40 rounded border border-slate-800 text-center">
+                      <span className="block text-[20px] font-black font-mono text-amber-500">{exportResult.missingCount}</span>
+                      <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">Missing</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 bg-slate-950/30 p-2.5 rounded border border-slate-850 text-slate-300 font-sans">
+                    <p className="text-[14px] font-bold text-slate-200">Created Package Files:</p>
+                    <ul className="text-[14px] font-mono space-y-1.5 pl-3 list-disc text-slate-400">
+                      <li>{exportResult.txtFilename || `${exportResult.baseFilename}.txt`} <span className="text-[12px] text-slate-550 font-sans font-medium">(Summary Schedule)</span></li>
+                      <li>{exportResult.m3uFilename || `${exportResult.baseFilename}.m3u`} <span className="text-[12px] text-slate-550 font-sans font-medium">(M3U Playlist File)</span></li>
+                      <li>MP3 Files <span className="text-[12px] text-slate-550 font-sans font-medium">(Break 1, Break 2...)</span></li>
+                    </ul>
+                  </div>
+
+                  <div className="flex gap-2 justify-end pt-2 border-t border-slate-800/40">
+                    <button
+                      type="button"
+                      onClick={() => setShowExportModal(false)}
+                      className="px-4 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[14px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                    >
+                      Done
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenExportFolder(exportResult.exportFolder)}
+                      className="flex items-center gap-1.5 px-4.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[14px] font-black uppercase rounded shadow-md transition cursor-pointer"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      <span>Open Folder</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           </div>
         )}

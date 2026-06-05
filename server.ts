@@ -809,6 +809,184 @@ async function startServer() {
     }
   });
 
+  // API - Export prerecord playlist and files
+  app.post('/api/export-prerecord', (req, res) => {
+    try {
+      const { prerecordDate, lengthMinutes, items, exportDestination, folderPrefix, textPrefix, playlistPrefix } = req.body;
+      if (!prerecordDate) {
+        return res.status(400).json({ error: 'Prerecord date is required' });
+      }
+      if (!items || !Array.isArray(items)) {
+        return res.status(400).json({ error: 'Scheduled items array is required' });
+      }
+
+      const destParentFolder = (exportDestination && exportDestination.trim()) || currentSettings.localPathMP3s || DATA_DIR;
+      if (!fs.existsSync(destParentFolder)) {
+        fs.mkdirSync(destParentFolder, { recursive: true });
+      }
+
+      const sourceFolder = currentSettings.localPathMP3s || DATA_DIR;
+
+      // Format clean, file-safe folder name for the export
+      const parsedDate = new Date(prerecordDate);
+      const year = parsedDate.getFullYear();
+      const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+      const day = String(parsedDate.getDate()).padStart(2, '0');
+      const hours = String(parsedDate.getHours()).padStart(2, '0');
+      const minutes = String(parsedDate.getMinutes()).padStart(2, '0');
+
+      const monthShorts = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+      const monthShort = monthShorts[parsedDate.getMonth()] || 'JUN';
+
+      const dateStr = `${year}-${month}-${monthShort}-${day}`;
+      const timeStr = `${hours}-${minutes}`;
+      const dateTimeStr = `${dateStr}_${timeStr}`;
+
+      const fPrefix = (folderPrefix && folderPrefix.trim()) || 'Prerecord-Export';
+      const tPrefix = (textPrefix && textPrefix.trim()) || 'Prerecord schedule';
+      const pPrefix = (playlistPrefix && playlistPrefix.trim()) || 'Interstitial playlist';
+
+      const exportFolderName = `${fPrefix} - ${dateTimeStr} - ${lengthMinutes}m`;
+      const exportFolderPath = path.join(destParentFolder, exportFolderName);
+
+      // Create the export directory
+      if (!fs.existsSync(exportFolderPath)) {
+        fs.mkdirSync(exportFolderPath, { recursive: true });
+      }
+
+      let copiedCount = 0;
+      let missingCount = 0;
+      const fileReport: any[] = [];
+
+      // Determine texts/lines for playlist (m3u) and summary txt
+      const m3uLines: string[] = ['#EXTM3U'];
+      const txtLines: string[] = [
+        '========================================================================',
+        '              PRERECORD BROADCAST SCHEDULE SUMMARY',
+        '========================================================================',
+        `Air Date: ${dateStr}`,
+        `Start Time: ${hours}:${minutes}`,
+        `Duration: ${lengthMinutes} minutes`,
+        '========================================================================',
+        '',
+        'SEQUENCE OF SCHEDULED SPECIALS & BREAKS:',
+        '------------------------------------------------------------------------'
+      ];
+
+      items.forEach((item: any, idx: number) => {
+        const itemIdx = idx + 1;
+        const itemSlotTime = item.slotTime; // e.g. "12:00"
+        const safeSlotTime = typeof itemSlotTime === 'string' ? itemSlotTime.replace(/:/g, '-') : '00-00';
+        
+        // Remove prohibited file characters in scheduleName
+        const rawName = item.scheduleName || 'Unnamed Break';
+        const safeScheduleName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
+        
+        // Construct sequential file name as requested
+        const targetFileName = `Break ${itemIdx} - (${safeSlotTime}) - (${safeScheduleName}).mp3`;
+        
+        const sourceFileName = item.fileName || '';
+        const sourceFilePath = path.join(sourceFolder, path.basename(sourceFileName));
+        const destFilePath = path.join(exportFolderPath, targetFileName);
+
+        let status = 'Missing';
+        if (sourceFileName && fs.existsSync(sourceFilePath)) {
+          try {
+            fs.copyFileSync(sourceFilePath, destFilePath);
+            copiedCount++;
+            status = 'Found & Copied';
+          } catch (copyErr: any) {
+            console.error(`Error copying ${sourceFileName}:`, copyErr);
+            status = `Copy Error: ${copyErr.message}`;
+            missingCount++;
+          }
+        } else {
+          missingCount++;
+        }
+
+        fileReport.push({
+          index: itemIdx,
+          slotTime: itemSlotTime,
+          scheduleName: rawName,
+          originalFile: sourceFileName,
+          exportedFile: targetFileName,
+          status
+        });
+
+        // Add to m3u playlist lines (referencing only the local target name in export folder)
+        m3uLines.push(`#EXTINF:-1,Break ${itemIdx} - ${itemSlotTime} - ${rawName}`);
+        m3uLines.push(targetFileName);
+
+        // Add to summary text file
+        if (status === 'Found & Copied') {
+          txtLines.push(`${itemIdx}. Slot: ${itemSlotTime}`);
+          txtLines.push(`   Exported File: ${targetFileName}`);
+          txtLines.push(`   Title: ${rawName}`);
+          txtLines.push(`   Source File: ${sourceFileName || ''}`);
+        } else {
+          txtLines.push(`${itemIdx}. MISSING FILE - THIS FILE COULD NOT BE FOUND.  PLEASE REVERIFY AND EXPORT.`);
+          txtLines.push(`   Slot: ${itemSlotTime}`);
+          txtLines.push(`   Exported File: ${targetFileName}`);
+          txtLines.push(`   Title: ${rawName}`);
+          txtLines.push(`   Source File: ${sourceFileName || ''}`);
+        }
+        txtLines.push('------------------------------------------------------------------------');
+      });
+
+      // Names for text file and playlist
+      const txtBaseFilename = `${tPrefix} - ${dateStr}_${timeStr}_${lengthMinutes}min`;
+      const m3uBaseFilename = `${pPrefix} - ${dateStr}_${timeStr}_${lengthMinutes}min`;
+      const txtFilePath = path.join(exportFolderPath, `${txtBaseFilename}.txt`);
+      const m3uFilePath = path.join(exportFolderPath, `${m3uBaseFilename}.m3u`);
+
+      // Write files
+      fs.writeFileSync(txtFilePath, txtLines.join('\n'), 'utf-8');
+      fs.writeFileSync(m3uFilePath, m3uLines.join('\n'), 'utf-8');
+
+      res.json({
+        success: true,
+        exportFolderPath,
+        exportFolderName,
+        copiedCount,
+        missingCount,
+        totalCount: items.length,
+        txtFilename: `${txtBaseFilename}.txt`,
+        m3uFilename: `${m3uBaseFilename}.m3u`,
+        report: fileReport
+      });
+    } catch (e: any) {
+      console.error('Failed to export prerecord:', e);
+      res.status(500).json({ error: 'Failed to export prerecord: ' + e.message });
+    }
+  });
+
+  // API - Write custom files on localhost (Native desktop save file helper)
+  app.post('/api/write-file', (req, res) => {
+    try {
+      const { filePath, content, isBinary } = req.body;
+      if (!filePath) {
+        return res.status(400).json({ error: 'filePath is required' });
+      }
+
+      const parentDir = path.dirname(filePath);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
+
+      if (isBinary) {
+        const buffer = Buffer.from(content, 'base64');
+        fs.writeFileSync(filePath, buffer);
+      } else {
+        fs.writeFileSync(filePath, content, 'utf8');
+      }
+
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('Failed to write file via API:', e);
+      res.status(500).json({ error: 'Failed to write file: ' + e.message });
+    }
+  });
+
   // Vite integration
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');

@@ -22,6 +22,15 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Calendar View states
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [calendarLayoutMode, setCalendarLayoutMode] = useState<'full' | 'compact'>(() => (localStorage.getItem('interstitial_calendar_layout_mode') as 'full' | 'compact') || 'full');
+  const [showInactive, setShowInactive] = useState<boolean>(false);
+  const [calendarDate, setCalendarDate] = useState<Date>(() => new Date(now));
+  const [selectedCalendarSchedule, setSelectedCalendarSchedule] = useState<Schedule | null>(null);
+  const [selectedHours, setSelectedHours] = useState<number[]>(() => Array.from({ length: 24 }, (_, i) => i));
+  const [isHoursDropdownOpen, setIsHoursDropdownOpen] = useState(false);
+
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -294,6 +303,94 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
     }
   };
 
+  const months = [
+    "January", "February", "March", "April", "May", "June", 
+    "July", "August", "September", "October", "November", "December"
+  ];
+  const years = [2025, 2026, 2027, 2028, 2029, 2030];
+
+  const handleMonthChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newMonth = parseInt(e.target.value);
+    const newDate = new Date(calendarDate);
+    newDate.setMonth(newMonth);
+    setCalendarDate(newDate);
+  };
+
+  const handleYearChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newYear = parseInt(e.target.value);
+    const newDate = new Date(calendarDate);
+    newDate.setFullYear(newYear);
+    setCalendarDate(newDate);
+  };
+
+  const navigateWeek = (weeks: number) => {
+    const newDate = new Date(calendarDate);
+    newDate.setDate(calendarDate.getDate() + (weeks * 7));
+    setCalendarDate(newDate);
+  };
+
+  const jumpToToday = () => {
+    setCalendarDate(new Date(now));
+  };
+
+  const getWeekDays = (baseDate: Date) => {
+    const currentDay = baseDate.getDay(); // 0-6
+    const weekStart = new Date(baseDate);
+    weekStart.setDate(baseDate.getDate() - currentDay);
+    
+    const days: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
+      days.push(d);
+    }
+    return days;
+  };
+
+  const formatDayHeader = (date: Date) => {
+    const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    return {
+      dayName: dayNames[date.getDay()],
+      dateStr: `${month}/${day}`
+    };
+  };
+
+  const getSchedulesForDateTime = (date: Date, hour: number) => {
+    const yyyy = date.getFullYear();
+    const mm = (date.getMonth() + 1).toString().padStart(2, '0');
+    const dd = date.getDate().toString().padStart(2, '0');
+    const localDateStr = `${yyyy}-${mm}-${dd}`;
+    const dayOfWeek = date.getDay(); // 0-6
+
+    return schedules.filter(s => {
+      // Hide all inactive schedules by default if setting checked
+      if (!showInactive && !s.enabled) return false;
+
+      // Check range bounds
+      if (s.startDate && localDateStr < s.startDate) return false;
+      if (s.endDate && localDateStr > s.endDate) return false;
+
+      if (s.type === ScheduleType.ONE_TIME) {
+        if (!s.date || !s.time) return false;
+        const sHour = parseInt(s.time, 10);
+        return s.date === localDateStr && sHour === hour;
+      }
+
+      if (s.type === ScheduleType.BASIC_HOURLY) {
+        return true;
+      }
+
+      if (s.type === ScheduleType.ADVANCED) {
+        if (!s.gridRules) return false;
+        return s.gridRules.includes(`${dayOfWeek}-${hour}`);
+      }
+
+      return false;
+    });
+  };
+
   if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-white rounded-xl border border-slate-200 shadow-sm">
@@ -315,21 +412,348 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full font-sans">
       {!editingId ? (
         <div className="flex flex-col h-full">
-          <div className="flex items-center justify-between mb-3 px-1">
-            <h2 className="font-bold text-slate-800 text-[16px] tracking-tight">Schedules</h2>
-            <div className="flex gap-2">
+          <div className="flex items-center justify-between mb-3 px-1 shrink-0">
+            <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  "px-3 py-1.5 flex items-center gap-1.5 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border",
+                  viewMode === 'list'
+                    ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
+                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
+                )}
+              >
+                <span className={cn(
+                  "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                  viewMode === 'list'
+                    ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                    : "bg-slate-800"
+                )} />
+                <span>Schedules</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('calendar')}
+                className={cn(
+                  "px-3 py-1.5 flex items-center gap-1.5 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border",
+                  viewMode === 'calendar'
+                    ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
+                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
+                )}
+              >
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <span className={cn(
+                  "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                  viewMode === 'calendar'
+                    ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                    : "bg-slate-800"
+                )} />
+                <span>Calendar</span>
+              </button>
+            </div>
+            
+            <div className="flex gap-2 items-center">
               <button 
                 onClick={createNew}
-                className="p-1 px-3 bg-blue-600 text-white rounded text-[12px] font-black tracking-tighter shadow-sm hover:bg-blue-700 transition-colors"
+                className="p-1.5 px-4 bg-blue-600 text-white rounded text-[12px] font-black tracking-tighter shadow-sm hover:bg-blue-700 transition-colors uppercase cursor-pointer"
               >
                 + ADD NEW
               </button>
             </div>
           </div>
-          <div className="flex flex-col gap-6 overflow-y-auto flex-1 pb-4 pr-1 custom-scrollbar">
+
+          {viewMode === 'calendar' ? (
+            <div className="flex flex-col h-full">
+              {/* Calendar View Controls */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 flex flex-col sm:flex-row justify-between items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => navigateWeek(-1)}
+                    className="px-2.5 py-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer text-[12px] font-black uppercase tracking-tighter"
+                    title="Previous Week"
+                  >
+                    &larr; Prev Week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={jumpToToday}
+                    className="px-3 py-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 font-black cursor-pointer text-[12px] uppercase tracking-tighter"
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigateWeek(1)}
+                    className="px-2.5 py-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer text-[12px] font-black uppercase tracking-tighter"
+                    title="Next Week"
+                  >
+                    Next Week &rarr;
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 text-[12px] font-black uppercase tracking-tighter">
+                  <span className="text-slate-450">Filter:</span>
+                  <select
+                    value={calendarDate.getMonth()}
+                    onChange={handleMonthChange}
+                    className="bg-white border border-slate-250 rounded px-2 py-1 text-[12px] font-black text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                  >
+                    {months.map((m, idx) => (
+                      <option key={idx} value={idx}>{m}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={calendarDate.getFullYear()}
+                    onChange={handleYearChange}
+                    className="bg-white border border-slate-250 rounded px-2 py-1 text-[12px] font-black text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                  >
+                    {years.map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+
+                  <div className="relative inline-block text-left mr-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsHoursDropdownOpen(!isHoursDropdownOpen)}
+                      className="bg-white border border-slate-250 rounded px-2 py-1 text-[12px] font-black text-slate-700 hover:bg-slate-50 cursor-pointer flex items-center gap-1 min-w-[100px] justify-between"
+                    >
+                      <span>
+                        {selectedHours.length === 24
+                          ? "All (24h)"
+                          : selectedHours.length === 0
+                          ? "None selected"
+                          : `${selectedHours.length} selected`}
+                      </span>
+                      <span className="text-slate-440 text-[9px]">▼</span>
+                    </button>
+
+                    {isHoursDropdownOpen && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-10 cursor-default"
+                          onClick={() => setIsHoursDropdownOpen(false)}
+                        />
+                        <div className="absolute right-0 mt-1 w-64 bg-white border border-slate-250 rounded-xl shadow-lg z-25 p-2.5 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-2">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                            <span className="text-[12px] font-black text-slate-700 uppercase tracking-tighter">
+                              Select Hours
+                            </span>
+                            <div className="flex gap-1.5 text-[11px] font-black uppercase tracking-tighter">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedHours(Array.from({ length: 24 }, (_, i) => i))}
+                                className="text-blue-600 hover:text-blue-700 cursor-pointer"
+                              >
+                                All
+                              </button>
+                              <span className="text-slate-300">|</span>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedHours([])}
+                                className="text-slate-500 hover:text-slate-600 cursor-pointer"
+                              >
+                                None
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-4 gap-1 max-h-[180px] overflow-y-auto custom-scrollbar">
+                            {Array.from({ length: 24 }).map((_, h) => {
+                              const isSelected = selectedHours.includes(h);
+                              return (
+                                <button
+                                  key={h}
+                                  type="button"
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      setSelectedHours(selectedHours.filter(item => item !== h));
+                                    } else {
+                                      setSelectedHours([...selectedHours, h].sort((a, b) => a - b));
+                                    }
+                                  }}
+                                  className={cn(
+                                    "p-1 py-1 rounded text-[11px] font-black font-mono tracking-tight text-center border cursor-pointer select-none transition-all",
+                                    isSelected
+                                      ? "bg-blue-600 text-white border-blue-600 font-extrabold"
+                                      : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                                  )}
+                                >
+                                  {h.toString().padStart(2, '0')}:00
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <span className="text-slate-450 ml-1">Mode:</span>
+                  <div className="relative inline-flex bg-slate-200/70 p-0.5 rounded border border-slate-300/40 font-black text-[12px] uppercase w-36 select-none shrink-0">
+                    <div 
+                      className={cn(
+                        "absolute top-0.5 bottom-0.5 rounded bg-white shadow-sm transition-all duration-200 ease-out",
+                        calendarLayoutMode === 'full' 
+                          ? "left-0.5 w-[calc(50%-1px)]" 
+                          : "left-[calc(50%+0.5px)] w-[calc(50%-1px)]"
+                      )}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalendarLayoutMode('full');
+                        localStorage.setItem('interstitial_calendar_layout_mode', 'full');
+                      }}
+                      className={cn(
+                        "relative py-0.5 rounded text-[12px] font-black tracking-tight uppercase transition-colors z-10 w-1/2 text-center cursor-pointer",
+                        calendarLayoutMode === 'full' ? "text-slate-800" : "text-slate-500 hover:text-slate-700"
+                      )}
+                    >
+                      Full
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalendarLayoutMode('compact');
+                        localStorage.setItem('interstitial_calendar_layout_mode', 'compact');
+                      }}
+                      className={cn(
+                        "relative py-0.5 rounded text-[12px] font-black tracking-tight uppercase transition-colors z-10 w-1/2 text-center cursor-pointer",
+                        calendarLayoutMode === 'compact' ? "text-slate-800" : "text-slate-500 hover:text-slate-700"
+                      )}
+                    >
+                      Compact
+                    </button>
+                  </div>
+
+                  <label className="flex items-center gap-1.5 text-slate-650 cursor-pointer select-none text-[12px] font-black uppercase tracking-tighter ml-1">
+                    <input
+                      type="checkbox"
+                      checked={showInactive}
+                      onChange={(e) => setShowInactive(e.target.checked)}
+                      className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                    />
+                    <span>Show Inactive</span>
+                  </label>
+                </div>
+              </div>              {/* The Calendar Grid Container! */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm flex flex-col flex-1 min-h-[400px]">
+                {/* Scrollable list containing both sticky header and hours */}
+                <div className="overflow-y-auto flex-1 max-h-[58vh] custom-scrollbar grid grid-cols-1">
+                  {/* Header row (Sticky top inside scroll container to align with content scrollbar) */}
+                  <div className="sticky top-0 z-15 grid grid-cols-[52px_repeat(7,minmax(0,1fr))] bg-slate-100 border-b border-slate-250 select-none text-[14px] font-black text-slate-500 uppercase tracking-tighter shrink-0 shadow-sm">
+                    <div className="p-2 border-r border-slate-205 flex items-center justify-center font-mono text-slate-450 border-b border-slate-200">
+                      Hour
+                    </div>
+                    {getWeekDays(calendarDate).map((day, idx) => {
+                      const { dayName, dateStr } = formatDayHeader(day);
+                      const isToday = day.toISOString().split('T')[0] === now.toISOString().split('T')[0];
+                      return (
+                        <div 
+                          key={idx} 
+                          className={cn(
+                            "p-2 text-center border-r border-slate-200 last:border-r-0 flex items-center justify-center min-w-0 border-b border-slate-200",
+                            isToday ? "bg-blue-500/10 text-blue-700" : "text-slate-650"
+                          )}
+                        >
+                          <span className="font-black text-[14px] leading-tight truncate">
+                            {dayName} <span className="opacity-80 font-normal ml-1">{dateStr}</span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {Array.from({ length: 24 }).map((_, h) => h)
+                    .filter(h => selectedHours.includes(h))
+                    .map((hour) => {
+                      return (
+                      <div key={hour} className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))] border-b border-slate-150 last:border-b-0 hover:bg-slate-50/10 transition-colors">
+                        {/* Hour column */}
+                        <div className="p-1.5 px-0.5 border-r border-slate-200 flex items-center justify-center bg-slate-50/50 select-none text-[14px] font-black font-mono text-slate-455 uppercase shrink-0">
+                          {hour.toString().padStart(2, '0')}:00
+                        </div>
+
+                        {/* Day slots */}
+                        {getWeekDays(calendarDate).map((day, dayIdx) => {
+                          const cellSchedules = getSchedulesForDateTime(day, hour);
+                          return (
+                            <div 
+                              key={dayIdx} 
+                              className={cn(
+                                "p-1 border-r border-slate-205 last:border-r-0 min-h-[28px] h-auto overflow-visible justify-start",
+                                calendarLayoutMode === 'compact' 
+                                  ? "flex flex-row flex-wrap gap-1 items-start content-start animate-fade-in" 
+                                  : "flex flex-col gap-1"
+                              )}
+                            >
+                              {cellSchedules.map(s => {
+                                const formattedMin = s.minute.toString().padStart(2, '0');
+                                const summaryText = `ID: ${s.id} — ${s.name}\nTime: :${formattedMin}\nFile: ${s.mp3Url || 'None'}\nMode: ${s.type}`;
+                                if (calendarLayoutMode === 'compact') {
+                                  return (
+                                    <button
+                                      key={s.id}
+                                      type="button"
+                                      onClick={() => setSelectedCalendarSchedule(s)}
+                                      className={cn(
+                                        "inline-flex items-center justify-center p-0.5 px-1.5 rounded font-mono text-[12px] font-black leading-none shadow-sm border cursor-pointer select-none shrink-0 transition-all hover:scale-105",
+                                        !s.enabled 
+                                          ? "bg-slate-100 text-slate-400 border-slate-200 line-through" 
+                                          : s.type === ScheduleType.ONE_TIME 
+                                            ? "bg-purple-100 text-purple-700 border-purple-200 font-extrabold" 
+                                            : s.type === ScheduleType.BASIC_HOURLY 
+                                              ? "bg-blue-100 text-blue-700 border-blue-200" 
+                                              : "bg-orange-100 text-orange-700 border-orange-200"
+                                      )}
+                                      title={summaryText}
+                                    >
+                                      {formattedMin}
+                                    </button>
+                                  );
+                                }
+                                return (
+                                  <button
+                                    key={s.id}
+                                    type="button"
+                                    onClick={() => setSelectedCalendarSchedule(s)}
+                                    className={cn(
+                                      "w-full text-left p-1 rounded font-sans text-[12px] leading-tight truncate shadow-sm border block cursor-pointer select-none transition-all hover:translate-x-0.5",
+                                      !s.enabled 
+                                        ? "bg-slate-105 text-slate-400 border-slate-200 line-through" 
+                                        : s.type === ScheduleType.ONE_TIME 
+                                          ? "bg-purple-50 text-purple-700 border-purple-200 font-bold" 
+                                          : s.type === ScheduleType.BASIC_HOURLY 
+                                            ? "bg-blue-50 text-blue-700 border-blue-200" 
+                                            : "bg-orange-50 text-orange-700 border-orange-200"
+                                    )}
+                                    title={summaryText}
+                                  >
+                                    <div className="truncate flex items-center gap-0.5">
+                                      <span className="font-mono font-black text-[12px] text-slate-455 shrink-0">:{formattedMin}</span>
+                                      <span className="truncate">{s.name}</span>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-6 overflow-y-auto flex-1 pb-4 pr-1 custom-scrollbar">
             {/* Active Schedules Section */}
             <div className="space-y-2">
               <div className="flex items-center gap-2 mb-2">
@@ -653,6 +1077,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
               })()}
             </div>
           </div>
+          )}
         </div>
       ) : (
         <div className="bg-white rounded-lg border border-slate-200 flex flex-col h-full overflow-hidden shadow-md">
@@ -1199,6 +1624,96 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 </p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Calendar Schedule Details Modal Overlay */}
+      {selectedCalendarSchedule && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[90]">
+          <div className="bg-white rounded-xl border border-slate-250 shadow-2xl max-w-md w-full overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
+            <div className="p-4 bg-slate-50 border-b border-slate-155 flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-slate-500" />
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-tighter">Schedule Details</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCalendarSchedule(null)}
+                className="text-slate-400 hover:text-slate-600 font-bold text-lg leading-none cursor-pointer"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <span className="text-[12px] font-black font-mono text-slate-350 uppercase block tracking-widest leading-none mb-1">ID: {selectedCalendarSchedule.id}</span>
+                <p className="text-[16px] font-black text-slate-800 leading-tight tracking-tight">{selectedCalendarSchedule.name}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 rounded-lg p-3 text-[12px]">
+                <div>
+                  <span className="text-slate-400 uppercase font-bold block mb-0.5">Type</span>
+                  <span className="font-bold text-slate-700 capitalize">
+                    {selectedCalendarSchedule.type === ScheduleType.ONE_TIME ? "One-Time" : selectedCalendarSchedule.type.split('-').pop()}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 uppercase font-bold block mb-0.5">Status</span>
+                  <span className={cn("font-bold", selectedCalendarSchedule.enabled ? "text-green-600" : "text-slate-400")}>
+                    {selectedCalendarSchedule.enabled ? "Enabled" : "Suspended"}
+                  </span>
+                </div>
+                <div className="col-span-2 border-t border-slate-200/50 pt-2">
+                  <span className="text-slate-400 uppercase font-bold block mb-0.5">Timing Summary</span>
+                  <span className="font-bold text-slate-755 block font-mono">
+                    :{selectedCalendarSchedule.minute.toString().padStart(2, '0')}m • {getScheduleSummary(selectedCalendarSchedule)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[12px] text-slate-400 uppercase font-bold block">Target Audio Track</span>
+                <div className="p-2 border border-slate-200 rounded flex items-center gap-2 bg-slate-50/50">
+                  <Music className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <span className="text-[12px] font-bold text-slate-650 truncate font-mono">{selectedCalendarSchedule.mp3Url}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-[12px]">
+                <div>
+                  <span className="text-slate-400 uppercase font-bold block mb-0.5">Effective From</span>
+                  <span className="font-mono text-slate-600 font-bold">{selectedCalendarSchedule.startDate || "Any Date"}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 uppercase font-bold block mb-0.5">Expiration Limit</span>
+                  <span className="font-mono text-slate-600 font-bold">{selectedCalendarSchedule.endDate || "No Limit"}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border-t border-slate-150 flex justify-end gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setSelectedCalendarSchedule(null)}
+                className="px-3.5 py-1.5 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 text-[12px] font-black uppercase tracking-tighter cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const s = selectedCalendarSchedule;
+                  setSelectedCalendarSchedule(null);
+                  startEdit(s);
+                }}
+                className="px-3.5 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-black uppercase tracking-tighter flex items-center gap-1 cursor-pointer"
+              >
+                <FileText className="w-3 h-3" />
+                <span>Edit Schedule</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
