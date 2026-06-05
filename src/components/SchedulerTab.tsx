@@ -467,7 +467,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
           </div>
 
           {viewMode === 'calendar' ? (
-            <div className="flex flex-col h-full">
+            <div className="flex flex-col flex-1 min-h-0">
               {/* Calendar View Controls */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 flex flex-col sm:flex-row justify-between items-center gap-3">
                 <div className="flex items-center gap-2">
@@ -643,34 +643,35 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                     <span>Show Inactive</span>
                   </label>
                 </div>
-              </div>              {/* The Calendar Grid Container! */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm flex flex-col flex-1 min-h-[400px]">
-                {/* Scrollable list containing both sticky header and hours */}
-                <div className="overflow-y-auto flex-1 max-h-[58vh] custom-scrollbar grid grid-cols-1">
-                  {/* Header row (Sticky top inside scroll container to align with content scrollbar) */}
-                  <div className="sticky top-0 z-15 grid grid-cols-[52px_repeat(7,minmax(0,1fr))] bg-slate-100 border-b border-slate-250 select-none text-[14px] font-black text-slate-500 uppercase tracking-tighter shrink-0 shadow-sm">
-                    <div className="p-2 border-r border-slate-205 flex items-center justify-center font-mono text-slate-450 border-b border-slate-200">
-                      Hour
-                    </div>
-                    {getWeekDays(calendarDate).map((day, idx) => {
-                      const { dayName, dateStr } = formatDayHeader(day);
-                      const isToday = day.toISOString().split('T')[0] === now.toISOString().split('T')[0];
-                      return (
-                        <div 
-                          key={idx} 
-                          className={cn(
-                            "p-2 text-center border-r border-slate-200 last:border-r-0 flex items-center justify-center min-w-0 border-b border-slate-200",
-                            isToday ? "bg-blue-500/10 text-blue-700" : "text-slate-650"
-                          )}
-                        >
-                          <span className="font-black text-[14px] leading-tight truncate">
-                            {dayName} <span className="opacity-80 font-normal ml-1">{dateStr}</span>
-                          </span>
-                        </div>
-                      );
-                    })}
+              </div>
+              {/* The Calendar Grid Container! */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm flex flex-col flex-1 min-h-0">
+                {/* Header row (Static outside of the scrollable viewport, matching log grid layout) */}
+                <div className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))] bg-slate-100 border-b border-slate-250 select-none text-[14px] font-black text-slate-500 uppercase tracking-tighter shrink-0 shadow-sm z-10">
+                  <div className="p-2 border-r border-slate-205 flex items-center justify-center font-mono text-slate-450">
+                    Hour
                   </div>
+                  {getWeekDays(calendarDate).map((day, idx) => {
+                    const { dayName, dateStr } = formatDayHeader(day);
+                    const isToday = day.toISOString().split('T')[0] === now.toISOString().split('T')[0];
+                    return (
+                      <div 
+                        key={idx} 
+                        className={cn(
+                          "p-2 text-center border-r border-slate-200 last:border-r-0 flex items-center justify-center min-w-0",
+                          isToday ? "bg-blue-500/10 text-blue-700" : "text-slate-650"
+                        )}
+                      >
+                        <span className="font-black text-[14px] leading-tight truncate">
+                          {dayName} <span className="opacity-80 font-normal ml-1">{dateStr}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
 
+                {/* Scrollable list of hours */}
+                <div className="overflow-y-auto flex-1 custom-scrollbar min-h-0 grid grid-cols-1">
                   {Array.from({ length: 24 }).map((_, h) => h)
                     .filter(h => selectedHours.includes(h))
                     .map((hour) => {

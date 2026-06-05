@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Clock, List, Settings, Plus, Play, CheckCircle, AlertCircle, RefreshCw, LogOut, ChevronLeft, ChevronRight, Save, Trash2, History, Folder, HardDrive, Wifi, WifiOff, ShieldCheck, Mail, Globe, ExternalLink, Download, FolderOpen, HelpCircle } from 'lucide-react';
+import { Calendar, Clock, List, Settings, Plus, Play, CheckCircle, AlertCircle, RefreshCw, LogOut, ChevronLeft, ChevronRight, Save, Trash2, History, Folder, HardDrive, Wifi, WifiOff, ShieldCheck, Mail, Globe, ExternalLink, Download, FolderOpen, HelpCircle, Moon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { format, addHours, subHours, isSameMinute, startOfHour, addMinutes, isAfter, isBefore, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { Schedule, ScheduleType, LogEntry } from './types';
@@ -199,6 +199,9 @@ export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [isDriveActive, setIsDriveActive] = useState(false);
   const [isDriveValidated, setIsDriveValidated] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isAsleep, setIsAsleep] = useState(false);
+  const lastActiveTimeRef = useRef<number>(Date.now());
   const [isValidatingDrive, setIsValidatingDrive] = useState(false);
   const [driveValidationError, setDriveValidationError] = useState<string | null>(null);
   const [googleClientId, setGoogleClientId] = useState(() => localStorage.getItem('interstitialer_google_client_id') || '776109899422-4ui9sqip5tvjarmcmrmnb4p3pdni0b2n.apps.googleusercontent.com');
@@ -456,41 +459,58 @@ export default function App() {
     setIsSyncing(true);
     try {
       if (settings.mode === 'Local') {
-        const [localSchedules, localLogs, localMP3s] = await Promise.all([
-          fetch('/api/schedules').then(r => r.json()).catch(() => []),
-          fetch('/api/logs').then(r => r.json()).catch(() => []),
-          fetch('/api/local-mp3s').then(r => r.json()).catch(() => [])
-        ]);
-        setSchedules(localSchedules || []);
-        setLogs(localLogs || []);
-        
-        availableFilesCache.clear();
-        const mappedMP3s = (localMP3s || []).map((file: any) => {
-          if (file.path && file.name) {
-            driveFileNameCache.set(file.path, file.name);
-            availableFilesCache.set(file.name, {
-              path: file.path,
+        try {
+          const [localSchedules, localLogs, localMP3s] = await Promise.all([
+            fetch('/api/schedules').then(r => {
+              if (!r.ok) throw new Error("Local schedules failed");
+              return r.json();
+            }),
+            fetch('/api/logs').then(r => {
+              if (!r.ok) throw new Error("Local logs failed");
+              return r.json();
+            }),
+            fetch('/api/local-mp3s').then(r => {
+              if (!r.ok) throw new Error("Local MP3s failed");
+              return r.json();
+            })
+          ]);
+          setSchedules(localSchedules || []);
+          setLogs(localLogs || []);
+          
+          availableFilesCache.clear();
+          const mappedMP3s = (localMP3s || []).map((file: any) => {
+            if (file.path && file.name) {
+              driveFileNameCache.set(file.path, file.name);
+              availableFilesCache.set(file.name, {
+                path: file.path,
+                size: file.size,
+                duration: file.duration || '0:15'
+              });
+            }
+            return {
+              name: file.name,
               size: file.size,
-              duration: file.duration || '0:15'
-            });
-          }
-          return {
-            name: file.name,
-            size: file.size,
-            duration: file.duration || '0:15',
-            path: file.path
-          };
-        });
-        setDriveMP3s(mappedMP3s);
-        setSyncTime(new Date());
-        setScrollTrigger(prev => prev + 1);
-        setIsDriveActive(true);
-        setIsDriveValidated(true);
+              duration: file.duration || '0:15',
+              path: file.path
+            };
+          });
+          setDriveMP3s(mappedMP3s);
+          setSyncTime(new Date());
+          setScrollTrigger(prev => prev + 1);
+          setIsDriveActive(true);
+          setIsDriveValidated(true);
+          setConnectionError(null);
+        } catch (e) {
+          console.error('Local mode fetch details failed:', e);
+          setIsDriveValidated(false);
+          setConnectionError("Failed to reach local server endpoints. Prior configuration remains active.");
+        }
       } else {
         // 'Drive' or 'Demo' mode: both pull from Google Drive
         const hasToken = !!(getAccessToken() || token);
         if (!hasToken) {
           setIsDriveValidated(false);
+          setConnectionError("Missing authentication token. Please reconnect your account.");
           setIsSyncing(false);
           setLoading(false);
           return;
@@ -500,6 +520,7 @@ export default function App() {
         const isValid = await validateGoogleDriveAccess();
         if (!isValid) {
           setIsDriveValidated(false);
+          setConnectionError("Unable to access specified folders. Prior configuration remains active. Please check folder configuration or reconnect.");
           setIsSyncing(false);
           setLoading(false);
           return;
@@ -511,56 +532,74 @@ export default function App() {
         const hasLogsFolder = !!DRIVE_FOLDERS.logs;
         const hasMP3Folder = !!DRIVE_FOLDERS.mp3s;
 
-        let driveSchedules: Schedule[] = [];
-        let driveLogsStr: LogEntry[] = [];
-        let mp3Files: any[] = [];
+        let driveSchedules: Schedule[] | null = null;
+        let driveLogsStr: LogEntry[] | null = null;
+        let mp3Files: any[] | null = null;
+
+        let hasFetchError = false;
 
         if (hasPreferencesFolder) {
           try {
             driveSchedules = await loadSchedulesFromDrive();
           } catch (e) {
-            console.warn('Schedules Folder not set or inaccessible, using empty.', e);
+            console.warn('Schedules Folder not set or inaccessible.', e);
+            hasFetchError = true;
           }
         }
         if (hasLogsFolder) {
           try {
             driveLogsStr = await loadLogsFromDrive();
           } catch (e) {
-            console.warn('Logs Folder not set or inaccessible, using empty.', e);
+            console.warn('Logs Folder not set or inaccessible.', e);
+            hasFetchError = true;
           }
         }
         if (hasMP3Folder) {
           try {
             mp3Files = await listMP3sFromDrive();
           } catch (e) {
-            console.warn('MP3s Folder not set or inaccessible, using empty.', e);
+            console.warn('MP3s Folder not set or inaccessible.', e);
+            hasFetchError = true;
           }
         }
 
-        setSchedules(driveSchedules || []);
-        setLogs(driveLogsStr || []);
-        
-        availableFilesCache.clear();
-        (mp3Files || []).forEach((file: any) => {
-          if (file.path && file.name) {
-            availableFilesCache.set(file.name, {
-              path: file.path,
-              size: file.size,
-              duration: file.duration || '0:15'
-            });
-          }
-        });
+        if (hasFetchError) {
+          setConnectionError("Failed to read files from folders. Prior configuration remains active.");
+        } else {
+          setConnectionError(null);
+        }
 
-        setDriveMP3s(mp3Files || []);
+        if (driveSchedules !== null) {
+          setSchedules(driveSchedules || []);
+        }
+        if (driveLogsStr !== null) {
+          setLogs(driveLogsStr || []);
+        }
+        
+        if (mp3Files !== null) {
+          availableFilesCache.clear();
+          (mp3Files || []).forEach((file: any) => {
+            if (file.path && file.name) {
+              availableFilesCache.set(file.name, {
+                path: file.path,
+                size: file.size,
+                duration: file.duration || '0:15'
+              });
+            }
+          });
+
+          setDriveMP3s(mp3Files || []);
+        }
+
         setSyncTime(new Date());
         setScrollTrigger(prev => prev + 1);
         setIsDriveActive(true);
-        setIsDriveValidated(true);
       }
       // Trigger background archiving invisibly on successful fetch
       await runArchiving(settings.mode).catch(() => {});
     } catch (error) {
       console.error('Failed to fetch data for mode ' + settings.mode, error);
+      setConnectionError("An unexpected synchronization error occurred. Prior configuration remains active.");
     } finally {
       setIsSyncing(false);
       setLoading(false);
@@ -578,24 +617,57 @@ export default function App() {
     setCountdown(300);
   };
 
+  const handleWakeUp = () => {
+    lastActiveTimeRef.current = Date.now();
+    setIsAsleep(false);
+    handleRefresh();
+  };
+
   useEffect(() => {
     const settings = getSavedSettings();
-    if ((settings.mode === 'Drive' || settings.mode === 'Demo') && isDriveValidated) {
+    if (settings.mode === 'Drive' || settings.mode === 'Demo') {
       fetchData();
     }
-  }, [token, isDriveValidated]);
+  }, [token]);
+
+  // Track User Activity to prevent Sleep State
+  useEffect(() => {
+    if (isAsleep) return;
+
+    const handleActivity = () => {
+      lastActiveTimeRef.current = Date.now();
+    };
+
+    window.addEventListener('mousemove', handleActivity);
+    window.addEventListener('mousedown', handleActivity);
+    window.addEventListener('keydown', handleActivity);
+    window.addEventListener('scroll', handleActivity);
+    window.addEventListener('touchstart', handleActivity);
+
+    return () => {
+      window.removeEventListener('mousemove', handleActivity);
+      window.removeEventListener('mousedown', handleActivity);
+      window.removeEventListener('keydown', handleActivity);
+      window.removeEventListener('scroll', handleActivity);
+      window.removeEventListener('touchstart', handleActivity);
+    };
+  }, [isAsleep]);
 
   // Sync Timer Logic
   useEffect(() => {
     const timer = setInterval(() => {
       const current = new Date();
       setNow(current);
-      if (playMode === 'Live') {
+
+      // Check if inactive for 30 or more minutes (1800000 ms)
+      if (!isAsleep && (Date.now() - lastActiveTimeRef.current >= 30 * 60 * 1000)) {
+        setIsAsleep(true);
+      }
+
+      if (playMode === 'Live' && !isAsleep) {
         setCountdown(prev => {
           if (prev <= 1) {
-            if (isDriveValidated) {
-              fetchData();
-            }
+            fetchData();
             return 300;
           }
           return prev - 1;
@@ -603,7 +675,7 @@ export default function App() {
       }
     }, 1000);
     return () => clearInterval(timer);
-  }, [token, isDriveValidated, playMode]);
+  }, [token, playMode, isAsleep]);
 
   // Background Cache Synchronization Logic (Pre-loading Audio into memory)
   useEffect(() => {
@@ -1359,10 +1431,7 @@ export default function App() {
     <div className="flex flex-col h-screen bg-[#F8FAFC] font-sans overflow-hidden">
       {/* Top Header - Branding & Nav */}
       <header className="bg-[#0F172A] px-3 py-2 shrink-0 z-20">
-        <div className={cn(
-          "flex items-center justify-between gap-3 mx-auto transition-all",
-          activeTab === 'player' ? "max-w-[400px]" : "max-w-full px-4 md:px-6 lg:px-8"
-        )}>
+        <div className="flex items-center justify-between gap-3 w-full mx-auto">
           <div className="flex items-center gap-2 text-white">
             <div className={cn("w-6 h-6 rounded flex items-center justify-center", isPre ? "bg-purple-600" : "bg-blue-500")}>
               <Clock className="w-4 h-4" />
@@ -1464,7 +1533,44 @@ export default function App() {
       )}
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto bg-[#F8FAFC] pb-2">
+      <main className={cn(
+        "flex-1 bg-[#F8FAFC] pb-2 flex flex-col min-h-0",
+        activeTab === 'player' ? "overflow-y-auto" : "overflow-hidden"
+      )}>
+        {/* Connection Error Warning Banner */}
+        {connectionError && (
+          <div className={cn(
+            "mx-auto px-4 mt-3 transition-all shrink-0",
+            activeTab === 'player' ? "max-w-[400px]" : "max-w-full md:px-6 lg:px-8"
+          )}>
+            <div className="bg-red-950/20 border border-red-500/20 text-red-500 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
+              <div className="flex items-center gap-1.5 text-[12px] font-black uppercase tracking-wider">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                Connection Warning
+              </div>
+              <p className="text-[12px] leading-relaxed text-slate-400">
+                {connectionError}
+              </p>
+              <div className="mt-1 flex gap-2">
+                <button
+                  onClick={() => setShowLocationsModal(true)}
+                  className="flex items-center gap-1.5 py-1 px-2.5 bg-red-500 hover:bg-red-600 text-white font-black text-[12px] uppercase tracking-wider rounded border border-red-400 transition cursor-pointer"
+                >
+                  <Folder className="w-3 h-3 shrink-0" />
+                  <span>Configure folders</span>
+                </button>
+                <button
+                  onClick={handleRefresh}
+                  className="flex items-center gap-1.5 py-1 px-2.5 bg-slate-850 hover:bg-slate-750 text-slate-200 font-black text-[12px] uppercase tracking-wider rounded border border-slate-850 transition cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3 shrink-0" />
+                  <span>Retry sync</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Missing Files Warning Banner */}
         {(() => {
           const isMissingSchedules = schedules.length === 0;
@@ -1473,7 +1579,7 @@ export default function App() {
           if (isMissingSchedules || isMissingMP3s) {
             return (
               <div className={cn(
-                "mx-auto px-4 mt-3 transition-all",
+                "mx-auto px-4 mt-3 transition-all shrink-0",
                 activeTab === 'player' ? "max-w-[400px]" : "max-w-full md:px-6 lg:px-8"
               )}>
                 <div className="bg-amber-950/20 border border-amber-500/20 text-amber-500 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
@@ -1508,8 +1614,8 @@ export default function App() {
         })()}
 
         <div className={cn(
-          "w-full mx-auto pt-3 h-full transition-all",
-          activeTab === 'player' ? "max-w-[200px] px-1" : "max-w-full px-4 md:px-6 lg:px-8"
+          "w-full mx-auto pt-3 h-full transition-all flex flex-col min-h-0 pb-1",
+          activeTab === 'player' ? "max-w-[200px] px-1" : "max-w-full px-4 md:px-6 lg:px-8 flex-1"
         )}>
           <AnimatePresence mode="wait">
             {activeTab === 'player' ? (
@@ -1538,7 +1644,7 @@ export default function App() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="h-full"
+                className="h-full flex flex-col min-h-0 flex-1"
               >
                 <SchedulerTab 
                   schedules={schedules} 
@@ -1556,7 +1662,7 @@ export default function App() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="h-full"
+                className="h-full flex flex-col min-h-0 flex-1"
               >
                 <LogTab logs={logs} />
               </motion.div>
@@ -1572,71 +1678,76 @@ export default function App() {
           ? "bg-amber-950/20 border-amber-900/40 text-amber-100" 
           : "bg-slate-900 border-slate-800 text-slate-100"
       )}>
-        <div className={cn(
-          "mx-auto flex justify-between items-center gap-2 transition-all",
-          activeTab === 'player' ? "max-w-[400px]" : "max-w-full md:px-6 lg:px-8"
-        )}>
-          <button
-            onClick={() => setShowLocationsModal(true)}
-            className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 transition-all cursor-pointer shadow-sm text-[12px] font-black uppercase tracking-widest leading-none"
-          >
-            <Folder className="w-3.5 h-3.5" />
-            <span>Folders</span>
-          </button>
+        <div className="flex justify-between items-center gap-2 w-full mx-auto relative min-h-[32px]">
+          <div className="flex items-center">
+            <button
+              onClick={() => setShowLocationsModal(true)}
+              className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 transition-all cursor-pointer shadow-sm text-[12px] font-black uppercase tracking-widest leading-none"
+            >
+              <Folder className="w-3.5 h-3.5" />
+              <span>Folders</span>
+            </button>
+          </div>
 
-          {/* DEMO Indicator displayed only in Demo storage Mode */}
+          {/* DEMO Indicator displayed only in Demo storage Mode - absolutely centered */}
           {locationMode === 'Demo' && (
-            <span className="text-[12px] font-black tracking-widest text-[#F59E0B] animate-pulse bg-amber-950/40 px-2 py-1 rounded border border-amber-500/20 leading-none">
-              DEMO
-            </span>
+            <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none">
+              <span className="text-[12px] font-black tracking-widest text-[#F59E0B] animate-pulse bg-amber-950/40 px-2 py-1 rounded border border-amber-500/20 leading-none">
+                DEMO
+              </span>
+            </div>
           )}
 
-          {/* Mode Pill Group with 3D depressed highlight styles and lit indicators */}
-          <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
-            <button
-              onClick={() => {
-                if (isPre) {
-                  setPlayMode('Live');
-                  setPrerecordDate(null);
-                  handleRefresh();
-                }
-              }}
-              className={cn(
-                "px-2 px-2.5 py-1 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
-                !isPre 
-                  ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]" 
-                  : "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45"
-              )}
-            >
-              <span className={cn(
-                "w-1.5 h-1.5 rounded-full transition-all duration-300",
-                !isPre 
-                  ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]" 
-                  : "bg-slate-800"
-              )} />
-              Live
-            </button>
-            <button
-              onClick={() => {
-                if (!isPre) {
-                  handleToggleMode();
-                }
-              }}
-              className={cn(
-                "px-2 px-2.5 py-1 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
-                isPre 
-                  ? "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]" 
-                  : "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45"
-              )}
-            >
-              <span className={cn(
-                "w-1.5 h-1.5 rounded-full transition-all duration-300",
-                isPre 
-                  ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]" 
-                  : "bg-slate-800"
-              )} />
-              Prerecord
-            </button>
+          <div className="flex items-center ml-auto">
+            {/* Mode Pill Group with 3D depressed highlight styles and lit indicators - only shown on Player tab */}
+            {activeTab === 'player' && (
+              <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
+                <button
+                  onClick={() => {
+                    if (isPre) {
+                      setPlayMode('Live');
+                      setPrerecordDate(null);
+                      handleRefresh();
+                    }
+                  }}
+                  className={cn(
+                    "px-2 px-2.5 py-1 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
+                    !isPre 
+                      ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]" 
+                      : "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45"
+                  )}
+                >
+                  <span className={cn(
+                    "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                    !isPre 
+                      ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]" 
+                      : "bg-slate-800"
+                  )} />
+                  Live
+                </button>
+                <button
+                  onClick={() => {
+                    if (!isPre) {
+                      handleToggleMode();
+                    }
+                  }}
+                  className={cn(
+                    "px-2 px-2.5 py-1 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
+                    isPre 
+                      ? "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]" 
+                      : "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45"
+                  )}
+                >
+                  <span className={cn(
+                    "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                    isPre 
+                      ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]" 
+                      : "bg-slate-800"
+                  )} />
+                  Prerecord
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </footer>
@@ -2643,6 +2754,37 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Sleep Mode Overlay Modal */}
+      <AnimatePresence>
+        {isAsleep && (
+          <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl flex flex-col items-center text-center space-y-4"
+            >
+              <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-400">
+                <Moon className="w-6 h-6 animate-pulse" />
+              </div>
+              <h2 className="text-[20px] font-black uppercase tracking-wider text-slate-200">
+                Sleep Mode Active
+              </h2>
+              <p className="text-[14px] text-slate-400 leading-relaxed font-sans">
+                The running application has entered sleep mode due to 30 minutes of inactivity. Normal 300-second synchronization remains paused.
+              </p>
+              <button
+                type="button"
+                onClick={handleWakeUp}
+                className="w-full mt-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-[14px] uppercase tracking-wider rounded-xl border border-blue-500 shadow-md transition cursor-pointer"
+              >
+                Click to wake Interstitial-er
+              </button>
             </motion.div>
           </div>
         )}

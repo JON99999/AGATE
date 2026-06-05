@@ -1,7 +1,7 @@
 {
   "name": "interstitial-er",
   "private": true,
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.",
   "author": "JON99999",
   "repository": {
@@ -46,6 +46,7 @@
     },
     "nsis": {
       "differentialPackage": false,
+      "writeUpdateMetadata": false,
       "artifactName": "${productName}-${version}-Windows-Installer.${ext}"
     },
     "portable": {
@@ -57,7 +58,13 @@
       ],
       "category": "public.app-category.productivity",
       "identity": "-",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "writeUpdateMetadata": false,
+      "differentialPackage": false
+    },
+    "dmg": {
+      "differentialPackage": false,
+      "writeUpdateMetadata": false
     }
   },
   "dependencies": {
