@@ -682,7 +682,7 @@ export const listMP3sFromDrive = async (): Promise<DriveMP3[]> => {
       return {
         name: file.name,
         size: sizeMB,
-        duration: '0:15', // Default standard mock duration for scheduling mp3s
+        duration: '', // Loaded dynamically at runtime
         path: path
       };
     });

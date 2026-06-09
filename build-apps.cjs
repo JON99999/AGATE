@@ -247,8 +247,6 @@ async function syncRemoteIcons() {
       // Ensure explicit icon configuration is specified inside the build config schema
       if (!pkg.build.mac) pkg.build.mac = {};
       pkg.build.mac.icon = "build/icon.icns";
-      pkg.build.mac.writeUpdateMetadata = false;
-      pkg.build.mac.differentialPackage = false;
 
       if (!pkg.build.win) pkg.build.win = {};
       pkg.build.win.icon = "build/icon.ico";
@@ -256,12 +254,9 @@ async function syncRemoteIcons() {
       // Configure Windows specific artifactNames dynamically in running package settings
       if (!pkg.build.nsis) pkg.build.nsis = {};
       pkg.build.nsis.differentialPackage = false;
-      pkg.build.nsis.writeUpdateMetadata = false;
       pkg.build.nsis.artifactName = "${productName}-${version}-Windows-Installer.${ext}";
 
       if (!pkg.build.dmg) pkg.build.dmg = {};
-      pkg.build.dmg.differentialPackage = false;
-      pkg.build.dmg.writeUpdateMetadata = false;
 
       if (!pkg.build.portable) pkg.build.portable = {};
       pkg.build.portable.artifactName = "${productName}-${version}-Windows-Portable.${ext}";

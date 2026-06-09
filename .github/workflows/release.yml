@@ -45,7 +45,6 @@ jobs:
           fail_on_unmatched_files: false
           files: |
             release/*.dmg
-            release/*.dmg.blockmap
             release/*.exe
             release/*.zip
         env:

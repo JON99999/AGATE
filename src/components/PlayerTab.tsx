@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { format, addMinutes, subMinutes, isSameMinute, isBefore, isAfter, startOfMinute, differenceInSeconds, parseISO } from 'date-fns';
-import { Play, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X } from 'lucide-react';
+import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered } from 'lucide-react';
 import { Schedule, ScheduleType, LogEntry } from '../types';
 import { cn, getMP3Status } from '../lib/utils';
 import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache } from '../lib/driveService';
@@ -8,13 +8,17 @@ import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache } f
 interface PlayerTabProps {
   schedules: Schedule[];
   logs: LogEntry[];
-  onLog: (entry: LogEntry) => void;
+  onLog: (entry: LogEntry) => Promise<any> | void;
   now: Date;
   syncTime: Date;
   scrollTrigger: number;
-  playMode?: 'Live' | 'Prerecord';
+  playMode?: 'Live' | 'Prerecord' | 'Export';
   prerecordDate?: Date | null;
   prerecordLengthMinutes?: number;
+  onConfigureTimeframe?: () => void;
+  onExecuteExport?: () => void;
+  isAdmin?: boolean;
+  onRefresh?: () => Promise<any> | void;
 }
 
 export default function PlayerTab({ 
@@ -26,12 +30,18 @@ export default function PlayerTab({
   scrollTrigger,
   playMode = 'Live',
   prerecordDate = null,
-  prerecordLengthMinutes = 240
+  prerecordLengthMinutes = 240,
+  onConfigureTimeframe,
+  onExecuteExport,
+  isAdmin = false,
+  onRefresh
 }: PlayerTabProps) {
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
   const playingAudioRef = useRef<HTMLAudioElement | null>(null);
   const [playingSlotKey, setPlayingSlotKey] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
+  const [isLoggingExports, setIsLoggingExports] = useState(false);
 
   const [cacheDisplayStatus, setCacheDisplayStatus] = useState<'idle' | 'caching' | 'all-cached'>('idle');
   const [prevActiveUrlsHash, setPrevActiveUrlsHash] = useState<string>('');
@@ -319,6 +329,492 @@ export default function PlayerTab({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const previewText = useMemo(() => {
+    if (playMode !== 'Export' || !prerecordDate) return '';
+    
+    // 1. Recreate timeline slots exactly like in runExportPrerecord
+    const slots = [];
+    let current = new Date(prerecordDate);
+    current.setSeconds(0, 0);
+    
+    const end = new Date(current.getTime() + prerecordLengthMinutes * 60 * 1000);
+    
+    while (current.getTime() < end.getTime()) {
+      slots.push(new Date(current));
+      current = new Date(current.getTime() + 60 * 1000);
+    }
+
+    // 2. Filter & map slot matching schedules
+    const itemsToExport: any[] = [];
+    slots.forEach(slot => {
+      const sForSlot = getSchedulesForSlot(slot);
+      sForSlot.forEach(s => {
+        itemsToExport.push({
+          slotTime: format(slot, 'HH:mm'),
+          fileName: s.mp3Url,
+          scheduleName: s.name,
+          scheduleId: s.id,
+          minute: s.minute
+        });
+      });
+    });
+
+    const year = prerecordDate.getFullYear();
+    const month = String(prerecordDate.getMonth() + 1).padStart(2, '0');
+    const day = String(prerecordDate.getDate()).padStart(2, '0');
+    const hours = String(prerecordDate.getHours()).padStart(2, '0');
+    const minutes = String(prerecordDate.getMinutes()).padStart(2, '0');
+
+    const monthShorts = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const monthShort = monthShorts[prerecordDate.getMonth()] || 'JUN';
+
+    const dateStr = `${year}-${month}-${monthShort}-${day}`;
+
+    const txtLines: string[] = [
+      '========================================================================',
+      '              PRERECORD BROADCAST SCHEDULE SUMMARY',
+      '========================================================================',
+      `Air Date: ${dateStr}`,
+      `Start Time: ${hours}:${minutes}`,
+      `Duration: ${prerecordLengthMinutes} minutes`,
+      '========================================================================',
+      '',
+      'SEQUENCE OF SCHEDULED SPECIALS & BREAKS:',
+      '------------------------------------------------------------------------'
+    ];
+
+    if (itemsToExport.length === 0) {
+      txtLines.push('No active scheduled breaks found in this timeframe.');
+    } else {
+      itemsToExport.forEach((item: any, idx: number) => {
+        const itemIdx = idx + 1;
+        const itemSlotTime = item.slotTime;
+        const safeSlotTime = typeof itemSlotTime === 'string' ? itemSlotTime.replace(/:/g, '-') : '00-00';
+        
+        const rawName = item.scheduleName || 'Unnamed Break';
+        const safeScheduleName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
+        const targetFileName = `Break ${itemIdx} - (${safeSlotTime}) - (${safeScheduleName}).mp3`;
+        
+        const sourceFileName = item.fileName || '';
+        const status = getMP3Status(sourceFileName).exists ? 'Found' : 'Missing';
+
+        if (status === 'Found') {
+          txtLines.push(`${itemIdx}. Slot: ${itemSlotTime}`);
+          txtLines.push(`   Exported File: ${targetFileName}`);
+          txtLines.push(`   Title: ${rawName}`);
+          txtLines.push(`   Source File: ${sourceFileName}`);
+        } else {
+          txtLines.push(`${itemIdx}. MISSING FILE - THIS FILE COULD NOT BE FOUND.  PLEASE REVERIFY AND EXPORT.`);
+          txtLines.push(`   Slot: ${itemSlotTime}`);
+          txtLines.push(`   Exported File: ${targetFileName}`);
+          txtLines.push(`   Title: ${rawName}`);
+          txtLines.push(`   Source File: ${sourceFileName}`);
+        }
+        txtLines.push('------------------------------------------------------------------------');
+      });
+    }
+
+    return txtLines.join('\n');
+  }, [playMode, prerecordDate, prerecordLengthMinutes, schedules]);
+
+  const itemsToExport = useMemo(() => {
+    if (playMode !== 'Export' || !prerecordDate) return [];
+    
+    // 1. Recreate timeline slots exactly like in runExportPrerecord
+    const slots = [];
+    let current = new Date(prerecordDate);
+    current.setSeconds(0, 0);
+    
+    const end = new Date(current.getTime() + prerecordLengthMinutes * 60 * 1000);
+    
+    while (current.getTime() < end.getTime()) {
+      slots.push(new Date(current));
+      current = new Date(current.getTime() + 60 * 1000);
+    }
+
+    // 2. Filter & map slot matching schedules
+    const items: Array<{
+      slotTime: string;
+      fileName: string;
+      scheduleName: string;
+      scheduleId: string;
+      minute: number;
+      exists: boolean;
+      targetFileName: string;
+      slotISO: string;
+    }> = [];
+
+    slots.forEach(slot => {
+      const sForSlot = getSchedulesForSlot(slot);
+      sForSlot.forEach(s => {
+        const itemIdx = items.length + 1;
+        const slotTimeStr = format(slot, 'HH:mm');
+        const safeSlotTime = slotTimeStr.replace(/:/g, '-');
+        const rawName = s.name || 'Unnamed Break';
+        const safeScheduleName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
+        const targetFileName = `Break ${itemIdx} - (${safeSlotTime}) - (${safeScheduleName}).mp3`;
+        const exists = getMP3Status(s.mp3Url).exists;
+
+        items.push({
+          slotTime: slotTimeStr,
+          fileName: s.mp3Url,
+          scheduleName: rawName,
+          scheduleId: s.id,
+          minute: s.minute,
+          exists,
+          targetFileName,
+          slotISO: slot.toISOString()
+        });
+      });
+    });
+
+    return items;
+  }, [playMode, prerecordDate, prerecordLengthMinutes, schedules]);
+
+  const hasUnlogged = useMemo(() => {
+    if (!itemsToExport) return false;
+    return itemsToExport.some(item => {
+      const slot = parseISO(item.slotISO);
+      const playedLog = logs.find(l => 
+        l.scheduleId === item.scheduleId && 
+        (l.scheduledTime === item.slotISO || isSameMinute(parseISO(l.timestamp), slot)) &&
+        l.status === 'played'
+      );
+      return !playedLog;
+    });
+  }, [itemsToExport, logs]);
+
+  const handleLogExportAsPlayed = async () => {
+    const unlogged = itemsToExport.filter(item => {
+      const slot = parseISO(item.slotISO);
+      const playedLog = logs.find(l => 
+        l.scheduleId === item.scheduleId && 
+        (l.scheduledTime === item.slotISO || isSameMinute(parseISO(l.timestamp), slot)) &&
+        l.status === 'played'
+      );
+      return !playedLog;
+    });
+
+    if (unlogged.length === 0) return;
+
+    setIsLoggingExports(true);
+    try {
+      for (const item of unlogged) {
+        await onLog({
+          timestamp: new Date().toISOString(),
+          scheduledTime: item.slotISO,
+          mp3Name: item.fileName,
+          scheduleName: item.scheduleName,
+          scheduleId: item.scheduleId,
+          status: 'played',
+          playMode: 'Export'
+        });
+      }
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch (err) {
+      console.error("Failed to log exports:", err);
+    } finally {
+      setIsLoggingExports(false);
+    }
+  };
+
+  const [copiedPlan, setCopiedPlan] = useState(false);
+  const [copiedPlaylist, setCopiedPlaylist] = useState(false);
+
+  const handleCopyPlan = () => {
+    navigator.clipboard.writeText(previewText);
+    setCopiedPlan(true);
+    setTimeout(() => setCopiedPlan(false), 2000);
+  };
+
+  const playlistText = useMemo(() => {
+    if (!itemsToExport || itemsToExport.length === 0) return '';
+    const m3uLines: string[] = ['#EXTM3U'];
+    itemsToExport.forEach((item, idx) => {
+      const itemIdx = idx + 1;
+      m3uLines.push(`#EXTINF:-1,Break ${itemIdx} - ${item.slotTime} - ${item.scheduleName}`);
+      m3uLines.push(item.targetFileName);
+    });
+    return m3uLines.join('\n');
+  }, [itemsToExport]);
+
+  const handleCopyPlaylist = () => {
+    navigator.clipboard.writeText(playlistText);
+    setCopiedPlaylist(true);
+    setTimeout(() => setCopiedPlaylist(false), 2000);
+  };
+
+  if (playMode === 'Export') {
+    if (!prerecordDate) {
+      return (
+        <div id="export-mode-unconfigured" className="flex flex-col items-center justify-center h-full text-slate-100 p-3 text-center space-y-3">
+          <div className="w-10 h-10 rounded-full bg-emerald-900/40 border border-emerald-500/20 flex items-center justify-center shrink-0">
+            <ListOrdered className="w-5 h-5 text-emerald-400" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-[14px] font-black uppercase tracking-wider text-white flex items-center justify-center gap-1.5">
+              <ListOrdered className="w-4 h-4 text-emerald-400" />
+              Export Setup
+            </h3>
+            <p className="text-[12px] text-slate-400 leading-normal">
+              Select air date & duration to export broadcast breaks.
+            </p>
+          </div>
+          <button
+            id="btn-configure-export-timeframe"
+            onClick={onConfigureTimeframe}
+            className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer shadow-md"
+          >
+            Configure
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div id="export-mode-container" className="flex flex-col h-full bg-slate-900">
+        <div 
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto space-y-2 pb-4 scroll-smooth"
+        >
+          {/* Header indicator bar matching 'Prerecord Start' */}
+          <div 
+            ref={activeItemRef}
+            className="bg-emerald-600 h-6 flex items-center justify-start px-3 rounded shadow-sm border border-emerald-500 mx-1 mt-1"
+            id="export-start-indicator"
+          >
+            <span className="text-[12px] font-black uppercase text-white tracking-widest font-sans flex items-center gap-1.5">
+              <ListOrdered className="w-3.5 h-3.5 text-white/90 shrink-0" />
+              mp3's
+            </span>
+          </div>
+
+          {/* Cards for each item in the export timeframe */}
+          <div className="space-y-2 px-1">
+            {itemsToExport.length === 0 ? (
+              <div className="p-3 bg-slate-900/40 border border-slate-900 border-dashed rounded text-center text-[12px] text-slate-500 mx-1">
+                No active scheduled breaks found in timeframe.
+              </div>
+            ) : (
+              itemsToExport.map((item, idx) => {
+                const key = `${item.scheduleId}-${item.slotTime}-${idx}`;
+                const isExpanded = isAdmin && !!expandedCards[key];
+
+                const slot = parseISO(item.slotISO);
+                const playedLog = logs.find(l => 
+                  l.scheduleId === item.scheduleId && 
+                  (l.scheduledTime === item.slotISO || isSameMinute(parseISO(l.timestamp), slot)) &&
+                  l.status === 'played'
+                );
+                const played = !!playedLog && playedLog.playMode !== 'Export';
+                const exported = !!playedLog && playedLog.playMode === 'Export';
+
+                const diffSeconds = differenceInSeconds(now, slot);
+                const isPast = isBefore(slot, now);
+                const isPresent = isSameMinute(now, slot);
+                const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
+                
+                const isMissedRecent = isPast && !played && !exported && diffSeconds <= 1800;
+                const isMissedOld = isPast && !played && !exported && diffSeconds > 1800;
+
+                const bgClass = !item.exists
+                  ? "bg-red-950/20 border-red-800 hover:border-red-700"
+                  : exported
+                    ? "bg-emerald-950/25 border-emerald-600 hover:border-emerald-500"
+                    : played
+                      ? "bg-green-950/25 border-green-600 hover:border-green-500"
+                      : isMissedRecent || isMissedOld
+                        ? "bg-amber-950/15 border-amber-800 hover:border-amber-700"
+                        : "bg-slate-950 border-slate-700 hover:border-slate-500";
+
+                return (
+                  <div 
+                    key={key} 
+                    onClick={() => {
+                      if (isAdmin) {
+                        setExpandedCards(prev => ({
+                          ...prev,
+                          [key]: !prev[key]
+                        }));
+                      }
+                    }}
+                    className={cn(
+                      "rounded border shadow-sm p-3 transition-all flex flex-col gap-1.5 mx-1",
+                      bgClass,
+                      isAdmin && "cursor-pointer"
+                    )}
+                  >
+                    <div className="flex justify-between items-center bg-slate-905 -mx-3 -mt-3 px-3 py-1.5 rounded-t border-b border-slate-700/60">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[12px] uppercase font-bold text-slate-300 tracking-tighter">
+                          Break #{idx + 1}
+                        </span>
+                        <span className="text-[12px] font-mono font-black text-emerald-400">
+                          {item.slotTime}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {item.exists ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const isPlaying = playingSlotKey === `export-preview-${key}`;
+                              if (isPlaying) {
+                                playingAudio?.pause();
+                                if (playingAudio) {
+                                  playingAudio.src = "";
+                                }
+                                setPlayingAudio(null);
+                                setPlayingSlotKey(null);
+                              } else {
+                                if (playingAudio) {
+                                  playingAudio.pause();
+                                  playingAudio.src = "";
+                                }
+                                const playableUrl = getPlayableUrl(item.fileName);
+                                const audio = new Audio(playableUrl);
+                                audio.play().then(() => {
+                                  setPlayingAudio(audio);
+                                  setPlayingSlotKey(`export-preview-${key}`);
+                                }).catch(err => {
+                                  console.error("Preview playback failed", err);
+                                });
+                              }
+                            }}
+                            className={cn(
+                              "p-1 rounded hover:bg-slate-800 transition cursor-pointer flex items-center justify-center border border-transparent active:scale-95",
+                              playingSlotKey === `export-preview-${key}`
+                                ? "bg-emerald-600/20 text-emerald-400 border-emerald-500/20"
+                                : "text-slate-400 hover:text-slate-200"
+                            )}
+                            title="Preview Audio"
+                          >
+                            {playingSlotKey === `export-preview-${key}` ? (
+                              <Pause className="w-3.5 h-3.5" />
+                            ) : (
+                              <Play className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        ) : (
+                          <span className="text-[12px] text-red-400 font-extrabold uppercase tracking-wider">Missing</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-[12px] font-extrabold text-slate-100 mt-1" title={item.scheduleName}>
+                      {item.scheduleName}
+                    </div>
+
+                    <div className="text-[12px] font-mono leading-tight space-y-1">
+                      <div className={cn("text-slate-200 break-all", isExpanded ? "" : "line-clamp-2")}>
+                        <span className="text-slate-400 font-bold uppercase text-[11px] tracking-wider">MP3: </span>{item.fileName}
+                      </div>
+                      <div className={cn("text-emerald-300 break-all select-all", isExpanded ? "" : "line-clamp-2")} title={item.targetFileName}>
+                        <span className="text-slate-400 font-bold uppercase text-[11px] tracking-wider">As: </span>{item.targetFileName}
+                      </div>
+                    </div>
+
+                    {/* Status indicator row inside cards on the Export mode, satisfying rule 5 */}
+                    <div className="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between">
+                      {item.exists ? (
+                        <div className="flex items-center gap-1.5">
+                          {exported ? (
+                            <>
+                              <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-[14px] font-bold text-emerald-400 uppercase tracking-tighter">
+                                Exported
+                              </span>
+                            </>
+                          ) : played ? (
+                            <>
+                              <CheckCircle className="w-3.5 h-3.5 text-green-400" />
+                              <span className="text-[14px] font-bold text-green-400 uppercase tracking-tighter">
+                                Played {playedLog ? format(parseISO(playedLog.timestamp), 'HH:mm') : ''}
+                              </span>
+                            </>
+                          ) : isMissedRecent || isMissedOld ? (
+                            <>
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                              <span className="text-[14px] font-bold text-amber-500 uppercase tracking-tighter">
+                                Missed
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Clock className="w-3.5 h-3.5 text-slate-500" />
+                              <span className="text-[14px] font-bold text-slate-500 uppercase tracking-tighter">
+                                To be played
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                          <span className="text-[14px] font-bold text-red-400 uppercase tracking-tighter">
+                            Missing File
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Three horizontal stacked button boxes, satisfying rule 3 */}
+          <div className="space-y-1.5 pt-2 px-1">
+            <button
+              id="btn-copy-play-plan"
+              onClick={handleCopyPlan}
+              className="w-full h-10 flex items-center justify-center gap-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded shadow-sm border border-emerald-500 transition-all font-black uppercase text-[12px] tracking-widest font-sans cursor-pointer select-none"
+            >
+              <Copy className="w-3 h-3 shrink-0" />
+              <span>{copiedPlan ? "Copied!" : "Copy Plan"}</span>
+            </button>
+
+            <button
+              id="btn-copy-playlist"
+              onClick={handleCopyPlaylist}
+              className="w-full h-10 flex items-center justify-center gap-1.5 px-3 bg-emerald-700 hover:bg-emerald-600 text-white rounded shadow-sm border border-emerald-600 transition-all font-black uppercase text-[12px] tracking-widest font-sans cursor-pointer select-none"
+            >
+              <Copy className="w-3 h-3 shrink-0" />
+              <span>{copiedPlaylist ? "Copied!" : "Copy Playlist"}</span>
+            </button>
+
+            <button
+              id="btn-log-export-as-played"
+              onClick={handleLogExportAsPlayed}
+              disabled={!hasUnlogged || isLoggingExports}
+              className={cn(
+                "w-full h-10 flex items-center justify-center gap-1.5 px-3 rounded shadow-sm transition-all font-black uppercase text-[12px] tracking-widest font-sans select-none border",
+                hasUnlogged && !isLoggingExports
+                  ? "bg-emerald-800 hover:bg-emerald-700 text-white border-emerald-700 cursor-pointer"
+                  : "bg-slate-800 text-slate-500 border-slate-700/50 cursor-not-allowed opacity-60"
+              )}
+            >
+              {isLoggingExports ? (
+                <>
+                  <RefreshCw className="w-3 h-3 shrink-0 animate-spin" />
+                  <span>Logging Exports...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-3 h-3 shrink-0" />
+                  <span>Log Export As Played</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full">
       <div 
@@ -343,7 +839,10 @@ export default function PlayerTab({
                   className="bg-purple-600 h-6 flex items-center justify-between px-3 rounded shadow-sm border border-purple-500 mx-1"
                   id="prerecord-start-indicator"
                 >
-                  <span className="text-[12px] font-black uppercase text-white tracking-widest font-sans">Prerecord Start</span>
+                  <span className="text-[12px] font-black uppercase text-white tracking-widest font-sans flex items-center gap-1.5">
+                    <CassetteTape className="w-3.5 h-3.5 text-white/90 shrink-0" />
+                    Prerecord Start
+                  </span>
                   {renderCacheStatusMessage()}
                 </div>
               )}
@@ -354,7 +853,10 @@ export default function PlayerTab({
                   className="bg-blue-600 h-6 flex items-center justify-between px-3 rounded shadow-sm border border-blue-500 mx-1"
                   id="now-indicator"
                 >
-                  <span className="text-[12px] font-black uppercase text-white tracking-widest font-sans">now</span>
+                  <span className="text-[12px] font-black uppercase text-white tracking-widest font-sans flex items-center gap-1.5">
+                    <RadioTower className="w-3.5 h-3.5 text-white/90 shrink-0" />
+                    now
+                  </span>
                   {renderCacheStatusMessage()}
                 </div>
               )}
@@ -365,17 +867,18 @@ export default function PlayerTab({
                   (l.scheduledTime === slot.toISOString() || isSameMinute(parseISO(l.timestamp), slot)) &&
                   l.status === 'played'
                 );
-                const played = !!playedLog;
+                const played = !!playedLog && playedLog.playMode !== 'Export';
+                const exported = !!playedLog && playedLog.playMode === 'Export';
                 const slotKey = `${slot.toISOString()}-${s.id}`;
                 const status = getMP3Status(s.mp3Url);
                 const isVerified = status.exists && status.valid;
                 const isCurrentlyPlaying = playingSlotKey === slotKey;
-                const isUpcoming = !played && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
+                const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
                 
-                // RECENT MISSED: Less than 30 mins ago, not played
-                // OLD MISSED: More than 30 mins ago, not played
-                const isMissedRecent = isPast && !played && diffSeconds <= 1800;
-                const isMissedOld = isPast && !played && diffSeconds > 1800;
+                // RECENT MISSED: Less than 30 mins ago, not played or exported
+                // OLD MISSED: More than 30 mins ago, not played or exported
+                const isMissedRecent = isPast && !played && !exported && diffSeconds <= 1800;
+                const isMissedOld = isPast && !played && !exported && diffSeconds > 1800;
                 
                 const fileInCache = availableFilesCache.get(s.mp3Url);
                 const resolvedUrl = fileInCache ? fileInCache.path : s.mp3Url;
@@ -385,11 +888,13 @@ export default function PlayerTab({
                   ? "border-red-500"
                   : isCurrentlyPlaying || isUpcoming
                     ? (isPre ? "border-purple-600 ring-1 ring-purple-600/30" : "border-blue-600 ring-1 ring-blue-600/30")
-                    : (isMissedRecent || isMissedOld)
-                      ? "border-amber-600"
-                      : (isPast && played)
-                        ? "border-emerald-600"
-                        : "border-slate-500";
+                    : exported
+                      ? "border-emerald-600"
+                      : (isMissedRecent || isMissedOld)
+                        ? "border-amber-600"
+                        : (isPast && played)
+                          ? "border-emerald-600"
+                          : "border-slate-500";
 
                 const cardBgClass = !isVerified
                   ? "bg-red-50/10"
@@ -397,15 +902,17 @@ export default function PlayerTab({
                     ? "bg-white"
                     : isUpcoming
                       ? (isPre ? "bg-purple-50/20" : "bg-blue-50/20")
-                      : (isMissedRecent || isMissedOld)
-                        ? "bg-amber-50/20"
-                        : (isPast && played)
-                          ? "bg-emerald-50/5"
-                          : isPresent
-                            ? (isPre ? "bg-purple-50/30" : "bg-blue-50/30")
-                            : "bg-white";
+                      : exported
+                        ? "bg-emerald-50/10"
+                        : (isMissedRecent || isMissedOld)
+                          ? "bg-amber-50/20"
+                          : (isPast && played)
+                            ? "bg-emerald-50/5"
+                            : isPresent
+                              ? (isPre ? "bg-purple-50/30" : "bg-blue-50/30")
+                              : "bg-white";
 
-                const cardOpacityClass = (isPast && played && !isCurrentlyPlaying)
+                const cardOpacityClass = (isPast && (played || exported) && !isCurrentlyPlaying)
                   ? "opacity-75"
                   : (isMissedRecent || isMissedOld) && !isCurrentlyPlaying
                     ? "opacity-95"
@@ -464,18 +971,18 @@ export default function PlayerTab({
                       "shrink-0 p-1 rounded-full transition-all shadow-sm",
                       !isVerified ? "bg-red-50 text-red-300" :
                       isCurrentlyPlaying ? "bg-slate-900 text-white" :
-                      played ? "bg-slate-100 text-slate-500" :
+                      (played || exported) ? "bg-slate-100 text-slate-500" :
                       isMissedRecent ? "bg-slate-500 text-white" :
                       isPresent || isUpcoming ? (isPre ? "bg-purple-600 text-white shadow-md shadow-purple-200" : "bg-blue-600 text-white shadow-md shadow-blue-200") :
                       "bg-slate-700 text-white"
                     )}
-                    title={!isVerified ? "Invalid or missing file" : played ? "Play Again" : undefined}
+                    title={!isVerified ? "Invalid or missing file" : (played || exported) ? "Play Again" : undefined}
                   >
                     {!isVerified ? (
                       <X className="w-2.5 h-2.5" />
                     ) : isCurrentlyPlaying ? (
                       <Square className="w-2.5 h-2.5 fill-current" />
-                    ) : played ? (
+                    ) : (played || exported) ? (
                       <RefreshCw className="w-2.5 h-2.5" />
                     ) : (
                       <Play className="w-2.5 h-2.5 fill-current" />
@@ -488,22 +995,29 @@ export default function PlayerTab({
                   {isVerified ? (
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-1">
-                        {(played || isCurrentlyPlaying) ? (
+                        {exported ? (
+                          <>
+                            <CheckCircle className="w-2.5 h-2.5 text-emerald-500" />
+                            <span className="text-[14px] font-bold text-emerald-600 uppercase tracking-tighter">
+                              Exported
+                            </span>
+                          </>
+                        ) : (played || isCurrentlyPlaying) ? (
                           <>
                             <CheckCircle className="w-2.5 h-2.5 text-green-500" />
-                            <span className="text-[12px] font-bold text-green-600 uppercase tracking-tighter">
+                            <span className="text-[14px] font-bold text-green-600 uppercase tracking-tighter">
                               Played {playedLog ? format(parseISO(playedLog.timestamp), 'HH:mm') : ''}
                             </span>
                           </>
                         ) : isMissedRecent || isMissedOld ? (
                           <>
                             <AlertCircle className="w-2.5 h-2.5 text-orange-600" />
-                            <span className="text-[12px] font-bold text-orange-600 uppercase tracking-tighter">Missed</span>
+                            <span className="text-[14px] font-bold text-orange-600 uppercase tracking-tighter">Missed</span>
                           </>
                         ) : (
                           <>
                             <Clock className="w-2.5 h-2.5 text-slate-400" />
-                            <span className="text-[12px] font-bold text-slate-400 uppercase tracking-tighter">To be played</span>
+                            <span className="text-[14px] font-bold text-slate-400 uppercase tracking-tighter">To be played</span>
                           </>
                         )}
                       </div>

@@ -2,7 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import { 
   Search, 
-  Music
+  Music,
+  Download
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LogEntry } from '../types';
@@ -284,9 +285,10 @@ export default function LogTab({ logs }: LogTabProps) {
           <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={handleExportCSV}
-              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-[12px] font-bold text-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+              className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-[12px] font-bold text-blue-700 transition-colors flex items-center gap-1 cursor-pointer"
               title="Export filtered logs as CSV"
             >
+              <Download className="w-3.5 h-3.5 shrink-0 text-blue-600" />
               CSV
             </button>
             <button
@@ -294,6 +296,7 @@ export default function LogTab({ logs }: LogTabProps) {
               className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-[12px] font-bold text-emerald-700 transition-colors flex items-center gap-1 cursor-pointer"
               title="Export filtered logs as Excel"
             >
+              <Download className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
               XLSX
             </button>
           </div>
@@ -434,10 +437,12 @@ export default function LogTab({ logs }: LogTabProps) {
                   </span>
                   <div>
                     <span className={cn(
-                      "inline-block text-[12px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none border",
+                      "inline-block text-[14px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none border",
                       log.playMode === 'Prerecord' 
                         ? "bg-purple-50 text-purple-600 border-purple-100" 
-                        : "bg-blue-50 text-blue-600 border-blue-100"
+                        : log.playMode === 'Export'
+                          ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+                          : "bg-blue-50 text-blue-600 border-blue-100"
                     )}>
                       {log.playMode || 'Live'} Mode
                     </span>

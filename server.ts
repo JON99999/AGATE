@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { Schedule, LogEntry } from './src/types';
 
 // Detect safe persistent directory for packaged desktop apps
@@ -422,6 +423,16 @@ async function startServer() {
     }
   });
 
+  // API - Get the default system Downloads path
+  app.get('/api/downloads-path', (req, res) => {
+    try {
+      const downloadsPath = path.join(os.homedir(), 'Downloads');
+      res.json({ success: true, path: downloadsPath });
+    } catch (e: any) {
+      res.json({ success: false, path: '' });
+    }
+  });
+
   // API - Custom web directory list (Browse Fancy)
   app.get('/api/list-directories', (req, res) => {
     try {
@@ -838,15 +849,19 @@ async function startServer() {
       const monthShorts = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
       const monthShort = monthShorts[parsedDate.getMonth()] || 'JUN';
 
-      const dateStr = `${year}-${month}-${monthShort}-${day}`;
+      const dateStr = `${year}-${month}(${monthShort})-${day}`;
       const timeStr = `${hours}-${minutes}`;
-      const dateTimeStr = `${dateStr}_${timeStr}`;
 
-      const fPrefix = (folderPrefix && folderPrefix.trim()) || 'Prerecord-Export';
-      const tPrefix = (textPrefix && textPrefix.trim()) || 'Prerecord schedule';
-      const pPrefix = (playlistPrefix && playlistPrefix.trim()) || 'Interstitial playlist';
+      const fPrefix = (folderPrefix && folderPrefix.trim()) || 'Show';
+      const tPrefix = (textPrefix && textPrefix.trim()) || 'Show';
+      const pPrefix = (playlistPrefix && playlistPrefix.trim()) || 'Show';
 
-      const exportFolderName = `${fPrefix} - ${dateTimeStr} - ${lengthMinutes}m`;
+      const lengthMinutesNum = Number(lengthMinutes) || 0;
+      const h = Math.floor(lengthMinutesNum / 60);
+      const m = lengthMinutesNum % 60;
+      const durationStr = m === 0 ? `${h} Hrs` : `${h} Hrs ${m} Min`;
+
+      const exportFolderName = `${fPrefix} - Export - ${dateStr} at ${timeStr} - ${durationStr}`;
       const exportFolderPath = path.join(destParentFolder, exportFolderName);
 
       // Create the export directory
@@ -883,7 +898,8 @@ async function startServer() {
         const safeScheduleName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
         
         // Construct sequential file name as requested
-        const targetFileName = `Break ${itemIdx} - (${safeSlotTime}) - (${safeScheduleName}).mp3`;
+        const paddedIdx = String(itemIdx).padStart(2, '0');
+        const targetFileName = `Break ${paddedIdx} at ${safeSlotTime} - ${safeScheduleName}.mp3`;
         
         const sourceFileName = item.fileName || '';
         const sourceFilePath = path.join(sourceFolder, path.basename(sourceFileName));
@@ -934,8 +950,8 @@ async function startServer() {
       });
 
       // Names for text file and playlist
-      const txtBaseFilename = `${tPrefix} - ${dateStr}_${timeStr}_${lengthMinutes}min`;
-      const m3uBaseFilename = `${pPrefix} - ${dateStr}_${timeStr}_${lengthMinutes}min`;
+      const txtBaseFilename = `${tPrefix} - Plan - ${dateStr} at ${timeStr} - ${durationStr}`;
+      const m3uBaseFilename = `${pPrefix} - Playlist - ${dateStr} at ${timeStr} - ${durationStr}`;
       const txtFilePath = path.join(exportFolderPath, `${txtBaseFilename}.txt`);
       const m3uFilePath = path.join(exportFolderPath, `${m3uBaseFilename}.m3u`);
 

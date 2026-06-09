@@ -44,6 +44,6 @@ export interface LogEntry {
   scheduleName: string;
   scheduleId: string;
   status: 'played' | 'skipped' | 'failed';
-  playMode?: 'Live' | 'Prerecord';
+  playMode?: 'Live' | 'Prerecord' | 'Export';
   logTimeStamp?: string;
 }

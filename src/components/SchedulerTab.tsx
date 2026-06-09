@@ -1,8 +1,117 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, ShieldAlert, Copy, Check, XCircle, FolderOpen, Music, Search, Play, Square } from 'lucide-react';
+import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, ShieldAlert, Copy, Check, XCircle, FolderOpen, Music, Search, Play, Square, ChevronUp, ChevronDown } from 'lucide-react';
 import { Schedule, ScheduleType, ScheduleMetadata } from '../types';
 import { cn, getMP3Status, formatDuration, getFilenameFromUrlOrPath } from '../lib/utils';
 import { getPlayableUrl, DRIVE_FOLDERS } from '../lib/driveService';
+
+// Pure-JS ID3v2 metadata parser supporting ID3v2.2, ID3v2.3 and ID3v2.4
+async function readMp3ID3Metadata(url: string): Promise<{ title?: string; artist?: string; album?: string } | null> {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Range': 'bytes=0-65535' // Request first 64KB only
+      }
+    });
+    if (!response.ok && response.status !== 206) {
+      const fallbackResponse = await fetch(url);
+      if (!fallbackResponse.ok) return null;
+      const buffer = await fallbackResponse.arrayBuffer();
+      return parseID3Bytes(new Uint8Array(buffer));
+    }
+    const buffer = await response.arrayBuffer();
+    return parseID3Bytes(new Uint8Array(buffer));
+  } catch (err) {
+    console.warn("Failed to fetch MP3 metadata:", err);
+    return null;
+  }
+}
+
+function parseID3Bytes(bytes: Uint8Array): { title?: string; artist?: string; album?: string } | null {
+  if (bytes.length < 10) return null;
+  if (bytes[0] !== 0x49 || bytes[1] !== 0x44 || bytes[2] !== 0x33) return null;
+  
+  const majorVersion = bytes[3];
+  if (majorVersion !== 3 && majorVersion !== 4 && majorVersion !== 2) {
+    return null;
+  }
+  
+  const tagSize = ((bytes[6] & 0x7f) << 21) |
+                  ((bytes[7] & 0x7f) << 14) |
+                  ((bytes[8] & 0x7f) << 7) |
+                  (bytes[9] & 0x7f);
+                  
+  const limit = Math.min(bytes.length, tagSize + 10);
+  let offset = 10;
+  
+  const result: { title?: string; artist?: string; album?: string } = {};
+  
+  const textDecode = (encoding: number, data: Uint8Array): string => {
+    try {
+      if (encoding === 0 || encoding === 3) {
+        return new TextDecoder(encoding === 3 ? 'utf-8' : 'iso-8859-1').decode(data).replace(/\0+$/, '').trim();
+      } else if (encoding === 1 || encoding === 2) {
+        return new TextDecoder('utf-16').decode(data).replace(/\0+$/, '').trim();
+      }
+    } catch (e) {}
+    return '';
+  };
+  
+  if (majorVersion === 2) {
+    while (offset + 6 < limit) {
+      const frameId = String.fromCharCode(bytes[offset], bytes[offset+1], bytes[offset+2]);
+      const frameSize = (bytes[offset+3] << 16) | (bytes[offset+4] << 8) | bytes[offset+5];
+      offset += 6;
+      if (frameSize <= 0 || offset + frameSize > limit) break;
+      
+      const frameData = bytes.subarray(offset, offset + frameSize);
+      if (frameId === "TT2" || frameId === "TP1" || frameId === "TAL") {
+        const encoding = frameData[0];
+        const text = textDecode(encoding, frameData.subarray(1));
+        if (text) {
+          if (frameId === "TT2") result.title = text;
+          if (frameId === "TP1") result.artist = text;
+          if (frameId === "TAL") result.album = text;
+        }
+      }
+      offset += frameSize;
+    }
+  } else {
+    while (offset + 10 < limit) {
+      const frameId = String.fromCharCode(bytes[offset], bytes[offset+1], bytes[offset+2], bytes[offset+3]);
+      let frameSize = 0;
+      if (majorVersion === 4) {
+        frameSize = ((bytes[offset+4] & 0x7f) << 21) |
+                    ((bytes[offset+5] & 0x7f) << 14) |
+                    ((bytes[offset+6] & 0x7f) << 7) |
+                    (bytes[offset+7] & 0x7f);
+      } else {
+        frameSize = (bytes[offset+4] << 24) |
+                    (bytes[offset+5] << 16) |
+                    (bytes[offset+6] << 8) |
+                    bytes[offset+7];
+      }
+      offset += 10;
+      if (frameSize <= 0 || offset + frameSize > limit) break;
+      
+      const frameData = bytes.subarray(offset, offset + frameSize);
+      if (frameId === "TIT2" || frameId === "TPE1" || frameId === "TALB") {
+        const encoding = frameData[0];
+        const text = textDecode(encoding, frameData.subarray(1));
+        if (text) {
+          if (frameId === "TIT2") result.title = text;
+          if (frameId === "TPE1") result.artist = text;
+          if (frameId === "TALB") result.album = text;
+        }
+      }
+      offset += frameSize;
+    }
+  }
+  
+  if (result.title || result.artist || result.album) {
+    return result;
+  }
+  return null;
+}
 
 interface SchedulerTabProps {
   schedules: Schedule[];
@@ -17,10 +126,120 @@ interface SchedulerTabProps {
 export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle, now, driveMP3s = [], isDriveActive = false }: SchedulerTabProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Schedule>>({});
+  const isNew = editingId ? !schedules.some(s => s.id === editingId) : false;
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Type-ahead states for MP3 selector
+  const [mp3InputVal, setMp3InputVal] = useState('');
+  const [originalMp3OnFocus, setOriginalMp3OnFocus] = useState('');
+  const [isMp3Focused, setIsMp3Focused] = useState(false);
+
+  // MP3 Metadata Cache and loader
+  const [metadataCache, setMetadataCache] = useState<Record<string, { title?: string; artist?: string; album?: string }>>({});
+  const [pickerDurations, setPickerDurations] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!isPickerOpen) return;
+    
+    const soundLibrary = driveMP3s;
+    soundLibrary.forEach(file => {
+      const filename = file.name;
+      if (filename.toLowerCase().endsWith('.mp3') && !pickerDurations[filename]) {
+        try {
+          const playableUrl = getPlayableUrl(filename);
+          if (playableUrl) {
+            const audio = new Audio(playableUrl);
+            const handleLoaded = () => {
+              const d = audio.duration;
+              if (!isNaN(d) && d > 0) {
+                const formatted = formatDuration(d);
+                setPickerDurations(prev => ({
+                  ...prev,
+                  [filename]: formatted
+                }));
+              }
+            };
+            audio.addEventListener('loadedmetadata', handleLoaded);
+            audio.addEventListener('error', () => {});
+          }
+        } catch (e) {
+          console.error("Failed to load metadata for " + filename, e);
+        }
+      }
+    });
+  }, [isPickerOpen, driveMP3s, pickerDurations]);
+
+  useEffect(() => {
+    if (!isPickerOpen) return;
+    
+    const soundLibrary = driveMP3s;
+    soundLibrary.slice(0, 40).forEach(file => {
+      let alreadyFetched = false;
+      setMetadataCache(current => {
+        if (current[file.name] !== undefined) {
+          alreadyFetched = true;
+        }
+        return current;
+      });
+      
+      if (alreadyFetched) return;
+
+      setMetadataCache(prev => ({ ...prev, [file.name]: {} }));
+
+      const playableUrl = getPlayableUrl(file.name);
+      readMp3ID3Metadata(playableUrl).then(meta => {
+        if (meta) {
+          setMetadataCache(prev => ({ ...prev, [file.name]: meta }));
+        }
+      });
+    });
+  }, [isPickerOpen, driveMP3s, isDriveActive]);
+
+  // States and helper for interactive clock-style dialing
+  const [isDraggingClock, setIsDraggingClock] = useState(false);
+  const handleClockInteraction = (e: React.MouseEvent<SVGSVGElement> | React.TouchEvent<SVGSVGElement>) => {
+    // If it is a touch event, prevent default scrolling to make dialing super smooth
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    
+    let clientX = 0;
+    let clientY = 0;
+    if ('touches' in e) {
+      if (e.touches.length === 0) return;
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    
+    const x = clientX - centerX;
+    const y = clientY - centerY;
+    
+    let angleDegrees = Math.atan2(y, x) * (180 / Math.PI);
+    let adjustedAngle = angleDegrees + 90;
+    if (adjustedAngle < 0) {
+      adjustedAngle += 360;
+    }
+    
+    let minute = Math.round(adjustedAngle / 6);
+    if (minute >= 60) minute = 0;
+    
+    setFormData(prev => ({ ...prev, minute }));
+  };
+
+  // Synchronize type-ahead input value when formData.mp3Url changes
+  useEffect(() => {
+    setMp3InputVal(formData.mp3Url || '');
+  }, [formData.mp3Url]);
 
   // Calendar View states
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
@@ -39,6 +258,23 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
       }
     };
   }, []);
+
+  const formatMetadataDate = (dString: string | Date | undefined) => {
+    if (!dString) return "N/A";
+    try {
+      const d = new Date(dString);
+      if (isNaN(d.getTime())) return "N/A";
+      const year = d.getFullYear();
+      const monthShorts = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+      const mss = monthShorts[d.getMonth()] || 'JUN';
+      const day = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${year}-${mss}-${day} ${hh}:${mm}`;
+    } catch {
+      return "N/A";
+    }
+  };
 
   // Metadata Fetcher: Automatically get duration when URL is verified
   useEffect(() => {
@@ -388,7 +624,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
       }
 
       return false;
-    });
+    }).sort((a, b) => a.minute - b.minute);
   };
 
   if (!isAdmin) {
@@ -678,7 +914,12 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                       return (
                       <div key={hour} className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))] border-b border-slate-150 last:border-b-0 hover:bg-slate-50/10 transition-colors">
                         {/* Hour column */}
-                        <div className="p-1.5 px-0.5 border-r border-slate-200 flex items-center justify-center bg-slate-50/50 select-none text-[14px] font-black font-mono text-slate-455 uppercase shrink-0">
+                        <div className={cn(
+                          "border-r border-slate-200 flex items-center justify-center bg-slate-50/50 select-none font-black font-mono text-slate-455 uppercase shrink-0",
+                          calendarLayoutMode === 'compact'
+                            ? "p-1 px-0.5 text-[12px] min-h-[26px]"
+                            : "p-1.5 px-0.5 text-[14px]"
+                        )}>
                           {hour.toString().padStart(2, '0')}:00
                         </div>
 
@@ -689,10 +930,10 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                             <div 
                               key={dayIdx} 
                               className={cn(
-                                "p-1 border-r border-slate-205 last:border-r-0 min-h-[28px] h-auto overflow-visible justify-start",
+                                "p-1 border-r border-slate-205 last:border-r-0 h-auto overflow-visible justify-start",
                                 calendarLayoutMode === 'compact' 
-                                  ? "flex flex-row flex-wrap gap-1 items-start content-start animate-fade-in" 
-                                  : "flex flex-col gap-1"
+                                  ? "min-h-[26px] flex flex-row flex-wrap gap-[1px] items-start content-start animate-fade-in" 
+                                  : "min-h-[28px] flex flex-col gap-1"
                               )}
                             >
                               {cellSchedules.map(s => {
@@ -705,7 +946,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                       type="button"
                                       onClick={() => setSelectedCalendarSchedule(s)}
                                       className={cn(
-                                        "inline-flex items-center justify-center p-0.5 px-1.5 rounded font-mono text-[12px] font-black leading-none shadow-sm border cursor-pointer select-none shrink-0 transition-all hover:scale-105",
+                                        "inline-flex items-center justify-center p-0.5 px-0.5 rounded font-mono text-[12px] font-black leading-none shadow-sm border cursor-pointer select-none shrink-0 transition-all hover:scale-105",
                                         !s.enabled 
                                           ? "bg-slate-100 text-slate-400 border-slate-200 line-through" 
                                           : s.type === ScheduleType.ONE_TIME 
@@ -1081,246 +1322,380 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
           )}
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-slate-200 flex flex-col h-full overflow-hidden shadow-md">
-          {/* Editor Header */}
-          <div className="border-b border-slate-100 p-3 bg-slate-50 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="bg-blue-600 p-1.5 rounded shrink-0">
-                <FileText className="w-3.5 h-3.5 text-white" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-xs font-black text-slate-800 truncate uppercase tracking-tighter">Editor</h3>
-                <p className="text-[12px] text-slate-400 truncate">{editingId === 'new' ? 'New Profile' : `ID: ${formData.id} — ${formData.name || 'Unnamed'}`}</p>
-              </div>
-            </div>
-          </div>
-
+        <div className={cn(
+          "bg-white rounded-lg border border-slate-300 flex flex-col h-full overflow-hidden shadow-md transition-all duration-300",
+          !formData.enabled && "bg-orange-50/40 border-orange-500 border-2 shadow-[0_0_12px_rgba(249,115,22,0.15)] ring-1 ring-orange-500"
+        )}>
           <div className="p-4 overflow-y-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Left Column: Basic Info */}
-              <div className="space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest">Schedule Type</label>
-                  <select 
-                    value={formData.type} 
-                    disabled={schedules.some(s => s.id === editingId)}
-                    onChange={e => setFormData({...formData, type: e.target.value as ScheduleType})}
-                    className={cn(
-                      "w-full px-3 py-2 rounded border text-xs font-bold outline-none transition-all",
-                      schedules.some(s => s.id === editingId) 
-                        ? "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed" 
-                        : "bg-white border-blue-200 text-slate-700 hover:border-blue-400"
-                    )}
-                  >
-                    <option value={ScheduleType.ONE_TIME}>One-Time Play</option>
-                    <option value={ScheduleType.BASIC_HOURLY}>Repeating Hourly</option>
-                    <option value={ScheduleType.ADVANCED}>Advanced Calendar</option>
-                  </select>
-                  {schedules.some(s => s.id === editingId) && (
-                    <p className="text-[12px] text-slate-400 font-medium italic">Type cannot be changed after creation.</p>
-                  )}
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest">Entry Name</label>
-                  <input 
-                    type="text" 
-                    value={formData.name || ''} 
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                    placeholder="Identify the schedule..."
-                    className={cn(
-                      "w-full px-3 py-2 rounded border text-xs font-medium focus:ring-1 focus:ring-blue-500 outline-none",
-                      !formData.name && editingId ? "border-red-300" : "border-slate-200"
-                    )}
-                  />
-                  {!formData.name && <p className="text-[12px] text-red-500 font-bold uppercase tracking-tighter">Name is required</p>}
-                </div>
-                
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest">MP3 location</label>
-                    {formData.mp3Url && (
-                      <div className="flex items-center gap-2">
-                        {(() => {
-                          const status = getMP3Status(formData.mp3Url);
-                          const isVerified = status.exists && status.valid;
-                          return (
-                            <>
-                              {!status.exists && (
-                                <span className="flex items-center gap-1 text-[12px] font-black text-red-500 uppercase bg-red-50 px-1.5 py-0.5 rounded border border-red-100 shadow-sm animate-pulse">
-                                  <AlertCircle className="w-2.5 h-2.5" />
-                                  File not found.
-                                </span>
-                              )}
-                              {!status.valid && status.exists && (
-                                <span className="flex items-center gap-1 text-[12px] font-black text-orange-500 uppercase bg-orange-50 px-1.5 py-0.5 rounded border border-orange-100 shadow-sm">
-                                  <Music className="w-2.5 h-2.5" />
-                                  File not mp3.
-                                </span>
-                              )}
-                              {isVerified && (
-                                <div className="flex flex-col items-end">
-                                  <span className="flex items-center gap-1 text-[12px] font-black text-green-500 uppercase bg-green-50 px-1.5 py-0.5 rounded border border-green-100 shadow-sm">
-                                    <CheckCircle className="w-2.5 h-2.5" />
-                                    File Verified
-                                  </span>
-                                  {formData.duration && (
-                                    <span className="text-[12px] font-mono font-bold text-slate-400 mt-0.5">Length: {formData.duration}</span>
-                                  )}
-                                </div>
-                              )}
-                            </>
-                          );
-                        })()}
-                        <button
-                          onClick={() => togglePreview(formData.mp3Url)}
-                          disabled={!(getMP3Status(formData.mp3Url).exists && getMP3Status(formData.mp3Url).valid)}
-                          className={cn(
-                            "flex items-center gap-1 text-[12px] font-black uppercase px-2 py-0.5 rounded border shadow-sm transition-all",
-                            previewUrl === formData.mp3Url 
-                              ? "bg-slate-900 text-white border-slate-900" 
-                              : (getMP3Status(formData.mp3Url).exists && getMP3Status(formData.mp3Url).valid)
-                                ? "bg-white text-blue-600 border-blue-100 hover:bg-blue-50"
-                                : "bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed"
-                          )}
-                        >
-                          {previewUrl === formData.mp3Url ? <Square className="w-2 h-2 fill-current" /> : <Play className="w-2 h-2 fill-current" />}
-                          {previewUrl === formData.mp3Url ? 'Stop Preview' : 'Preview MP3'}
-                        </button>
+              <div className="space-y-4 md:sticky md:top-0 md:self-start">
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+                  {/* Fields Block */}
+                  <div className="sm:col-span-7 md:col-span-8 flex flex-col justify-start gap-2">
+                    {/* Horizontal row aligning Editor Title/ID and Status/Buttons on Left */}
+                    <div className="flex items-center gap-3 pb-1.5 border-b border-slate-300">
+                      {/* Editor Header Indicator */}
+                      <div className="bg-blue-600 p-1.5 rounded shrink-0 flex items-center justify-center w-8 h-8">
+                        <FileText className="w-4 h-4 text-white" />
                       </div>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <input 
-                        type="text" 
-                        value={formData.mp3Url || ''} 
-                        onChange={e => setFormData({...formData, mp3Url: e.target.value})}
-                        placeholder="https://www.googleapis.com/drive/v3/files/... or select from browse"
-                        className={cn(
-                          "w-full px-3 py-2 rounded border font-mono text-[12px] outline-none transition-all pr-12",
-                          formData.mp3Url && !getMP3Status(formData.mp3Url).exists 
-                            ? "bg-red-50 border-red-200 focus:ring-red-500" 
-                            : "bg-slate-50 border-slate-100 focus:ring-blue-500"
+                      
+                      <div className="flex items-center gap-6 min-w-0">
+                        {/* Column 1: Editor/ID Label and ID Value */}
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[14px] font-black text-slate-700 uppercase tracking-widest select-none leading-none">Editor</span>
+                          <p className="text-[14px] text-slate-400 font-black truncate leading-none mt-1 font-mono">
+                            {editingId === 'new' ? 'New Profile' : `${formData.id}`}
+                          </p>
+                        </div>
+                        
+                        {/* Column 2: Status Label and Active/Suspended Buttons */}
+                        <div className="flex flex-col gap-0.5">
+                          <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest block select-none leading-none">Status</label>
+                          <div className="flex items-center">
+                            <div className="flex items-center -space-x-px shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setFormData({...formData, enabled: true})}
+                                className={cn(
+                                  "px-2 py-0.5 text-[13px] font-black uppercase transition-all select-none cursor-pointer rounded-l rounded-r-none h-6 flex items-center justify-center leading-none border",
+                                  formData.enabled 
+                                    ? "bg-emerald-600 border-emerald-600 text-white shadow-xs z-10" 
+                                    : "bg-slate-50 border-slate-300 text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                                )}
+                              >
+                                Active
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setFormData({...formData, enabled: false})}
+                                className={cn(
+                                  "px-2 py-0.5 text-[13px] font-black uppercase transition-all select-none cursor-pointer rounded-r rounded-l-none h-6 flex items-center justify-center leading-none border",
+                                  !formData.enabled 
+                                    ? "bg-orange-600 border-orange-600 text-white shadow-xs z-10" 
+                                    : "bg-slate-50 border-slate-300 text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                                )}
+                              >
+                                Suspended
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Type and Play Time rows */}
+                    <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_0.8fr] gap-4">
+                      {/* Schedule Type */}
+                      <div className="space-y-1">
+                        <label className="text-[14px]/none font-black text-slate-400 uppercase tracking-widest block select-none">type</label>
+                        {!isNew ? (
+                          <div className="px-3 py-2 rounded-lg border border-slate-350 bg-slate-50 text-[14px] font-bold text-slate-700 w-full select-none h-10 flex items-center shadow-xs">
+                            {formData.type === ScheduleType.ONE_TIME && "One-Time Play"}
+                            {formData.type === ScheduleType.BASIC_HOURLY && "Repeating Hourly"}
+                            {formData.type === ScheduleType.ADVANCED && "Advanced Calendar"}
+                          </div>
+                        ) : (
+                          <select 
+                            value={formData.type} 
+                            onChange={e => setFormData({...formData, type: e.target.value as ScheduleType})}
+                            className="px-3 py-2 rounded-lg border text-[14px] font-black outline-none transition-all w-full bg-white border-slate-350 text-slate-700 hover:border-blue-400 cursor-pointer h-10 shadow-xs"
+                          >
+                            <option value={ScheduleType.ONE_TIME}>One-Time Play</option>
+                            <option value={ScheduleType.BASIC_HOURLY}>Repeating Hourly</option>
+                            <option value={ScheduleType.ADVANCED}>Advanced Calendar</option>
+                          </select>
                         )}
-                      />
-                      {formData.mp3Url && (
-                        <button
-                          onClick={() => togglePreview(formData.mp3Url)}
-                          disabled={!(getMP3Status(formData.mp3Url).exists && getMP3Status(formData.mp3Url).valid)}
-                          className={cn(
-                            "absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded transition-all",
-                            previewUrl === formData.mp3Url 
-                              ? "bg-slate-900 text-white" 
-                              : (getMP3Status(formData.mp3Url).exists && getMP3Status(formData.mp3Url).valid)
-                                ? "text-slate-400 hover:text-blue-600 hover:bg-blue-50"
-                                : "text-slate-200 cursor-not-allowed"
-                          )}
-                          title={previewUrl === formData.mp3Url ? "Stop" : "Preview"}
-                        >
-                          {previewUrl === formData.mp3Url ? <Square className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 fill-current" />}
-                        </button>
-                      )}
-                    </div>
-                    <button 
-                      onClick={() => setIsPickerOpen(true)}
-                      className="px-3 py-2 bg-slate-900 text-white rounded text-[12px] font-black uppercase flex items-center gap-2 hover:bg-slate-800 transition-all shadow-sm"
-                    >
-                      <FolderOpen className="w-3 h-3" />
-                      Browse
-                    </button>
-                  </div>
-                </div>
+                      </div>
 
-                <div className="bg-slate-50 p-3 rounded border border-slate-100 space-y-3">
-                  <div className="flex justify-between items-center text-[12px] font-black uppercase text-slate-500 tracking-tighter">
-                    <span>Scheduled play time</span>
-                    <div className="flex items-center gap-1">
-                      <span className="text-blue-600 font-bold">:</span>
-                      <input 
-                        type="number"
-                        min="0"
-                        max="59"
-                        value={formData.minute || 0}
-                        onChange={e => {
-                          const val = Math.max(0, Math.min(59, parseInt(e.target.value) || 0));
-                          setFormData({...formData, minute: val});
+                      {/* Play Time */}
+                      <div className="space-y-1">
+                        <label className="text-[14px]/none font-black text-slate-400 uppercase tracking-widest block select-none">Play Time</label>
+                        <div className="flex items-center gap-2">
+                          {/* Formatted numerical indicator - e.g. :15 m */}
+                          <div className="relative w-16 shrink-0">
+                            <input 
+                              type="text"
+                              value={`:${(formData.minute || 0).toString().padStart(2, '0')}`}
+                              onChange={e => {
+                                const clean = e.target.value.replace(/\D/g, '');
+                                const parsed = parseInt(clean, 10);
+                                const val = isNaN(parsed) ? 0 : Math.max(0, Math.min(59, parsed));
+                                setFormData({...formData, minute: val});
+                              }}
+                              className="w-full text-center text-blue-600 bg-white pl-1 pr-5 py-1.5 border border-slate-350 rounded-lg font-black outline-none focus:ring-1 focus:ring-blue-500 text-[14px] h-10 shadow-xs"
+                            />
+                            <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] font-black text-slate-400 pointer-events-none select-none">m</span>
+                          </div>
+
+                          {/* Doubled Arrow Controls */}
+                          <div className="flex flex-col -space-y-px shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = ((formData.minute || 0) + 1) % 65;
+                                const wrapped = val >= 60 ? 0 : val;
+                                setFormData({...formData, minute: wrapped});
+                              }}
+                              className="bg-slate-100 hover:bg-slate-200 border border-slate-350 rounded-t rounded-b-none text-slate-700 h-4 w-8 flex items-center justify-center cursor-pointer transition-colors active:bg-slate-300 shadow-xs"
+                              title="Increase Minute"
+                            >
+                              <ChevronUp className="w-3.5 h-3.5 stroke-[3]" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const val = ((formData.minute || 0) - 1 + 60) % 60;
+                                setFormData({...formData, minute: val});
+                              }}
+                              className="bg-slate-100 hover:bg-slate-200 border border-slate-350 rounded-b rounded-t-none text-slate-700 h-4 w-8 flex items-center justify-center cursor-pointer transition-colors active:bg-slate-300 shadow-xs"
+                              title="Decrease Minute"
+                            >
+                              <ChevronDown className="w-3.5 h-3.5 stroke-[3]" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Spanning clock dial inside basic info */}
+                  <div className="sm:col-span-5 md:col-span-4 flex items-center justify-center select-none">
+                    <div className="flex flex-col items-center justify-center p-[1px] bg-slate-50 border border-slate-200/80 rounded-xl shadow-xs hover:bg-slate-100/50 transition-colors w-[114px] h-[114px] shrink-0">
+                      <svg
+                        width="120"
+                        height="120"
+                        viewBox="0 0 80 80"
+                        className="cursor-pointer select-none active:brightness-95 transition-all w-[112px] h-[112px]"
+                        onMouseDown={e => {
+                          setIsDraggingClock(true);
+                          handleClockInteraction(e);
                         }}
-                        className="w-10 text-center text-blue-600 bg-white px-1 py-0.5 border rounded font-black outline-none focus:ring-1 focus:ring-blue-500"
+                        onMouseMove={e => {
+                          if (isDraggingClock) {
+                            handleClockInteraction(e);
+                          }
+                        }}
+                        onMouseUp={() => setIsDraggingClock(false)}
+                        onMouseLeave={() => setIsDraggingClock(false)}
+                        onTouchStart={e => {
+                          setIsDraggingClock(true);
+                          handleClockInteraction(e);
+                        }}
+                        onTouchMove={e => {
+                          if (isDraggingClock) {
+                            handleClockInteraction(e);
+                          }
+                        }}
+                        onTouchEnd={() => setIsDraggingClock(false)}
+                      >
+                      {/* Clock Face base */}
+                      <circle 
+                        cx="40" 
+                        cy="40" 
+                        r="38" 
+                        className={cn(
+                          "fill-white stroke-slate-200 stroke-[2]",
+                          isDraggingClock && "stroke-blue-500 stroke-[2.5]"
+                        )} 
                       />
-                    </div>
+                      
+                      {/* Main numbers for orientation */}
+                      <text x="40" y="18" textAnchor="middle" className={cn("text-[13px] font-black fill-slate-400 select-none", isDraggingClock && "fill-slate-600")}>0</text>
+                      <text x="67" y="44" textAnchor="middle" className="text-[10px] font-bold fill-slate-350 select-none">15</text>
+                      <text x="40" y="71" textAnchor="middle" className="text-[10px] font-bold fill-slate-350 select-none">30</text>
+                      <text x="13" y="44" textAnchor="middle" className="text-[10px] font-bold fill-slate-350 select-none">45</text>
+                      
+                      {/* 5-minute ticks */}
+                      {Array.from({ length: 12 }).map((_, idx) => {
+                        const angle = idx * 30;
+                        if (idx % 3 === 0) return null;
+                        return (
+                          <line
+                            key={idx}
+                            x1="40"
+                            y1="5"
+                            x2="40"
+                            y2="8"
+                            transform={`rotate(${angle}, 40, 40)`}
+                            className={cn(
+                              "stroke-slate-300 stroke-[2]",
+                              isDraggingClock && "stroke-slate-400"
+                            )}
+                          />
+                        );
+                      })}
+                      
+                      {/* Moving minute hand */}
+                      <line
+                        x1="40"
+                        y1="40"
+                        x2="40"
+                        y2="10"
+                        transform={`rotate(${(formData.minute || 0) * 6}, 40, 40)`}
+                        stroke={isDraggingClock ? "#1e3a8a" : "#2563eb"}
+                        strokeWidth={isDraggingClock ? 5 : 3.5}
+                        strokeLinecap="round"
+                      />
+                      
+                      {/* Center cap */}
+                      <circle cx="40" cy="40" r="4.5" className={cn("fill-slate-800", isDraggingClock && "fill-slate-950")} />
+                      <circle cx="40" cy="40" r="1.5" className="fill-white" />
+                    </svg>
                   </div>
-                  <div className="space-y-1">
+                </div>
+              </div>
+                            {/* Group Schedule Name and MP3 File Group to remove any whitespace/margin between them */}
+                <div className="space-y-0">
+                  {/* Schedule Name */}
+                  <div className="space-y-0">
+                    <div className="bg-blue-600 text-white text-[13px] font-black uppercase tracking-widest px-3 py-1.5 rounded-t-lg select-none">
+                      Schedule Name
+                    </div>
                     <input 
-                      type="range" 
-                      min="0" 
-                      max="59" 
-                      value={formData.minute || 0} 
-                      onChange={e => setFormData({...formData, minute: parseInt(e.target.value)})}
-                      className="w-full accent-blue-600 h-1.5 bg-slate-200 rounded-full cursor-pointer"
+                      type="text" 
+                      value={formData.name || ''} 
+                      onChange={e => setFormData({...formData, name: e.target.value})}
+                      placeholder="Identify the schedule..."
+                      className={cn(
+                        "w-full px-3 py-2 rounded-b-none border-x border-b border-t border-slate-350 text-[16px] font-black text-slate-800 focus:ring-1 focus:ring-blue-500 outline-none",
+                        !formData.name && editingId ? "border-red-400" : ""
+                      )}
                     />
-                    <div className="flex justify-between px-0.5 text-[12px] font-black text-slate-300 uppercase tracking-tighter">
-                      {[0, 20, 40, 59].map(m => (
-                        <span key={m} className="cursor-pointer hover:text-blue-600" onClick={() => setFormData({...formData, minute: m})}>
-                          :{m.toString().padStart(2, '0')}
-                        </span>
-                      ))}
+                    {!formData.name && <p className="text-[14px] text-red-500 font-bold uppercase tracking-tighter mt-1">Name is required</p>}
+                  </div>
+
+                  {/* MP3 File Group with Blue Header */}
+                  <div className="space-y-0 mt-0">
+                    <div className="bg-blue-600 text-white text-[13px] font-black uppercase tracking-widest px-3 py-1.5 rounded-t-none select-none">
+                      MP3 File
+                    </div>
+                    <div className="p-3 bg-slate-50 border-x border-b border-slate-350 rounded-b-lg space-y-3 shadow-xs">
+                      {/* MP3 Row */}
+                      <div className="leading-tight select-none">
+                        {formData.mp3Url ? (
+                          <span className="text-[16px] font-mono font-bold text-slate-850 break-all" title={getFilenameFromUrlOrPath(formData.mp3Url)}>
+                            {getFilenameFromUrlOrPath(formData.mp3Url)}
+                            {formData.duration && ` (${formData.duration})`}
+                          </span>
+                        ) : (
+                          <span className="text-[16px] font-medium text-slate-400 italic">None Selected</span>
+                        )}
+                      </div>
+
+                      {/* Display metadata inline underneath the filename if available */}
+                      {formData.mp3Url && (() => {
+                        const filename = getFilenameFromUrlOrPath(formData.mp3Url);
+                        const meta = metadataCache[filename];
+                        if (meta && (meta.title || meta.artist || meta.album)) {
+                          const parts = [meta.title, meta.artist, meta.album].filter(Boolean);
+                          return (
+                            <div className="text-[13px] text-slate-600 font-bold italic select-none">
+                              Metadata: <span className="text-slate-800 font-semibold">{parts.join(", ")}</span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+
+                      {/* Actions Row */}
+                      <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-slate-350">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {formData.mp3Url ? (
+                            <>
+                              {(() => {
+                                const status = getMP3Status(formData.mp3Url);
+                                const isVerified = status.exists && status.valid;
+                                return (
+                                  <>
+                                    {isVerified ? (
+                                      <CheckCircle className="w-4 h-4 text-green-600 shrink-0" title="File Verified" />
+                                    ) : !status.exists ? (
+                                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0 animate-pulse" title="File not found" />
+                                    ) : (
+                                      <Music className="w-4 h-4 text-orange-400 shrink-0" title="File not mp3" />
+                                    )}
+                                    
+                                    <div className="flex flex-wrap items-center gap-x-2 text-[14px]">
+                                      {!status.exists && (
+                                        <span className="font-black text-red-500 uppercase">
+                                          File not found.
+                                        </span>
+                                      )}
+                                      {!status.valid && status.exists && (
+                                        <span className="font-black text-orange-500 uppercase">
+                                          File not mp3.
+                                        </span>
+                                      )}
+                                      {isVerified && (
+                                        <span className="font-black text-green-600 uppercase">
+                                          File Verified
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {isVerified && (
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePreview(formData.mp3Url)}
+                                        className={cn(
+                                          "flex items-center gap-1 text-[13px] font-black uppercase px-2.5 py-1 rounded border shadow-xs transition-all cursor-pointer select-none h-8",
+                                          previewUrl === formData.mp3Url 
+                                            ? "bg-slate-900 text-white border-slate-900" 
+                                            : "bg-white text-blue-600 border-slate-300 hover:bg-slate-50"
+                                        )}
+                                      >
+                                        {previewUrl === formData.mp3Url ? <Square className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 fill-current" />}
+                                        {previewUrl === formData.mp3Url ? 'Stop' : 'Preview'}
+                                      </button>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </>
+                          ) : (
+                            <p className="text-[14px] text-slate-400 font-medium">Please select an MP3 file path from the library</p>
+                          )}
+                        </div>
+                        
+                        <button 
+                          type="button"
+                          onClick={() => setIsPickerOpen(true)}
+                          className="px-3 py-1.5 bg-slate-900 border border-slate-900 hover:bg-slate-800 text-white rounded text-[13px] font-black uppercase flex items-center justify-center gap-2 transition-all shadow-sm shrink-0 cursor-pointer select-none h-8"
+                        >
+                          <FolderOpen className="w-3.5 h-3.5" />
+                          Choose
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-[12px] font-black text-slate-400 uppercase tracking-widest">Schedule Status</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button 
-                      onClick={() => setFormData({...formData, enabled: true})}
-                      className={cn(
-                        "flex items-center justify-between px-3 py-2 rounded border text-[12px] font-black uppercase transition-all shadow-sm",
-                        formData.enabled ? "bg-green-600 border-green-600 text-white" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"
-                      )}
-                    >
-                      Active
-                      {formData.enabled && <Check className="w-3 h-3 text-white" />}
-                    </button>
-                    <button 
-                      onClick={() => setFormData({...formData, enabled: false})}
-                      className={cn(
-                        "flex items-center justify-between px-3 py-2 rounded border text-[12px] font-black uppercase transition-all shadow-sm",
-                        !formData.enabled ? "bg-slate-800 border-slate-800 text-white" : "bg-white border-slate-200 text-slate-400 hover:border-slate-300"
-                      )}
-                    >
-                      Suspended
-                      {!formData.enabled && <AlertCircle className="w-3 h-3 text-white" />}
-                    </button>
-                  </div>
-                </div>
-
-                {formData.metadata && (
-                  <div className="p-3 bg-slate-50/50 rounded-lg border border-slate-100 flex flex-col gap-2">
-                    <div className="flex justify-between items-center text-[12px] font-black uppercase text-slate-400">
-                      <span>System Metadata</span>
-                      <ShieldAlert className="w-2.5 h-2.5 opacity-30" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-[12px] text-slate-400 font-bold uppercase mb-0.5">Created</p>
-                        <p className="text-[12px] text-slate-600 font-mono font-medium leading-none">
-                          {new Date(formData.metadata.createdDate).toLocaleDateString([], { month: '2-digit', day: '2-digit', year: '2-digit' })} {new Date(formData.metadata.createdDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[12px] text-slate-400 font-bold uppercase mb-0.5">Last Modification</p>
-                        <p className="text-[12px] text-slate-600 font-mono font-medium leading-none">
-                          {new Date(formData.metadata.lastModifiedDate).toLocaleDateString([], { month: '2-digit', day: '2-digit', year: '2-digit' })} {new Date(formData.metadata.lastModifiedDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Right Column: Date/Advanced Rules */}
-              <div className="space-y-4">
+              <div className="space-y-4 md:sticky md:top-0 md:self-start">
+                {/* Copied Top Action Buttons */}
+                <div className="flex items-center justify-end gap-2 pb-4 border-b border-slate-300 select-none">
+                  <button 
+                    type="button"
+                    onClick={() => setEditingId(null)}
+                    className="flex items-center gap-2 px-4 py-2 border border-slate-350 rounded text-[14px] font-black text-slate-500 hover:bg-slate-100 uppercase tracking-widest transition-all cursor-pointer bg-white"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    Cancel
+                  </button>
+
+                  <button 
+                    type="button"
+                    onClick={saveEdit}
+                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded text-[14px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md shadow-blue-100 cursor-pointer"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Save
+                  </button>
+                </div>
+
                 {formData.type === ScheduleType.ONE_TIME && (
                   <div className="p-4 bg-purple-50 rounded-lg border border-purple-100 space-y-4">
                     <h4 className="text-[12px] font-black text-purple-700 uppercase tracking-widest">Static Play Logic</h4>
@@ -1332,7 +1707,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                           value={formData.date || ''} 
                           onChange={e => setFormData({...formData, date: e.target.value})} 
                           className={cn(
-                            "w-full px-2 py-1.5 border rounded text-[12px] outline-none",
+                            "w-full px-2 py-1.5 border rounded text-[14px] font-bold text-slate-850 outline-none [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer",
                             !formData.date && editingId ? "border-red-300 bg-red-50" : "border-purple-200"
                           )} 
                         />
@@ -1360,6 +1735,28 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
 
                 {formData.type === ScheduleType.ADVANCED && (
                   <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 space-y-4">
+                    <div className="grid grid-cols-2 gap-3 pb-3 border-b border-blue-100/50">
+                      <div className="space-y-1 text-left">
+                        <label className="text-[12px] font-bold text-blue-400 uppercase">Effective Start</label>
+                        <input 
+                          type="date" 
+                          value={formData.startDate || ''} 
+                          onChange={e => setFormData({...formData, startDate: e.target.value})} 
+                          className="w-full px-2 py-1 border border-blue-200 rounded text-[14px] outline-none bg-white font-bold text-slate-850 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer" 
+                        />
+                      </div>
+                      <div className="space-y-1 text-left">
+                        <label className="text-[12px] font-bold text-blue-400 uppercase">Expiration Date</label>
+                        <input 
+                          type="date" 
+                          value={formData.endDate || ''} 
+                          onChange={e => setFormData({...formData, endDate: e.target.value})} 
+                          className="w-full px-2 py-1 border border-blue-200 rounded text-[14px] outline-none bg-white font-bold text-slate-850 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer" 
+                        />
+                        <p className="text-[12px] text-slate-400 font-bold uppercase tracking-tighter">* Blank = No stop date</p>
+                      </div>
+                    </div>
+
                     <div className="flex justify-between items-center">
                       <h4 className="text-[12px] font-black text-blue-700 uppercase tracking-widest">Weekly Schedule</h4>
                       <div className="flex gap-2 text-[12px] font-black uppercase text-slate-400">
@@ -1442,58 +1839,36 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                     <p className="text-[12px] text-slate-400 italic font-medium pt-2 border-t border-blue-100/50">
                       * Headers are clickable to toggle entire columns or rows.
                     </p>
+                  </div>
+                )}
 
-                    <div className="grid grid-cols-2 gap-3 pt-2">
-                      <div className="space-y-1">
+                {formData.type === ScheduleType.BASIC_HOURLY && (
+                  <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 flex flex-col items-center justify-center text-center space-y-4 min-h-[140px]">
+                    <div className="w-full grid grid-cols-2 gap-3 pb-4 border-b border-blue-100/50">
+                      <div className="space-y-1 text-left">
                         <label className="text-[12px] font-bold text-blue-400 uppercase">Effective Start</label>
                         <input 
                           type="date" 
                           value={formData.startDate || ''} 
                           onChange={e => setFormData({...formData, startDate: e.target.value})} 
-                          className="w-full px-2 py-1 border border-blue-200 rounded text-[12px] outline-none bg-white font-medium" 
+                          className="w-full px-2 py-1 border border-blue-200 rounded text-[14px] outline-none bg-white font-bold text-slate-850 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer" 
                         />
                       </div>
-                      <div className="space-y-1">
+                      <div className="space-y-1 text-left">
                         <label className="text-[12px] font-bold text-blue-400 uppercase">Expiration Date</label>
                         <input 
                           type="date" 
                           value={formData.endDate || ''} 
                           onChange={e => setFormData({...formData, endDate: e.target.value})} 
-                          className="w-full px-2 py-1 border border-blue-200 rounded text-[12px] outline-none bg-white font-medium" 
+                          className="w-full px-2 py-1 border border-blue-200 rounded text-[14px] outline-none bg-white font-bold text-slate-850 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer" 
                         />
                         <p className="text-[12px] text-slate-400 font-bold uppercase tracking-tighter">* Blank = No stop date</p>
                       </div>
                     </div>
-                  </div>
-                )}
 
-                {formData.type === ScheduleType.BASIC_HOURLY && (
-                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 flex flex-col items-center justify-center text-center space-y-4 min-h-[140px]">
-                    <div className="flex flex-col items-center justify-center opacity-60">
-                      <Clock className="w-6 h-6 text-slate-300 mb-2" />
-                      <p className="text-[12px] text-slate-500 font-medium">Auto-repeat hourly trigger enabled.</p>
-                    </div>
-                    
-                    <div className="w-full grid grid-cols-2 gap-3 pt-4 border-t border-slate-200">
-                      <div className="space-y-1 text-left">
-                        <label className="text-[12px] font-bold text-slate-400 uppercase">Effective Start</label>
-                        <input 
-                          type="date" 
-                          value={formData.startDate || ''} 
-                          onChange={e => setFormData({...formData, startDate: e.target.value})} 
-                          className="w-full px-2 py-1 border border-slate-300 rounded text-[12px] outline-none bg-white font-medium" 
-                        />
-                      </div>
-                      <div className="space-y-1 text-left">
-                        <label className="text-[12px] font-bold text-slate-400 uppercase">Expiration Date</label>
-                        <input 
-                          type="date" 
-                          value={formData.endDate || ''} 
-                          onChange={e => setFormData({...formData, endDate: e.target.value})} 
-                          className="w-full px-2 py-1 border border-slate-300 rounded text-[12px] outline-none bg-white font-medium" 
-                        />
-                        <p className="text-[12px] text-slate-400 font-bold uppercase tracking-tighter">* Blank = No stop date</p>
-                      </div>
+                    <div className="flex flex-col items-center justify-center opacity-70">
+                      <Clock className="w-6 h-6 text-blue-400 mb-2" />
+                      <p className="text-[12px] text-blue-600 font-medium">Auto-repeat hourly trigger enabled.</p>
                     </div>
                   </div>
                 )}
@@ -1502,28 +1877,35 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
 
             <div className="mt-8 pt-4 border-t border-slate-100 flex items-center justify-between gap-4">
               <button 
-                onClick={() => deleteSchedule(editingId!)}
-                className="px-4 py-2 flex items-center justify-center gap-2 text-red-500 font-black text-[12px] uppercase hover:bg-red-50 rounded transition-colors border border-transparent hover:border-red-100"
+                onClick={() => setDeleteConfirmId(editingId!)}
+                className="flex items-center gap-2 px-4 py-2 border border-red-200 rounded text-[14px] font-black text-red-600 hover:bg-red-50 hover:border-red-300 uppercase tracking-widest transition-all cursor-pointer shadow-sm shadow-red-50 bg-white"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                Delete this Schedule
+                <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                Delete
               </button>
+
+              {formData.metadata && (
+                <div className="text-[12px] font-mono text-slate-400 text-center leading-tight">
+                  <div>Created {formatMetadataDate(formData.metadata.createdDate)}</div>
+                  <div>Modified {formatMetadataDate(formData.metadata.lastModifiedDate)}</div>
+                </div>
+              )}
               
               <div className="flex gap-2">
                 <button 
-                  onClick={saveEdit}
-                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded text-[12px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md shadow-blue-100"
-                >
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  Save and Close
-                </button>
-
-                <button 
                   onClick={() => setEditingId(null)}
-                  className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded text-[12px] font-black text-slate-500 hover:bg-slate-100 uppercase tracking-widest transition-all"
+                  className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded text-[14px] font-black text-slate-500 hover:bg-slate-100 uppercase tracking-widest transition-all"
                 >
                   <XCircle className="w-3.5 h-3.5" />
                   Cancel
+                </button>
+
+                <button 
+                  onClick={saveEdit}
+                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded text-[14px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md shadow-blue-100"
+                >
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Save
                 </button>
               </div>
             </div>
@@ -1534,74 +1916,142 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
       {/* MP3 Picker Modal */}
       {isPickerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
-            <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center gap-4 justify-between">
+              {/* Left Title block */}
+              <div className="flex items-center gap-3 shrink-0">
                 <div className="bg-blue-600 p-2 rounded">
                   <FolderOpen className="w-4 h-4 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest">
-                    {isDriveActive ? "google drive mp3library folder" : "local mp3 library"}
+                  <h3 className="text-[14px] font-black text-slate-800 uppercase tracking-widest leading-none">
+                    Select Mp3
                   </h3>
-                  <p className="text-[12px] text-slate-400 font-bold uppercase">
-                    Source: {isDriveActive ? `Google Drive mp3library folder (${DRIVE_FOLDERS.mp3s})` : 'Bundled Local Audio Assets'}
-                  </p>
                 </div>
               </div>
-              <button onClick={() => setIsPickerOpen(false)} className="text-slate-400 hover:text-slate-600">
+
+              {/* Middle Search Bar - between Title and close x */}
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Search mp3's..." 
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-[14px] font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans"
+                />
+              </div>
+
+              {/* Right Exit X */}
+              <button 
+                type="button" 
+                onClick={() => setIsPickerOpen(false)} 
+                className="text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
+              >
                 <XCircle className="w-5 h-5" />
               </button>
             </div>
             
             <div className="p-4">
-              <div className="relative mb-4">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="Filter resources..." 
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full pl-8 pr-4 py-2 bg-slate-100 rounded text-[12px] font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all"
-                />
-              </div>
-              
-              <div className="space-y-1 max-h-[300px] overflow-y-auto pr-1 custom-scrollbar">
-                {filteredFiles.length > 0 ? filteredFiles.map((file, i) => (
-                  <button 
-                    key={i}
-                    onClick={() => {
-                      setFormData({ ...formData, mp3Url: file.name });
-                      setIsPickerOpen(false);
-                    }}
-                    className={cn(
-                      "w-full text-left p-3 rounded-lg group flex items-center justify-between transition-all border",
-                      !file.name.toLowerCase().endsWith('.mp3')
-                        ? "bg-orange-50/30 border-orange-100 hover:border-orange-300"
-                        : "bg-white hover:bg-blue-50 border-transparent hover:border-blue-100"
-                    )}
-                  >
-                    <div className="flex items-center gap-1.5 overflow-hidden">
-                      <Music className={cn(
-                        "w-4 h-4 shrink-0",
-                        !file.name.toLowerCase().endsWith('.mp3') ? "text-orange-400" : "text-slate-300 group-hover:text-blue-500"
-                      )} />
-                      <div className="min-w-0">
-                        <p className={cn(
-                          "text-[12px] font-bold truncate leading-none",
-                          !file.name.toLowerCase().endsWith('.mp3') ? "text-orange-700" : "text-slate-700 group-hover:text-blue-700"
-                        )}>{file.name}</p>
-                        <p className="text-[12px] text-slate-400 mt-1 font-mono">{file.path}</p>
+              <div className="space-y-1 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                {filteredFiles.length > 0 ? filteredFiles.map((file, i) => {
+                  const dispDuration = pickerDurations[file.name] || file.duration || '';
+                  return (
+                    <div 
+                      key={i}
+                      className={cn(
+                        "w-full text-left p-1.5 px-3 rounded-lg flex items-center transition-all border gap-3 duration-150 shadow-xs",
+                        !file.name.toLowerCase().endsWith('.mp3')
+                          ? "bg-orange-50/45 border-orange-200"
+                          : i % 2 === 0
+                            ? "bg-white border-slate-300/90 hover:border-blue-600 hover:bg-blue-50/40 hover:ring-1 hover:ring-blue-600/20 hover:shadow-md"
+                            : "bg-slate-50 border-slate-300/90 hover:border-blue-600 hover:bg-blue-50/40 hover:ring-1 hover:ring-blue-600/20 hover:shadow-md"
+                      )}
+                    >
+                      {/* Left: Move ONLY the Select button here */}
+                      <div className="shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, mp3Url: file.name });
+                            setIsPickerOpen(false);
+                          }}
+                          className="px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[12px] font-black uppercase tracking-wider transition-all shadow-sm cursor-pointer flex items-center justify-center h-7 shrink-0 w-[64px]"
+                        >
+                          Select
+                        </button>
+                      </div>
+
+                      {/* Middle: File description and meta info */}
+                      <div className="min-w-0 flex-1 flex flex-col justify-center">
+                        <div className="flex flex-wrap items-baseline gap-1.5 leading-tight">
+                          <span className={cn(
+                            "text-[14px] font-bold line-clamp-1 break-all text-slate-800",
+                            !file.name.toLowerCase().endsWith('.mp3') ? "text-orange-700 font-black" : "text-slate-800"
+                          )}>
+                            {file.name}
+                          </span>
+                          
+                          {/* Audio metadata duration logic - format same as on edit page */}
+                          {dispDuration && (
+                            <span className="text-[12px] font-mono font-bold text-slate-400 whitespace-nowrap ml-1">
+                              ({dispDuration})
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Display ID3 Metadata and subtitles if cached */}
+                        {(() => {
+                          const meta = metadataCache[file.name];
+                          if (meta && (meta.title || meta.artist || meta.album)) {
+                            const parts = [meta.title, meta.artist, meta.album].filter(Boolean);
+                            return (
+                              <p className="text-[12px] text-slate-500 italic font-medium leading-none mt-0.5">
+                                {parts.join(", ")}
+                              </p>
+                            );
+                          }
+                          return null;
+                        })()}
+
+                        {!file.name.toLowerCase().endsWith('.mp3') && (
+                          <span className="text-[12px] font-black text-orange-500 uppercase bg-orange-100 px-1.5 py-0.5 rounded inline-block mt-0.5 font-sans">No .mp3 extension</span>
+                        )}
+                      </div>
+
+                      {/* Right: Leave the Preview on the right, aligned to the end of each row */}
+                      <div className="shrink-0 flex items-center">
+                        {file.name.toLowerCase().endsWith('.mp3') && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              togglePreview(file.name);
+                            }}
+                            className={cn(
+                              "rounded text-[12px] font-bold uppercase tracking-wider transition-all border cursor-pointer flex items-center justify-center gap-1 h-7 w-[88px] shrink-0",
+                              previewUrl === file.name 
+                                ? "bg-slate-900 text-white border-slate-900" 
+                                : "bg-white text-blue-600 border-blue-300 hover:bg-blue-50"
+                            )}
+                          >
+                            {previewUrl === file.name ? (
+                              <>
+                                <Square className="w-2.5 h-2.5 fill-current" />
+                                <span>Stop</span>
+                              </>
+                            ) : (
+                              <>
+                                <Play className="w-2.5 h-2.5 fill-current" />
+                                <span>Preview</span>
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className="text-[12px] font-black text-slate-300 uppercase leading-none">{file.size}</span>
-                      {!file.name.toLowerCase().endsWith('.mp3') && (
-                        <span className="text-[12px] font-black text-orange-500 uppercase bg-orange-100 px-1 rounded">No .mp3 extension</span>
-                      )}
-                    </div>
-                  </button>
-                )) : (
+                  );
+                }) : (
                   <div className="py-12 text-center">
                     <AlertCircle className="w-8 h-8 text-amber-500/60 mx-auto mb-2" />
                     <p className="text-[12px] font-bold text-slate-500 uppercase tracking-widest">
@@ -1616,15 +2066,46 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 )}
               </div>
             </div>
-            
-            {isDriveActive && (
-              <div className="p-3 bg-slate-50 border-t border-slate-100 text-center">
-                <p className="text-[12px] text-slate-400 font-bold uppercase italic leading-relaxed">
-                  * Real-time sync with default folder "google drive mp3library folder" enabled.<br/>
-                  Drive Location Target: google drive mp3library folder (ID: {DRIVE_FOLDERS.mp3s})
-                </p>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal Overlay */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
+            <div className="p-4 bg-red-50 border-b border-red-100 flex items-center gap-3">
+              <div className="bg-red-600 p-2 rounded">
+                <Trash2 className="w-4 h-4 text-white" />
               </div>
-            )}
+              <h3 className="text-[14px] font-black text-red-800 uppercase tracking-widest">
+                Delete Schedule?
+              </h3>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-[14px] text-slate-650 font-bold leading-relaxed">
+                This will permanently remove the schedule. If you want to keep it, but suspend it, cancel the delete and instead choose "suspend".
+              </p>
+            </div>
+            <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmId(null)}
+                className="px-4 py-2 border border-slate-200 rounded text-[14px] font-black text-slate-500 hover:bg-slate-100 uppercase tracking-widest transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteSchedule(deleteConfirmId);
+                  setDeleteConfirmId(null);
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-[14px] font-black uppercase tracking-widest transition-all shadow-md shadow-red-100 cursor-pointer"
+              >
+                I understand, delete
+              </button>
+            </div>
           </div>
         </div>
       )}

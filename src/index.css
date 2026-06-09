@@ -10,6 +10,9 @@
   body {
     @apply antialiased;
   }
+  input, button, select, textarea {
+    font-family: inherit;
+  }
 }
 
 @keyframes fade-in {
@@ -45,10 +48,65 @@
     display: none !important;
   }
 }
-@media (max-width: 210px) {
+@media (max-width: 310px) {
   .hide-player-name {
     display: none !important;
   }
+  .hide-unlit-dot {
+    display: none !important;
+  }
 }
+
+/* 1. First, remove "Folders" text and leave the folder icon */
+@media (max-width: 520px) {
+  .hide-folders-text {
+    display: none !important;
+  }
+}
+
+/* 2. Second, remove "Export" text and leave the export icon */
+@media (max-width: 460px) {
+  .hide-export-text {
+    display: none !important;
+  }
+}
+
+/* 3. Third, remove "Prerecord" text and leave the prerecord icon */
+@media (max-width: 400px) {
+  .hide-prerecord-text {
+    display: none !important;
+  }
+}
+
+/* 4. Fourth, remove "Live" text and leave the radio icon */
+@media (max-width: 340px) {
+  .hide-live-text {
+    display: none !important;
+  }
+}
+
+/* 5. Finally, remove the entire Demo object as a last resort */
+@media (max-width: 280px) {
+  .hide-demo-label {
+    display: none !important;
+  }
+}
+
+/* Ensure number input spinners (up/down icons) are always visible and not overlapping labels */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: inner-spin-button !important;
+  opacity: 1 !important;
+  display: block !important;
+}
+input[type="number"] {
+  -moz-appearance: number-input !important;
+}
+
+/* Make calendar popup icon black in date inputs */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+
 
 
