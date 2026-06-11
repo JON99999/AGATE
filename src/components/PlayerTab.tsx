@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { format, addMinutes, subMinutes, isSameMinute, isBefore, isAfter, startOfMinute, differenceInSeconds, parseISO } from 'date-fns';
-import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered } from 'lucide-react';
+import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download } from 'lucide-react';
 import { Schedule, ScheduleType, LogEntry } from '../types';
 import { cn, getMP3Status } from '../lib/utils';
 import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache } from '../lib/driveService';
@@ -565,7 +565,7 @@ export default function PlayerTab({
           <button
             id="btn-configure-export-timeframe"
             onClick={onConfigureTimeframe}
-            className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer shadow-md"
+            className="w-full h-10 flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white rounded border-b-[4px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[4px] font-black text-[14px] uppercase tracking-wider transition-all cursor-pointer shadow-[0_4px_6px_rgba(0,0,0,0.4)]"
           >
             Configure
           </button>
@@ -579,6 +579,42 @@ export default function PlayerTab({
           ref={scrollContainerRef}
           className="flex-1 overflow-y-auto space-y-2 pb-4 scroll-smooth"
         >
+          {/* Action stacked buttons above the MP3 list, satisfying layout requests A & B */}
+          <div className="space-y-1.5 pt-1.5 px-1.5">
+            <button
+              id="bg-btn-execute-export"
+              onClick={onExecuteExport}
+              className="w-full h-10 flex items-center justify-center gap-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded border-b-[4px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[4px] transition-all font-black uppercase text-[15px] tracking-wide font-sans cursor-pointer select-none shadow-[0_4px_6px_rgba(0,0,0,0.4)]"
+            >
+              <Download className="w-5 h-5 shrink-0" />
+              <span>Export</span>
+            </button>
+
+            <button
+              id="btn-log-export-as-played"
+              onClick={handleLogExportAsPlayed}
+              disabled={!hasUnlogged || isLoggingExports}
+              className={cn(
+                "w-full h-10 flex items-center justify-center gap-2 px-3 rounded font-black uppercase text-[14px] tracking-wide font-sans select-none transition-all duration-75 shadow-[0_4px_6px_rgba(0,0,0,0.4)]",
+                hasUnlogged && !isLoggingExports
+                  ? "bg-emerald-800 hover:bg-emerald-700 text-white border-b-[4px] border-emerald-950 hover:brightness-110 active:border-b-0 active:translate-y-[4px] cursor-pointer"
+                  : "bg-slate-800 text-slate-500 border-b-[4px] border-slate-900 cursor-not-allowed opacity-65"
+              )}
+            >
+              {isLoggingExports ? (
+                <>
+                  <RefreshCw className="w-4 h-4 shrink-0 animate-spin" />
+                  <span>Logging Exports...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-4 h-4 shrink-0" />
+                  <span>Log Export As Played</span>
+                </>
+              )}
+            </button>
+          </div>
+
           {/* Header indicator bar matching 'Prerecord Start' */}
           <div 
             ref={activeItemRef}
@@ -766,48 +802,24 @@ export default function PlayerTab({
             )}
           </div>
 
-          {/* Three horizontal stacked button boxes, satisfying rule 3 */}
-          <div className="space-y-1.5 pt-2 px-1">
+          {/* Action button boxes, satisfying rule 3 */}
+          <div className="space-y-2 pt-2 px-1">
             <button
               id="btn-copy-play-plan"
               onClick={handleCopyPlan}
-              className="w-full h-10 flex items-center justify-center gap-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded shadow-sm border border-emerald-500 transition-all font-black uppercase text-[12px] tracking-widest font-sans cursor-pointer select-none"
+              className="w-full h-10 flex items-center justify-center gap-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded border-b-[4px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[4px] transition-all font-black uppercase text-[14px] tracking-wide font-sans cursor-pointer select-none shadow-[0_4px_6px_rgba(0,0,0,0.4)]"
             >
-              <Copy className="w-3 h-3 shrink-0" />
+              <Copy className="w-4 h-4 shrink-0" />
               <span>{copiedPlan ? "Copied!" : "Copy Plan"}</span>
             </button>
 
             <button
               id="btn-copy-playlist"
               onClick={handleCopyPlaylist}
-              className="w-full h-10 flex items-center justify-center gap-1.5 px-3 bg-emerald-700 hover:bg-emerald-600 text-white rounded shadow-sm border border-emerald-600 transition-all font-black uppercase text-[12px] tracking-widest font-sans cursor-pointer select-none"
+              className="w-full h-10 flex items-center justify-center gap-2 px-3 bg-emerald-700 hover:bg-emerald-600 text-white rounded border-b-[4px] border-emerald-900 hover:brightness-110 active:border-b-0 active:translate-y-[4px] transition-all font-black uppercase text-[14px] tracking-wide font-sans cursor-pointer select-none shadow-[0_4px_6px_rgba(0,0,0,0.4)]"
             >
-              <Copy className="w-3 h-3 shrink-0" />
+              <Copy className="w-4 h-4 shrink-0" />
               <span>{copiedPlaylist ? "Copied!" : "Copy Playlist"}</span>
-            </button>
-
-            <button
-              id="btn-log-export-as-played"
-              onClick={handleLogExportAsPlayed}
-              disabled={!hasUnlogged || isLoggingExports}
-              className={cn(
-                "w-full h-10 flex items-center justify-center gap-1.5 px-3 rounded shadow-sm transition-all font-black uppercase text-[12px] tracking-widest font-sans select-none border",
-                hasUnlogged && !isLoggingExports
-                  ? "bg-emerald-800 hover:bg-emerald-700 text-white border-emerald-700 cursor-pointer"
-                  : "bg-slate-800 text-slate-500 border-slate-700/50 cursor-not-allowed opacity-60"
-              )}
-            >
-              {isLoggingExports ? (
-                <>
-                  <RefreshCw className="w-3 h-3 shrink-0 animate-spin" />
-                  <span>Logging Exports...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-3 h-3 shrink-0" />
-                  <span>Log Export As Played</span>
-                </>
-              )}
             </button>
           </div>
         </div>

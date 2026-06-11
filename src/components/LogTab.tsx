@@ -16,6 +16,52 @@ interface LogTabProps {
 type SortField = 'timestamp' | 'mp3Name' | 'scheduleName' | 'scheduleId' | 'playMode' | 'logTimeStamp';
 type SortOrder = 'asc' | 'desc';
 
+function formatLogTime(dateVal: string | number | Date, width: number): { dateStr: string; timeStr: string } {
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) {
+    return { dateStr: '-', timeStr: '-' };
+  }
+
+  const yyyy = d.getFullYear();
+  const yy = String(yyyy).slice(-2);
+  const m = d.getMonth() + 1; // 1-12
+  const mm = String(m).padStart(2, '0');
+  const day = d.getDate(); // 1-31
+  const dd = String(day).padStart(2, '0');
+
+  const h = d.getHours(); // 0-23
+  const hh = String(h).padStart(2, '0');
+  const min = d.getMinutes();
+  const minStr = String(min).padStart(2, '0');
+  const sec = d.getSeconds();
+  const secStr = String(sec).padStart(2, '0');
+
+  let dateStr = `${yyyy}-${mm}-${dd}`;
+  let timeStr = `${hh}:${minStr}:${secStr}`;
+
+  // 1. First, Truncate "HH:MM:SS" to "HH:MM"
+  if (width < 200) {
+    timeStr = `${hh}:${minStr}`;
+  }
+
+  // 2. Then, to "H:MM" with no leading zero on the H
+  if (width < 185) {
+    timeStr = `${h}:${minStr}`;
+  }
+
+  // 3. Next, when even more space is needed, Change "YYYY-MM-DD" to "YY-M-D", with no leading zero on the m and d
+  if (width < 165) {
+    dateStr = `${yy}-${m}-${day}`;
+  }
+
+  // 4. If you need even more, then change to "M-D"
+  if (width < 145) {
+    dateStr = `${m}-${day}`;
+  }
+
+  return { dateStr, timeStr };
+}
+
 export default function LogTab({ logs }: LogTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [startDateStr, setStartDateStr] = useState('');
@@ -25,13 +71,13 @@ export default function LogTab({ logs }: LogTabProps) {
 
   // Adjustable column widths
   const [colWidths, setColWidths] = useState({
-    time: 156,
-    schedule: 186,
-    id: 86
+    time: 210,
+    name: 320,
+    id: 110
   });
-  const [isDragging, setIsDragging] = useState<'time' | 'schedule' | 'id' | null>(null);
+  const [isDragging, setIsDragging] = useState<'time' | 'name' | 'id' | null>(null);
 
-  const startResize = (col: 'time' | 'schedule' | 'id', e: React.MouseEvent) => {
+  const startResize = (col: 'time' | 'name' | 'id', e: React.MouseEvent) => {
     e.preventDefault();
     setIsDragging(col);
 
@@ -200,17 +246,17 @@ export default function LogTab({ logs }: LogTabProps) {
     const isDesc = isActive && sortOrder === 'desc';
     
     return (
-      <span className="inline-flex flex-col ml-1 shrink-0 select-none leading-none -space-y-0.5">
+      <span className="inline-flex flex-col ml-1 shrink-0 select-none leading-none -space-y-1">
         <span className={cn(
-          "text-[12px] leading-none transition-all",
+          "text-[10px] leading-none transition-all",
           isAsc 
-            ? "text-blue-600 font-black scale-125" 
+            ? "text-blue-600 font-black" 
             : "text-slate-300 font-normal opacity-50"
         )}>▲</span>
         <span className={cn(
-          "text-[12px] leading-none transition-all",
+          "text-[10px] leading-none transition-all",
           isDesc 
-            ? "text-blue-600 font-black scale-125" 
+            ? "text-blue-600 font-black" 
             : "text-slate-300 font-normal opacity-50"
         )}>▼</span>
       </span>
@@ -218,41 +264,41 @@ export default function LogTab({ logs }: LogTabProps) {
   };
 
   return (
-    <div className="flex flex-col h-full space-y-3">
+    <div className="flex flex-col h-full space-y-3 font-sans">
       {/* Search, Range, Count & Exports unified in a single compact bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-2.5 shadow-sm shrink-0 flex flex-wrap items-center gap-3 justify-between">
+      <div className="bg-white rounded-xl border border-slate-350 p-2.5 shadow-sm shrink-0 flex flex-wrap items-center gap-3 justify-between">
         <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
           {/* Search filter */}
           <div className="relative w-full max-w-[210px] shrink-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
             <input 
               type="text" 
               placeholder="Filter logs by name..." 
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200/80 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500/80 transition-all font-sans"
+              className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-350 rounded-lg text-[14px] font-bold outline-none focus:ring-1 focus:ring-blue-500/80 transition-all font-sans text-slate-850 placeholder-slate-450"
             />
           </div>
           
           {/* Date Range filters */}
           <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
             <div className="flex items-center gap-1">
-              <span className="text-[12px] font-black text-slate-400 uppercase tracking-wider shrink-0">From:</span>
+              <span className="text-[14px] font-black text-slate-500 uppercase tracking-wider shrink-0">From:</span>
               <input 
                 type="date" 
                 value={startDateStr}
                 onChange={e => setStartDateStr(e.target.value)}
-                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-700 cursor-pointer transition-colors"
+                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-350 rounded-lg text-[14px] font-bold outline-none text-slate-700 cursor-pointer transition-colors"
               />
             </div>
             
             <div className="flex items-center gap-1">
-              <span className="text-[12px] font-black text-slate-400 uppercase tracking-wider shrink-0">To:</span>
+              <span className="text-[14px] font-black text-slate-500 uppercase tracking-wider shrink-0">To:</span>
               <input 
                 type="date" 
                 value={endDateStr}
                 onChange={e => setEndDateStr(e.target.value)}
-                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-700 cursor-pointer transition-colors"
+                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-350 rounded-lg text-[14px] font-bold outline-none text-slate-700 cursor-pointer transition-colors"
                 title="End Date (inclusive)"
               />
             </div>
@@ -260,7 +306,7 @@ export default function LogTab({ logs }: LogTabProps) {
             {(startDateStr || endDateStr) && (
               <button 
                 onClick={() => { setStartDateStr(''); setEndDateStr(''); }}
-                className="text-[11px] text-slate-450 hover:text-slate-600 font-bold underline cursor-pointer ml-1 select-none"
+                className="text-[13px] text-slate-500 hover:text-slate-700 font-bold underline cursor-pointer ml-1 select-none"
               >
                 Clear Dates
               </button>
@@ -271,11 +317,11 @@ export default function LogTab({ logs }: LogTabProps) {
         {/* Count and Exports bundle */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           {/* Count and limit indicators */}
-          <div className="text-[12px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1 shrink-0 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-100">
+          <div className="text-[14px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1 shrink-0 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-300">
             <span>Count:</span>
-            <span className="text-xs font-black text-slate-900 tabular-nums">{filteredLogsBase.length}</span>
+            <span className="text-[14px] font-black text-slate-900 tabular-nums">{filteredLogsBase.length}</span>
             {filteredLogsBase.length > DISPLAY_LIMIT && (
-              <span className="text-[11px] font-black text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded ml-1 tracking-normal border border-amber-250">
+              <span className="text-[13px] font-black text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded ml-1 tracking-normal border border-amber-300">
                 (limited to {DISPLAY_LIMIT} items)
               </span>
             )}
@@ -285,7 +331,7 @@ export default function LogTab({ logs }: LogTabProps) {
           <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={handleExportCSV}
-              className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-[12px] font-bold text-blue-700 transition-colors flex items-center gap-1 cursor-pointer"
+              className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-350 rounded-lg text-[14px] font-bold text-blue-700 transition-colors flex items-center gap-1 cursor-pointer"
               title="Export filtered logs as CSV"
             >
               <Download className="w-3.5 h-3.5 shrink-0 text-blue-600" />
@@ -293,7 +339,7 @@ export default function LogTab({ logs }: LogTabProps) {
             </button>
             <button
               onClick={handleExportXLSX}
-              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-[12px] font-bold text-emerald-700 transition-colors flex items-center gap-1 cursor-pointer"
+              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-350 rounded-lg text-[14px] font-bold text-emerald-700 transition-colors flex items-center gap-1 cursor-pointer"
               title="Export filtered logs as Excel"
             >
               <Download className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
@@ -304,179 +350,182 @@ export default function LogTab({ logs }: LogTabProps) {
       </div>
 
       {/* Logs Table */}
-      <div className="flex-1 overflow-y-auto min-h-0 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-        
-        {/* Header containing the dynamic incorporated sorts with 2 row headers */}
-        <div className="bg-slate-50 border-b border-slate-200 py-2 flex items-stretch text-[12px] font-black text-slate-400 uppercase tracking-wider shrink-0 select-none">
-          
-          {/* 1st Column: Timestamp (2 rows: Scheduled & Actual) */}
-          <div style={{ width: `${colWidths.time}px` }} className="flex flex-col justify-center gap-1.5 pr-2 pl-4 shrink-0 overflow-hidden">
-            <button 
-              onClick={() => toggleSort('timestamp')}
-              className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-700 transition-colors"
-            >
-              <span className="truncate">Scheduled Time</span>
-              <SortArrow field="timestamp" />
-            </button>
-            <button 
-              onClick={() => toggleSort('logTimeStamp')}
-              className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-700 transition-colors"
-            >
-              <span className="truncate">Actual Time</span>
-              <SortArrow field="logTimeStamp" />
-            </button>
-          </div>
-
-          {/* Resizer 1 */}
-          <div 
-            onMouseDown={(e) => startResize('time', e)}
-            className={cn(
-              "w-1 cursor-col-resize hover:bg-blue-500/80 hover:w-1.5 transition-all shrink-0 self-stretch relative bg-slate-200/40 z-10",
-              isDragging === 'time' && "bg-blue-600 w-1.5"
-            )}
-            title="Drag to resize Scheduled/Actual column"
-          />
-          
-          {/* 2nd Column: Schedule (2 rows: Title & Play Mode) */}
-          <div style={{ width: `${colWidths.schedule}px` }} className="flex flex-col justify-center gap-1.5 px-2 shrink-0 overflow-hidden">
-            <button 
-              onClick={() => toggleSort('scheduleName')}
-              className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-700 transition-colors"
-            >
-              <span className="truncate">Schedule Name</span>
-              <SortArrow field="scheduleName" />
-            </button>
-            <button 
-              onClick={() => toggleSort('playMode')}
-              className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-700 transition-colors"
-            >
-              <span className="truncate">Play Mode</span>
-              <SortArrow field="playMode" />
-            </button>
-          </div>
-
-          {/* Resizer 2 */}
-          <div 
-            onMouseDown={(e) => startResize('schedule', e)}
-            className={cn(
-              "w-1 cursor-col-resize hover:bg-blue-500/80 hover:w-1.5 transition-all shrink-0 self-stretch relative bg-slate-200/40 z-10",
-              isDragging === 'schedule' && "bg-blue-600 w-1.5"
-            )}
-            title="Drag to resize Schedule/Mode column"
-          />
-
-          {/* 3rd Column: MP3 file path */}
-          <div className="flex-1 flex flex-col justify-center gap-1.5 px-2 overflow-hidden">
-            <button 
-              onClick={() => toggleSort('mp3Name')}
-              className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-700 transition-colors"
-            >
-              <span className="truncate">MP3 File</span>
-              <SortArrow field="mp3Name" />
-            </button>
-          </div>
-
-          {/* Resizer 3 */}
-          <div 
-            onMouseDown={(e) => startResize('id', e)}
-            className={cn(
-              "w-1 cursor-col-resize hover:bg-blue-500/80 hover:w-1.5 transition-all shrink-0 self-stretch relative bg-slate-200/40 z-10",
-              isDragging === 'id' && "bg-blue-600 w-1.5"
-            )}
-            title="Drag to resize ID column"
-          />
-
-          {/* 4th Column: Schedule ID */}
-          <div style={{ width: `${colWidths.id}px` }} className="flex flex-col justify-center gap-1.5 pr-4 pl-2 shrink-0 text-right items-end overflow-hidden">
-            <button 
-              onClick={() => toggleSort('scheduleId')}
-              className="flex items-center gap-1 cursor-pointer group hover:text-slate-700 transition-colors justify-end"
-            >
-              <span className="truncate">ID</span>
-              <SortArrow field="scheduleId" />
-            </button>
-          </div>
-        </div>
+      <div className="flex-1 overflow-y-auto min-h-0 bg-white rounded-xl border border-grid-active shadow-sm overflow-hidden flex flex-col">
         
         {/* Rows viewport */}
         <div className="flex-1 overflow-y-auto">
+          {/* Header containing the dynamic incorporated sorts with 2 row headers */}
+          <div className="bg-slate-100 border-b border-grid-active py-1 flex items-stretch text-[14px] font-black text-slate-650 uppercase tracking-wider shrink-0 select-none sticky top-0 z-20 shadow-sm">
+            
+            {/* 1st Column: Timestamp (2 rows: Scheduled & Actual) */}
+            <div style={{ width: `${colWidths.time}px` }} className="flex flex-col justify-center py-0.5 gap-0.5 pr-2 pl-4 shrink-0 overflow-hidden">
+              <button 
+                onClick={() => toggleSort('timestamp')}
+                className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-900 transition-colors text-slate-650"
+              >
+                <span className="truncate">Scheduled Time</span>
+                <SortArrow field="timestamp" />
+              </button>
+              <button 
+                onClick={() => toggleSort('logTimeStamp')}
+                className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-900 transition-colors text-slate-650"
+              >
+                <span className="truncate">Actual Time</span>
+                <SortArrow field="logTimeStamp" />
+              </button>
+            </div>
+
+            {/* Resizer 1 */}
+            <div 
+              onMouseDown={(e) => startResize('time', e)}
+              className={cn(
+                "w-[2px] cursor-col-resize bg-slate-300 hover:bg-slate-450 transition-colors shrink-0 self-stretch relative z-10",
+                isDragging === 'time' && "bg-slate-500"
+              )}
+              title="Drag to resize Scheduled/Actual column"
+            />
+            
+            {/* 2nd Column: Schedule */}
+            <div style={{ width: `${colWidths.name}px` }} className="shrink-0 flex items-center px-2 overflow-hidden">
+              <button 
+                onClick={() => toggleSort('scheduleName')}
+                className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-900 transition-colors text-slate-650 w-full"
+              >
+                <span className="truncate">Schedule Name</span>
+                <SortArrow field="scheduleName" />
+              </button>
+            </div>
+
+            {/* Resizer 2 (Middle Divider) */}
+            <div 
+              onMouseDown={(e) => startResize('name', e)}
+              className={cn(
+                "w-[2px] cursor-col-resize bg-slate-300 hover:bg-slate-450 transition-colors shrink-0 self-stretch relative z-10",
+                isDragging === 'name' && "bg-slate-500"
+              )}
+              title="Drag to resize Schedule Name column"
+            />
+
+            {/* 3rd Column: MP3 file path (fluid) */}
+            <div className="flex-1 flex items-center px-2 overflow-hidden">
+              <button 
+                onClick={() => toggleSort('mp3Name')}
+                className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-900 transition-colors text-slate-650"
+              >
+                <span className="truncate">MP3 File</span>
+                <SortArrow field="mp3Name" />
+              </button>
+            </div>
+
+            {/* Resizer 3 */}
+            <div 
+              onMouseDown={(e) => startResize('id', e)}
+              className={cn(
+                "w-[2px] cursor-col-resize bg-slate-300 hover:bg-slate-450 transition-colors shrink-0 self-stretch relative z-10",
+                isDragging === 'id' && "bg-slate-500"
+              )}
+              title="Drag to resize ID column"
+            />
+
+            {/* 4th Column: Schedule ID & Play Mode */}
+            <div style={{ width: `${colWidths.id}px` }} className="flex flex-col justify-center py-0.5 gap-0.5 pr-4 pl-2 shrink-0 text-right items-end overflow-hidden">
+              <button 
+                onClick={() => toggleSort('scheduleId')}
+                className="flex items-center gap-1 cursor-pointer group hover:text-slate-900 transition-colors justify-end text-slate-650"
+              >
+                <span className="truncate">ID#</span>
+                <SortArrow field="scheduleId" />
+              </button>
+              <button 
+                onClick={() => toggleSort('playMode')}
+                className="flex items-center gap-1 cursor-pointer group hover:text-slate-900 transition-colors justify-end text-slate-650"
+              >
+                <span className="truncate">Mode</span>
+                <SortArrow field="playMode" />
+              </button>
+            </div>
+          </div>
+
           {displayedLogs.length > 0 ? (
             displayedLogs.map((log, i) => (
               <div 
                 key={`${log.scheduleId}-${log.timestamp}-${i}`}
                 className={cn(
-                  "flex items-stretch border-b border-slate-100 hover:bg-slate-50 transition-colors last:border-0 grow min-h-[52px]",
-                  i % 2 === 0 ? "bg-white" : "bg-slate-50/20"
+                  "flex items-stretch border-b border-grid-active hover:bg-slate-50 transition-colors last:border-0 grow min-h-[52px]",
+                  i % 2 === 0 ? "bg-white" : "bg-slate-205"
                 )}
               >
                 {/* Timestamp cell mapped to Schedule/Actual */}
-                <div style={{ width: `${colWidths.time}px` }} className="text-[14px] font-mono font-bold text-slate-900 tabular-nums flex flex-col justify-center gap-1.5 pr-2 pl-4 shrink-0 overflow-hidden py-2.5">
-                  <div className="leading-tight line-clamp-2 text-ellipsis overflow-hidden" title={`${format(new Date(log.timestamp), 'yyyy-MM-dd')} ${format(new Date(log.timestamp), 'HH:mm:ss')}`}>
-                    <span className="inline-block mr-1.5">{format(new Date(log.timestamp), 'yyyy-MM-dd')}</span>
-                    <span className="text-slate-400 font-medium inline-block">{format(new Date(log.timestamp), 'HH:mm:ss')}</span>
-                  </div>
-                  {log.logTimeStamp ? (
-                    <span 
-                      className="text-[12px] font-mono font-medium text-slate-400 tracking-tighter leading-tight line-clamp-2 text-ellipsis overflow-hidden"
-                      title={`ACTL: ${format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss')}`}
-                    >
-                      ACTL: {format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss')}
-                    </span>
-                  ) : (
-                    <span className="text-[12px] font-mono font-medium text-slate-300 leading-tight">-</span>
-                  )}
-                </div>
+                {(() => {
+                  const sched = formatLogTime(log.timestamp, colWidths.time);
+                  const actl = log.logTimeStamp ? formatLogTime(log.logTimeStamp, colWidths.time) : null;
+                  return (
+                    <div style={{ width: `${colWidths.time}px` }} className="text-[14px] font-mono font-bold text-slate-900 tabular-nums flex flex-col justify-start gap-0 pr-2 pl-4 shrink-0 overflow-hidden py-2.5">
+                      <div className="leading-tight line-clamp-2 text-ellipsis overflow-hidden text-slate-905" title={`${format(new Date(log.timestamp), 'yyyy-MM-dd')} ${format(new Date(log.timestamp), 'HH:mm:ss')}`}>
+                        S:{sched.dateStr} {sched.timeStr}
+                      </div>
+                      {actl ? (
+                        <span 
+                          className="text-[14px] font-mono font-medium text-slate-500 tracking-tighter leading-tight line-clamp-2 text-ellipsis overflow-hidden"
+                          title={`ACTL: ${format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss')}`}
+                        >
+                          A:{actl.dateStr} {actl.timeStr}
+                        </span>
+                      ) : (
+                        <span className="text-[14px] font-mono font-medium text-slate-400 leading-tight">-</span>
+                      )}
+                    </div>
+                  );
+                })()}
 
-                {/* Resizer guide line */}
-                <div className="w-1 shrink-0 self-stretch border-r border-slate-100/50 bg-slate-50/10" />
+                {/* Resizer guide line 1 */}
+                <div className="w-[2px] shrink-0 self-stretch bg-slate-300" />
                 
-                {/* Schedule details cell mapped to Name/PlayMode */}
-                <div style={{ width: `${colWidths.schedule}px` }} className="px-2 flex flex-col justify-center gap-1 shrink-0 overflow-hidden py-2.5">
-                  <span className="text-[14px] font-bold text-slate-800 line-clamp-2 leading-tight truncate">
+                {/* Schedule details cell */}
+                <div style={{ width: `${colWidths.name}px` }} className="shrink-0 min-w-0 px-2 flex flex-col justify-start gap-1 py-2.5 overflow-hidden">
+                  <span className="text-[16px] font-bold text-slate-800 line-clamp-2 leading-tight">
                     {log.scheduleName}
                   </span>
-                  <div>
-                    <span className={cn(
-                      "inline-block text-[14px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none border",
-                      log.playMode === 'Prerecord' 
-                        ? "bg-purple-50 text-purple-600 border-purple-100" 
-                        : log.playMode === 'Export'
-                          ? "bg-emerald-50 text-emerald-600 border-emerald-100"
-                          : "bg-blue-50 text-blue-600 border-blue-100"
-                    )}>
-                      {log.playMode || 'Live'} Mode
-                    </span>
-                  </div>
                 </div>
 
-                {/* Resizer guide line */}
-                <div className="w-1 shrink-0 self-stretch border-r border-slate-100/50 bg-slate-50/10" />
+                {/* Resizer guide line 2 */}
+                <div className="w-[2px] shrink-0 self-stretch bg-slate-300" />
                 
                 {/* MP3 path cell */}
-                <div className="flex-1 min-w-0 px-2 flex items-center py-2.5">
-                  <div className="flex items-center gap-1.5 min-w-0 w-full">
-                    <Music className="w-3 h-3 text-slate-300 shrink-0" />
-                    <span className="text-[12px] font-mono text-slate-400 truncate w-full" title={log.mp3Name}>
+                <div className="flex-1 min-w-0 px-2 flex items-start py-2.5">
+                  <div className="flex items-start gap-1.5 min-w-0 w-full mt-0.5">
+                    <Music className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                    <span className="text-[14px] font-mono text-slate-500 line-clamp-2 break-all leading-tight w-full" title={log.mp3Name}>
                       {getMP3Status(log.mp3Name).filename}
                     </span>
                   </div>
                 </div>
 
-                {/* Resizer guide line */}
-                <div className="w-1 shrink-0 self-stretch border-r border-slate-100/50 bg-slate-50/10" />
+                {/* Resizer guide line 3 */}
+                <div className="w-[2px] shrink-0 self-stretch bg-slate-300" />
                 
-                {/* ID cell */}
-                <div style={{ width: `${colWidths.id}px` }} className="pr-4 pl-2 text-right flex items-center justify-end shrink-0 overflow-hidden py-2.5">
-                  <span className="text-[12px] font-black text-slate-300 uppercase truncate">
-                    #{log.scheduleId}
+                {/* ID & Play Mode cell */}
+                <div style={{ width: `${colWidths.id}px` }} className="pr-4 pl-2 text-right flex flex-col justify-start items-end gap-0 shrink-0 overflow-hidden py-2.5">
+                  <span className="text-[14px] font-black text-slate-500 uppercase truncate leading-none">
+                    {log.scheduleId}
+                  </span>
+                  <span className={cn(
+                    "inline-block text-[12px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-sm leading-none border mt-[3px]",
+                    log.playMode === 'Prerecord' 
+                      ? "bg-purple-100/90 text-purple-800 border-purple-200" 
+                      : log.playMode === 'Export'
+                        ? "bg-emerald-100/90 text-emerald-800 border-emerald-200"
+                        : "bg-blue-100/90 text-blue-800 border-blue-200"
+                  )}>
+                    {log.playMode || 'Live'}
                   </span>
                 </div>
               </div>
             ))
           ) : (
             <div className="flex flex-col items-center justify-center p-12 text-center">
-              <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">No logs found</span>
-              <p className="text-xs text-slate-400 mt-1">Try adjusting your filters or wait for events to trigger</p>
+              <span className="text-[16px] font-bold text-slate-500 uppercase tracking-widest">No logs found</span>
+              <p className="text-[14px] text-slate-400 mt-1">Try adjusting your filters or wait for events to trigger</p>
             </div>
           )}
         </div>

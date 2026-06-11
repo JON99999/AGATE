@@ -129,6 +129,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
   const isNew = editingId ? !schedules.some(s => s.id === editingId) : false;
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [scheduleFilterQuery, setScheduleFilterQuery] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -393,7 +394,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
       return `Hours: ${fullHours.join(', ')}`;
     }
 
-    return "Open for more details";
+    return "Open for details";
   };
 
   const getNextId = () => {
@@ -601,6 +602,18 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
     const dayOfWeek = date.getDay(); // 0-6
 
     return schedules.filter(s => {
+      // Apply basic text filter search
+      if (scheduleFilterQuery) {
+        const q = scheduleFilterQuery.toLowerCase();
+        const summaryText = getScheduleSummary(s).toLowerCase();
+        const playModeText = (s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type === ScheduleType.BASIC_HOURLY ? "Hourly" : "Advanced").toLowerCase();
+        const matchesQuery = s.name.toLowerCase().includes(q) || 
+                             (s.mp3Url && s.mp3Url.toLowerCase().includes(q)) ||
+                             playModeText.includes(q) ||
+                             summaryText.includes(q);
+        if (!matchesQuery) return false;
+      }
+
       // Hide all inactive schedules by default if setting checked
       if (!showInactive && !s.enabled) return false;
 
@@ -692,10 +705,29 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
               </button>
             </div>
             
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2.5 items-center">
+              <div className="relative w-48 sm:w-56 shrink-0">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                <input 
+                  type="text" 
+                  placeholder="Filter schedules..." 
+                  value={scheduleFilterQuery}
+                  onChange={e => setScheduleFilterQuery(e.target.value)}
+                  className="w-full pl-8 pr-6 py-1 bg-white border border-slate-350 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans text-slate-850 placeholder-slate-450 h-8"
+                />
+                {scheduleFilterQuery && (
+                  <button 
+                    onClick={() => setScheduleFilterQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer"
+                    title="Clear filter"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
               <button 
                 onClick={createNew}
-                className="p-1.5 px-4 bg-blue-600 text-white rounded text-[12px] font-black tracking-tighter shadow-sm hover:bg-blue-700 transition-colors uppercase cursor-pointer"
+                className="p-1.5 px-4 bg-blue-600 text-white rounded text-[12px] font-black tracking-tighter shadow-sm hover:bg-blue-700 transition-colors uppercase cursor-pointer h-8 border border-blue-700"
               >
                 + ADD NEW
               </button>
@@ -882,32 +914,31 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
               </div>
               {/* The Calendar Grid Container! */}
               <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm flex flex-col flex-1 min-h-0">
-                {/* Header row (Static outside of the scrollable viewport, matching log grid layout) */}
-                <div className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))] bg-slate-100 border-b border-slate-250 select-none text-[14px] font-black text-slate-500 uppercase tracking-tighter shrink-0 shadow-sm z-10">
-                  <div className="p-2 border-r border-slate-205 flex items-center justify-center font-mono text-slate-450">
-                    Hour
-                  </div>
-                  {getWeekDays(calendarDate).map((day, idx) => {
-                    const { dayName, dateStr } = formatDayHeader(day);
-                    const isToday = day.toISOString().split('T')[0] === now.toISOString().split('T')[0];
-                    return (
-                      <div 
-                        key={idx} 
-                        className={cn(
-                          "p-2 text-center border-r border-slate-200 last:border-r-0 flex items-center justify-center min-w-0",
-                          isToday ? "bg-blue-500/10 text-blue-700" : "text-slate-650"
-                        )}
-                      >
-                        <span className="font-black text-[14px] leading-tight truncate">
-                          {dayName} <span className="opacity-80 font-normal ml-1">{dateStr}</span>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-
                 {/* Scrollable list of hours */}
-                <div className="overflow-y-auto flex-1 custom-scrollbar min-h-0 grid grid-cols-1">
+                <div className="overflow-y-auto flex-1 custom-scrollbar min-h-0 flex flex-col">
+                  {/* Header row (Static outside of the scrollable viewport, matching log grid layout) */}
+                  <div className="grid grid-cols-[52px_repeat(7,minmax(0,1fr))] bg-slate-100 border-b border-slate-250 select-none text-[14px] font-black text-slate-500 uppercase tracking-tighter shrink-0 shadow-sm sticky top-0 z-20">
+                    <div className="p-2 border-r border-slate-205 flex items-center justify-center font-mono text-slate-450">
+                      Hour
+                    </div>
+                    {getWeekDays(calendarDate).map((day, idx) => {
+                      const { dayName, dateStr } = formatDayHeader(day);
+                      const isToday = day.toISOString().split('T')[0] === now.toISOString().split('T')[0];
+                      return (
+                        <div 
+                          key={idx} 
+                          className={cn(
+                            "p-2 text-center border-r border-slate-200 last:border-r-0 flex items-center justify-center min-w-0",
+                            isToday ? "bg-blue-500/10 text-blue-700" : "text-slate-650"
+                          )}
+                        >
+                          <span className="font-black text-[14px] leading-tight truncate">
+                            {dayName} <span className="opacity-80 font-normal ml-1">{dateStr}</span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                   {Array.from({ length: 24 }).map((_, h) => h)
                     .filter(h => selectedHours.includes(h))
                     .map((hour) => {
@@ -948,12 +979,12 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                       className={cn(
                                         "inline-flex items-center justify-center p-0.5 px-0.5 rounded font-mono text-[12px] font-black leading-none shadow-sm border cursor-pointer select-none shrink-0 transition-all hover:scale-105",
                                         !s.enabled 
-                                          ? "bg-slate-100 text-slate-400 border-slate-200 line-through" 
+                                          ? "bg-slate-100 text-slate-400 border-grid-inactive line-through" 
                                           : s.type === ScheduleType.ONE_TIME 
-                                            ? "bg-purple-100 text-purple-700 border-purple-200 font-extrabold" 
+                                            ? "bg-purple-100 text-purple-700 border-grid-onetime font-extrabold" 
                                             : s.type === ScheduleType.BASIC_HOURLY 
-                                              ? "bg-blue-100 text-blue-700 border-blue-200" 
-                                              : "bg-orange-100 text-orange-700 border-orange-200"
+                                              ? "bg-blue-100 text-blue-700 border-grid-hourly" 
+                                              : "bg-orange-100 text-orange-700 border-grid-advanced"
                                       )}
                                       title={summaryText}
                                     >
@@ -969,12 +1000,12 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                     className={cn(
                                       "w-full text-left p-1 rounded font-sans text-[12px] leading-tight truncate shadow-sm border block cursor-pointer select-none transition-all hover:translate-x-0.5",
                                       !s.enabled 
-                                        ? "bg-slate-105 text-slate-400 border-slate-200 line-through" 
+                                        ? "bg-slate-105 text-slate-400 border-grid-inactive line-through" 
                                         : s.type === ScheduleType.ONE_TIME 
-                                          ? "bg-purple-50 text-purple-700 border-purple-200 font-bold" 
+                                          ? "bg-purple-50 text-purple-700 border-grid-onetime font-bold" 
                                           : s.type === ScheduleType.BASIC_HOURLY 
-                                            ? "bg-blue-50 text-blue-700 border-blue-200" 
-                                            : "bg-orange-50 text-orange-700 border-orange-200"
+                                            ? "bg-blue-50 text-blue-700 border-grid-hourly" 
+                                            : "bg-orange-50 text-orange-700 border-grid-advanced"
                                     )}
                                     title={summaryText}
                                   >
@@ -999,9 +1030,9 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
             {/* Active Schedules Section */}
             <div className="space-y-2">
               <div className="flex items-center gap-2 mb-2">
-                <div className="h-px bg-green-100 flex-1"></div>
-                <span className="text-[12px] font-black text-green-500 uppercase tracking-widest">Active Schedules</span>
-                <div className="h-px bg-green-100 flex-1"></div>
+                <div className="h-px bg-green-300 flex-1"></div>
+                <span className="text-[12px] font-black text-green-700 uppercase tracking-widest leading-none">Active Schedules</span>
+                <div className="h-px bg-green-300 flex-1"></div>
               </div>
               
               {(() => {
@@ -1018,140 +1049,212 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                   } else {
                     isExpired = !!(s.endDate && s.endDate < today);
                   }
+                  
+                  // Apply active basic search filter
+                  if (scheduleFilterQuery) {
+                    const q = scheduleFilterQuery.toLowerCase();
+                    const summaryText = getScheduleSummary(s).toLowerCase();
+                    const playModeText = (s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type === ScheduleType.BASIC_HOURLY ? "Hourly" : "Advanced").toLowerCase();
+                    const matchesFilter = s.name.toLowerCase().includes(q) || 
+                                          (s.mp3Url && s.mp3Url.toLowerCase().includes(q)) || 
+                                          playModeText.includes(q) || 
+                                          summaryText.includes(q);
+                    return s.enabled && !isExpired && matchesFilter;
+                  }
+                  
                   return s.enabled && !isExpired;
                 });
 
                 if (activeOnes.length === 0) {
                   return (
-                    <div className="py-8 text-center bg-slate-50/50 rounded-lg border border-dashed border-slate-200">
-                      <p className="text-[12px] font-bold text-slate-400 uppercase tracking-widest leading-none">No active triggers</p>
+                    <div className="py-8 text-center bg-slate-50/50 rounded-lg border border-dashed border-slate-350">
+                      <p className="text-[12px] font-bold text-slate-450 uppercase tracking-widest leading-none">No active triggers</p>
                     </div>
                   );
                 }
 
-                return activeOnes
-                  .sort((a, b) => a.minute - b.minute)
-                  .map(s => (
-                    <div 
-                      key={s.id}
-                      onClick={() => startEdit(s)}
-                      className={cn(
-                        "p-3 rounded-lg border transition-all cursor-pointer group relative",
-                        "bg-white border-slate-200 hover:border-blue-300 shadow-sm"
-                      )}
-                    >
-                      <div className="flex justify-between items-start mb-1.5">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
-                          <span className="text-[12px] font-black text-slate-300 uppercase leading-none mb-1 sm:mb-0">ID: {s.id}</span>
-                          <span className={cn(
-                            "px-1.5 py-0.5 rounded text-[12px] uppercase font-bold tracking-tighter inline-block w-fit leading-none mb-1 sm:mb-0",
-                            s.type === ScheduleType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black" :
-                            s.type === ScheduleType.BASIC_HOURLY ? "bg-blue-100 text-blue-700" :
-                            "bg-orange-100 text-orange-700"
-                          )}>
-                            {s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type.split('-').pop()}
-                          </span>
-                          <span className="hidden sm:inline-block text-[16px] font-bold text-slate-800 truncate max-w-[200px] leading-none ml-1">
-                            {s.name}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 underline-offset-4">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startEdit(s);
-                            }}
-                            className="flex items-center gap-1 py-1 px-2 hover:bg-blue-600 hover:text-white bg-white border border-blue-100 rounded text-blue-600 transition-all shadow-sm group/btn"
-                            title="View or Edit Schedule"
-                          >
-                            <FileText className="w-2.5 h-2.5" />
-                            <span className="text-[12px] font-black uppercase">View/Edit</span>
-                          </button>
-                          <button 
-                            onClick={(e) => duplicate(s, e)}
-                            className="flex items-center gap-1 py-1 px-2 hover:bg-blue-50 bg-white border border-slate-100 rounded text-blue-600 transition-all shadow-sm"
-                            title="Duplicate Schedule"
-                          >
-                            <Copy className="w-2.5 h-2.5" />
-                            <span className="text-[12px] font-black uppercase">Duplicate</span>
-                          </button>
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 ml-1" />
-                        </div>
-                      </div>
-                      <p className="font-bold text-slate-800 text-[16px] truncate leading-tight mb-1 sm:hidden">{s.name}</p>
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-1.5 text-[14px] text-slate-400 font-bold uppercase tracking-tighter shrink-0">
-                          <Clock className="w-3 h-3" />
-                          <span>:{s.minute.toString().padStart(2, '0')}m </span>
-                          <span className="text-slate-300 ml-1">• {getScheduleSummary(s)}</span>
-                        </div>
-                        
-                        {/* MP3 Status Info */}
-                        {(() => {
-                           const status = getMP3Status(s.mp3Url);
-                           const isVerified = status.exists && status.valid;
-                           return (
-                             <div className="flex items-center gap-1.5 min-w-0 overflow-hidden text-right justify-end flex-1">
-                               <button 
-                                 onClick={(e) => isVerified ? togglePreview(s.mp3Url, e) : e.stopPropagation()}
-                                 disabled={!isVerified}
-                                 className={cn(
-                                   "flex items-center gap-2 py-0.5 px-3 rounded border shadow-sm transition-all group/play min-w-0 max-w-full",
-                                   previewUrl === s.mp3Url 
-                                     ? "bg-slate-900 text-white border-slate-900" 
-                                     : isVerified
-                                       ? "bg-white text-blue-600 border-blue-100 hover:bg-blue-50"
-                                       : "bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed"
-                                 )}
-                               >
-                                 <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-                                   <Music className={cn(
-                                     "w-2.5 h-2.5 shrink-0", 
-                                     previewUrl === s.mp3Url ? "text-slate-400" : 
-                                     isVerified ? "text-slate-300 group-hover/play:text-blue-400" : "text-slate-200"
-                                   )} />
-                                   <span className={cn(
-                                     "text-[12px] font-bold uppercase truncate",
-                                     previewUrl === s.mp3Url ? "text-white" :
-                                     !status.exists ? "text-red-400" : !status.valid ? "text-orange-400" : "text-slate-400 group-hover/play:text-blue-700"
-                                   )}>
-                                     {!status.exists ? "File not found." : !status.valid ? "File not mp3." : status.filename}
-                                   </span>
-                                 </div>
+                return (
+                  <div className="border border-grid-active rounded-lg overflow-hidden divide-y divide-grid-active bg-white shadow-sm">
+                    {activeOnes
+                      .sort((a, b) => a.minute - b.minute)
+                      .map((s, idx) => (
+                        <div 
+                          key={s.id}
+                          onClick={() => startEdit(s)}
+                          className={cn(
+                            "transition-all cursor-pointer group relative flex items-stretch min-h-[64px]",
+                            idx % 2 === 0 ? "bg-white" : "bg-slate-205"
+                          )}
+                        >
+                          {/* Left: clock dial, spanning the entire card height, no pixel gap, high contrast lines */}
+                          <div className="shrink-0 flex items-center justify-center p-1 bg-slate-50 border-r border-grid-active w-[64px] select-none">
+                            <svg
+                              width="56"
+                              height="56"
+                              viewBox="0 0 80 80"
+                              className="w-[52px] h-[52px] select-none"
+                            >
+                              <circle 
+                                cx="40" 
+                                cy="40" 
+                                r="37" 
+                                className="fill-white stroke-slate-350 stroke-[2]" 
+                              />
+                              <text x="40" y="21" textAnchor="middle" className="text-[17px] font-black fill-slate-500">0</text>
+                              <text x="66" y="45" textAnchor="middle" className="text-[12px] font-bold fill-slate-450">15</text>
+                              <text x="40" y="69" textAnchor="middle" className="text-[12px] font-bold fill-slate-450">30</text>
+                              <text x="14" y="45" textAnchor="middle" className="text-[12px] font-bold fill-slate-450">45</text>
+                              {Array.from({ length: 12 }).map((_, ticksIdx) => {
+                                const angle = ticksIdx * 30;
+                                if (ticksIdx % 3 === 0) return null;
+                                return (
+                                  <line
+                                    key={ticksIdx}
+                                    x1="40"
+                                    y1="5"
+                                    x2="40"
+                                    y2="9"
+                                    transform={`rotate(${angle}, 40, 40)`}
+                                    className="stroke-slate-300 stroke-[2]"
+                                  />
+                                );
+                              })}
+                              <line
+                                x1="40"
+                                y1="40"
+                                x2="40"
+                                y2="11"
+                                transform={`rotate(${(s.minute || 0) * 6}, 40, 40)`}
+                                  stroke="#2563eb"
+                                strokeWidth="4"
+                                strokeLinecap="round"
+                              />
+                              <circle cx="40" cy="40" r="5" className="fill-slate-800" />
+                              <circle cx="40" cy="40" r="1.5" className="fill-white" />
+                            </svg>
+                          </div>
 
-                                 <div className={cn(
-                                   "h-3 w-px shrink-0 mx-0.5",
-                                   previewUrl === s.mp3Url ? "bg-slate-700" : isVerified ? "bg-slate-200 group-hover/play:bg-blue-200" : "bg-slate-200"
-                                 )} />
+                          {/* Right: details area with comfortable inner padding */}
+                          <div className="flex-1 min-w-0 flex flex-col justify-between py-2 pr-3 pl-3.5">
+                            {/* Title of schedule first, category tag on the right attached to details tag */}
+                            <div className="flex justify-between items-center mb-1 gap-2">
+                              <span className="text-[18px] font-black text-slate-800 truncate leading-none">
+                                {s.name}
+                              </span>
+                              <div className="text-[14px] font-bold uppercase tracking-tighter shrink-0 text-right flex items-center gap-1.5 leading-none">
+                                <span className={cn(
+                                  "px-1.5 py-0.5 rounded text-[12px] uppercase font-bold tracking-tighter leading-none inline-block border border-slate-300",
+                                  s.type === ScheduleType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black border-purple-300" :
+                                  s.type === ScheduleType.BASIC_HOURLY ? "bg-blue-100 text-blue-700 border-blue-200" :
+                                  "bg-orange-100 text-orange-700 border-orange-200"
+                                )}>
+                                  {s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type === ScheduleType.BASIC_HOURLY ? "Hourly" : "Advanced"}
+                                </span>
+                                <span className="text-slate-550 font-bold">
+                                  {getScheduleSummary(s)}
+                                </span>
+                              </div>
+                            </div>
 
-                                 <div className="flex items-center gap-1.5 shrink-0">
-                                   {previewUrl === s.mp3Url ? (
-                                     <Square className="w-2.5 h-2.5 fill-current" />
-                                   ) : isVerified ? (
-                                     <Play className="w-2.5 h-2.5 fill-current" />
-                                   ) : (
-                                     <XCircle className="w-2.5 h-2.5" />
-                                   )}
-                                   <span className="text-[12px] font-black uppercase whitespace-nowrap">
-                                     {previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked'}
-                                   </span>
-                                 </div>
-                               </button>
-                             </div>
-                           );
-                        })()}
-                      </div>
-                    </div>
-                  ));
+                            {/* Bottom Row of metadata & view actions */}
+                            <div className="flex justify-between items-center gap-4">
+                              <div className="flex items-center gap-3 shrink-0">
+                                <div className="flex items-center gap-1.5 text-[14px] text-slate-500 font-bold uppercase tracking-tighter">
+                                  <span>:{s.minute.toString().padStart(2, '0')}m</span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 underline-offset-4">
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      startEdit(s);
+                                    }}
+                                    className="flex items-center gap-1 py-0.5 px-2 hover:bg-blue-600 hover:text-white bg-white border border-blue-300 rounded text-blue-700 transition-all shadow-sm group/btn cursor-pointer"
+                                    title="View or Edit Schedule"
+                                  >
+                                    <FileText className="w-2.5 h-2.5" />
+                                    <span className="text-[14px] font-black uppercase">View/Edit</span>
+                                  </button>
+                                  <button 
+                                    onClick={(e) => duplicate(s, e)}
+                                    className="flex items-center gap-1 py-0.5 px-2 hover:bg-blue-50 bg-white border border-slate-350 rounded text-blue-700 transition-all shadow-sm cursor-pointer"
+                                    title="Copy Schedule"
+                                  >
+                                    <Copy className="w-2.5 h-2.5" />
+                                    <span className="text-[14px] font-black uppercase">Copy</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* MP3 Status Info */}
+                              {(() => {
+                                 const status = getMP3Status(s.mp3Url);
+                                 const isVerified = status.exists && status.valid;
+                                 return (
+                                   <div className="flex items-center gap-1.5 min-w-0 overflow-hidden text-right justify-end flex-1">
+                                     <button 
+                                       onClick={(e) => isVerified ? togglePreview(s.mp3Url, e) : e.stopPropagation()}
+                                       disabled={!isVerified}
+                                       className={cn(
+                                         "flex items-center gap-2 py-0.5 px-3 rounded border shadow-sm transition-all group/play min-w-0 cursor-pointer w-full justify-start",
+                                         previewUrl === s.mp3Url 
+                                           ? "bg-slate-900 text-white border-slate-900" 
+                                           : isVerified
+                                             ? "bg-white text-blue-700 border-blue-300 hover:bg-blue-50"
+                                             : "bg-slate-50 text-slate-400 border-slate-300 cursor-not-allowed"
+                                       )}
+                                     >
+                                       <div className="flex items-center gap-1.5 min-w-0 overflow-hidden flex-1 text-left order-3">
+                                         <Music className={cn(
+                                           "w-2.5 h-2.5 shrink-0", 
+                                           previewUrl === s.mp3Url ? "text-slate-400" : 
+                                           isVerified ? "text-slate-400 group-hover/play:text-blue-500" : "text-slate-300"
+                                         )} />
+                                         <span className={cn(
+                                           "text-[14px] font-bold uppercase truncate",
+                                           previewUrl === s.mp3Url ? "text-white" :
+                                           !status.exists ? "text-red-600 font-extrabold" : !status.valid ? "text-orange-600 font-extrabold" : "text-slate-600 group-hover/play:text-blue-800"
+                                         )}>
+                                           {!status.exists ? "File not found." : !status.valid ? "File not mp3." : status.filename}
+                                         </span>
+                                       </div>
+
+                                       <div className={cn(
+                                         "h-3 w-px shrink-0 mx-0.5",
+                                         previewUrl === s.mp3Url ? "bg-slate-700" : isVerified ? "bg-slate-300 group-hover/play:bg-blue-300" : "bg-slate-300"
+                                       )} />
+
+                                       <div className="flex items-center gap-1.5 shrink-0 order-[-1]">
+                                         {previewUrl === s.mp3Url ? (
+                                           <Square className="w-2.5 h-2.5 fill-current" />
+                                         ) : isVerified ? (
+                                           <Play className="w-2.5 h-2.5 fill-current" />
+                                         ) : (
+                                           <XCircle className="w-2.5 h-2.5" />
+                                         )}
+                                         <span className="text-[14px] font-black uppercase whitespace-nowrap">
+                                           {previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked'}
+                                         </span>
+                                       </div>
+                                     </button>
+                                   </div>
+                                 );
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                );
               })()}
             </div>
 
             {/* Inactive Schedules Section */}
             <div className="space-y-2">
               <div className="flex items-center gap-2 mb-2">
-                <div className="h-px bg-slate-100 flex-1"></div>
-                <span className="text-[12px] font-black text-slate-400 uppercase tracking-widest">Inactive Schedules</span>
-                <div className="h-px bg-slate-100 flex-1"></div>
+                <div className="h-px bg-slate-300 flex-1"></div>
+                <span className="text-[12px] font-black text-slate-600 uppercase tracking-widest leading-none">Inactive Schedules</span>
+                <div className="h-px bg-slate-300 flex-1"></div>
               </div>
 
               {(() => {
@@ -1168,153 +1271,223 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                   } else {
                     isExpired = !!(s.endDate && s.endDate < today);
                   }
+
+                  // Apply basic text filter search
+                  if (scheduleFilterQuery) {
+                    const q = scheduleFilterQuery.toLowerCase();
+                    const summaryText = getScheduleSummary(s).toLowerCase();
+                    const playModeText = (s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type === ScheduleType.BASIC_HOURLY ? "Hourly" : "Advanced").toLowerCase();
+                    const matchesFilter = s.name.toLowerCase().includes(q) || 
+                                          (s.mp3Url && s.mp3Url.toLowerCase().includes(q)) || 
+                                          playModeText.includes(q) || 
+                                          summaryText.includes(q);
+                    return (!s.enabled || isExpired) && matchesFilter;
+                  }
+
                   return !s.enabled || isExpired;
                 });
 
                 if (inactiveOnes.length === 0) {
                   return (
                     <div className="py-4 text-center">
-                      <p className="text-[12px] font-bold text-slate-300 uppercase tracking-widest">No inactive items</p>
+                      <p className="text-[12px] font-bold text-slate-400 uppercase tracking-widest">No inactive items</p>
                     </div>
                   );
                 }
 
                 return (
-                  <>
-                    {inactiveOnes
-                      .sort((a, b) => parseInt(b.id) - parseInt(a.id))
-                      .slice(0, 5)
-                      .map(s => {
-                        let isExpired = false;
-                        if (s.type === ScheduleType.ONE_TIME) {
-                          if (s.date && s.time) {
-                            const expiry = new Date(`${s.date}T${s.time}:${(s.minute || 0).toString().padStart(2, '0')}:00`);
-                            isExpired = expiry < now;
-                          } else if (s.date) {
-                            isExpired = s.date < today;
+                  <div className="flex flex-col gap-2">
+                    <div className="border border-grid-inactive rounded-lg overflow-hidden divide-y divide-grid-inactive bg-slate-50/10 shadow-sm">
+                      {inactiveOnes
+                        .sort((a, b) => parseInt(b.id) - parseInt(a.id))
+                        .slice(0, 5)
+                        .map((s, idx) => {
+                          let isExpired = false;
+                          if (s.type === ScheduleType.ONE_TIME) {
+                            if (s.date && s.time) {
+                              const expiry = new Date(`${s.date}T${s.time}:${(s.minute || 0).toString().padStart(2, '0')}:00`);
+                              isExpired = expiry < now;
+                            } else if (s.date) {
+                              isExpired = s.date < today;
+                            }
+                          } else {
+                            isExpired = !!(s.endDate && s.endDate < today);
                           }
-                        } else {
-                          isExpired = !!(s.endDate && s.endDate < today);
-                        }
-                        return (
-                          <div 
-                            key={s.id}
-                            onClick={() => startEdit(s)}
-                            className={cn(
-                              "p-3 rounded-lg border transition-all cursor-pointer group relative",
-                              "bg-slate-50/50 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-                            )}
-                          >
-                            <div className="flex justify-between items-start mb-1.5">
-                              <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
-                                <span className="text-[12px] font-black text-slate-300 uppercase leading-none mb-1 sm:mb-0">ID: {s.id}</span>
-                                <span className={cn(
-                                  "px-1.5 py-0.5 rounded text-[12px] uppercase font-bold tracking-tighter inline-block w-fit leading-none mb-1 sm:mb-0 opacity-60",
-                                  s.type === ScheduleType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black" :
-                                  s.type === ScheduleType.BASIC_HOURLY ? "bg-blue-100 text-blue-700" :
-                                  "bg-orange-100 text-orange-700"
-                                )}>
-                                  {s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type.split('-').pop()}
-                                </span>
-                                <span className="hidden sm:inline-block text-[16px] font-bold text-slate-600 truncate max-w-[200px] leading-none ml-1">
-                                  {s.name}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1.5 underline-offset-4">
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    startEdit(s);
-                                  }}
-                                  className="flex items-center gap-1 py-1 px-2 hover:bg-slate-300 bg-white border border-slate-100 rounded text-slate-600 transition-all shadow-sm"
-                                  title="View or Edit Schedule"
+                          return (
+                            <div 
+                              key={s.id}
+                              onClick={() => startEdit(s)}
+                              className={cn(
+                                "transition-all cursor-pointer group relative flex items-stretch min-h-[64px]",
+                                idx % 2 === 0 ? "bg-white" : "bg-slate-205"
+                              )}
+                            >
+                              {/* Left: Clock Dial Pointer, no pixel gap, increased line contrast */}
+                              <div className="shrink-0 flex items-center justify-center p-1 bg-slate-100/55 border-r border-grid-inactive w-[64px] select-none">
+                                <svg
+                                  width="56"
+                                  height="56"
+                                  viewBox="0 0 80 80"
+                                  className="w-[52px] h-[52px] select-none opacity-80"
                                 >
-                                  <FileText className="w-2.5 h-2.5" />
-                                  <span className="text-[12px] font-black uppercase">View/Edit</span>
-                                </button>
-                                <button 
-                                  onClick={(e) => duplicate(s, e)}
-                                  className="flex items-center gap-1 py-1 px-2 hover:bg-white bg-slate-100/50 border border-slate-200/50 rounded text-slate-500 transition-all shadow-sm"
-                                  title="Duplicate Schedule"
-                                >
-                                  <Copy className="w-2.5 h-2.5" />
-                                  <span className="text-[12px] font-black uppercase">Duplicate</span>
-                                </button>
-                                <span className={cn("w-1.5 h-1.5 rounded-full ml-1", isExpired ? "bg-red-300" : "bg-slate-300")} />
+                                  <circle 
+                                    cx="40" 
+                                    cy="40" 
+                                    r="37" 
+                                    className="fill-white stroke-slate-350 stroke-[2]" 
+                                  />
+                                  <text x="40" y="21" textAnchor="middle" className="text-[17px] font-black fill-slate-400">0</text>
+                                  <text x="66" y="45" textAnchor="middle" className="text-[12px] font-bold fill-slate-355">15</text>
+                                  <text x="40" y="69" textAnchor="middle" className="text-[12px] font-bold fill-slate-355">30</text>
+                                  <text x="14" y="45" textAnchor="middle" className="text-[12px] font-bold fill-slate-355">45</text>
+                                  {Array.from({ length: 12 }).map((_, ticksIdx) => {
+                                    const angle = ticksIdx * 30;
+                                    if (ticksIdx % 3 === 0) return null;
+                                    return (
+                                      <line
+                                        key={ticksIdx}
+                                        x1="40"
+                                        y1="5"
+                                        x2="40"
+                                        y2="9"
+                                        transform={`rotate(${angle}, 40, 40)`}
+                                        className="stroke-slate-250 stroke-[2]"
+                                      />
+                                    );
+                                  })}
+                                  <line
+                                    x1="40"
+                                    y1="40"
+                                    x2="40"
+                                    y2="11"
+                                    transform={`rotate(${(s.minute || 0) * 6}, 40, 40)`}
+                                    stroke="#475569"
+                                    strokeWidth="4"
+                                    strokeLinecap="round"
+                                  />
+                                  <circle cx="40" cy="40" r="5" className="fill-slate-600" />
+                                  <circle cx="40" cy="40" r="1.5" className="fill-white" />
+                                </svg>
                               </div>
-                            </div>
-                            <p className="font-bold text-slate-600 text-[16px] truncate leading-tight mb-1 sm:hidden">{s.name}</p>
-                            <div className="flex items-center justify-between gap-4">
-                              <div className="flex items-center gap-1.5 text-[14px] text-slate-400 font-bold uppercase tracking-tighter shrink-0">
-                                <Clock className="w-3 h-3 opacity-50" />
-                                <span>:{s.minute.toString().padStart(2, '0')}m </span>
-                                <span className="text-slate-300 ml-1">• {getScheduleSummary(s)} • {isExpired ? <span className="text-red-400/70 font-black">EXPIRED</span> : 'SUSPENDED'}</span>
-                              </div>
 
-                              {/* MP3 Status Info Inactive */}
-                              {(() => {
-                                const status = getMP3Status(s.mp3Url);
-                                const isVerified = status.exists && status.valid;
-                                return (
-                                  <div className="flex items-center gap-1.5 overflow-hidden text-right justify-end flex-1 opacity-60">
-                                    <button 
-                                      onClick={(e) => isVerified ? togglePreview(s.mp3Url, e) : e.stopPropagation()}
-                                      disabled={!isVerified}
-                                      className={cn(
-                                        "flex items-center gap-2 py-0.5 px-3 rounded border shadow-sm transition-all group/play min-w-0 max-w-full",
-                                        previewUrl === s.mp3Url 
-                                          ? "bg-slate-900 text-white border-slate-900 opacity-100" 
-                                          : isVerified
-                                            ? "bg-white text-slate-500 border-slate-100 hover:bg-slate-50"
-                                            : "bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed"
-                                      )}
-                                    >
-                                      <div className="flex items-center gap-1.5 min-w-0 overflow-hidden font-medium">
-                                        <Music className={cn(
-                                          "w-2.5 h-2.5 shrink-0", 
-                                          previewUrl === s.mp3Url ? "text-slate-400" : 
-                                          isVerified ? "text-slate-300 group-hover/play:text-slate-400" : "text-slate-200"
-                                        )} />
-                                        <span className={cn(
-                                          "text-[12px] font-bold uppercase truncate",
-                                          previewUrl === s.mp3Url ? "text-white" :
-                                          !status.exists ? "text-red-400" : !status.valid ? "text-orange-400" : "text-slate-400 group-hover/play:text-slate-600"
-                                        )}>
-                                          {!status.exists ? "File not found." : !status.valid ? "File not mp3." : status.filename}
-                                        </span>
-                                      </div>
-
-                                      <div className={cn(
-                                        "h-3 w-px shrink-0 mx-0.5",
-                                        previewUrl === s.mp3Url ? "bg-slate-700" : isVerified ? "bg-slate-200 group-hover/play:bg-slate-300" : "bg-slate-200"
-                                      )} />
-
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        {previewUrl === s.mp3Url ? (
-                                          <Square className="w-2.5 h-2.5 fill-current" />
-                                        ) : isVerified ? (
-                                          <Play className="w-2.5 h-2.5 fill-current" />
-                                        ) : (
-                                          <XCircle className="w-2.5 h-2.5" />
-                                        )}
-                                        <span className="text-[12px] font-black uppercase whitespace-nowrap">
-                                          {previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked'}
-                                        </span>
-                                      </div>
-                                    </button>
+                              {/* Right: details area with comfortable inner padding */}
+                              <div className="flex-1 min-w-0 flex flex-col justify-between py-2 pr-3 pl-3.5 opacity-90">
+                                {/* Title of schedule first, category tag on the right attached to details tag */}
+                                <div className="flex justify-between items-center mb-1 gap-2">
+                                  <span className="text-[18px] font-black text-slate-750 truncate leading-none">
+                                    {s.name}
+                                  </span>
+                                  <div className="text-[14px] font-bold uppercase tracking-tighter shrink-0 text-right flex items-center gap-1.5 leading-none">
+                                    <span className={cn(
+                                      "px-1.5 py-0.5 rounded text-[12px] uppercase font-bold tracking-tighter leading-none inline-block opacity-75 border border-slate-300",
+                                      s.type === ScheduleType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black border-purple-200" :
+                                      s.type === ScheduleType.BASIC_HOURLY ? "bg-blue-100 text-blue-700 border-blue-200" :
+                                      "bg-orange-100 text-orange-700 border-orange-200"
+                                    )}>
+                                      {s.type === ScheduleType.ONE_TIME ? "One-Time" : s.type === ScheduleType.BASIC_HOURLY ? "Hourly" : "Advanced"}
+                                    </span>
+                                    <span className="text-slate-500 font-bold">
+                                      {getScheduleSummary(s)} • {isExpired ? <span className="text-red-650 font-black">EXPIRED</span> : 'SUSPENDED'}
+                                    </span>
                                   </div>
-                                );
-                              })()}
+                                </div>
+
+                                {/* Bottom row of metadata & view actions */}
+                                <div className="flex justify-between items-center gap-4">
+                                  <div className="flex items-center gap-3 shrink-0">
+                                    <div className="flex items-center gap-1.5 text-[14px] text-slate-500 font-bold uppercase tracking-tighter">
+                                      <span>:{s.minute.toString().padStart(2, '0')}m</span>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 underline-offset-4">
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          startEdit(s);
+                                        }}
+                                        className="flex items-center gap-1 py-0.5 px-2 hover:bg-slate-300 bg-white border border-slate-350 rounded text-slate-700 transition-all shadow-sm cursor-pointer"
+                                        title="View or Edit Schedule"
+                                      >
+                                        <FileText className="w-2.5 h-2.5" />
+                                        <span className="text-[14px] font-black uppercase">View/Edit</span>
+                                      </button>
+                                      <button 
+                                        onClick={(e) => duplicate(s, e)}
+                                        className="flex items-center gap-1 py-0.5 px-2 hover:bg-white bg-slate-100/50 border border-slate-350 rounded text-slate-700 transition-all shadow-sm cursor-pointer"
+                                        title="Copy Schedule"
+                                      >
+                                        <Copy className="w-2.5 h-2.5" />
+                                        <span className="text-[14px] font-black uppercase">Copy</span>
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* MP3 Status Info Inactive */}
+                                  {(() => {
+                                    const status = getMP3Status(s.mp3Url);
+                                    const isVerified = status.exists && status.valid;
+                                    return (
+                                      <div className="flex items-center gap-1.5 overflow-hidden text-right justify-end flex-1 opacity-90">
+                                        <button 
+                                          onClick={(e) => isVerified ? togglePreview(s.mp3Url, e) : e.stopPropagation()}
+                                          disabled={!isVerified}
+                                          className={cn(
+                                            "flex items-center gap-2 py-0.5 px-3 rounded border shadow-sm transition-all group/play min-w-0 cursor-pointer w-full justify-start",
+                                            previewUrl === s.mp3Url 
+                                              ? "bg-slate-900 text-white border-slate-900 opacity-100" 
+                                              : isVerified
+                                                ? "bg-white text-slate-700 border-slate-350 hover:bg-slate-50"
+                                                : "bg-slate-50 text-slate-400 border-slate-300 cursor-not-allowed"
+                                          )}
+                                        >
+                                          <div className="flex items-center gap-1.5 min-w-0 overflow-hidden font-bold flex-1 text-left order-3">
+                                            <Music className={cn(
+                                              "w-2.5 h-2.5 shrink-0", 
+                                              previewUrl === s.mp3Url ? "text-slate-400" : 
+                                              isVerified ? "text-slate-450 group-hover/play:text-slate-600" : "text-slate-300"
+                                            )} />
+                                            <span className={cn(
+                                              "text-[14px] font-bold uppercase truncate",
+                                              previewUrl === s.mp3Url ? "text-white" :
+                                              !status.exists ? "text-red-600 font-extrabold" : !status.valid ? "text-orange-600 font-extrabold" : "text-slate-600 group-hover/play:text-slate-800"
+                                            )}>
+                                              {!status.exists ? "File not found." : !status.valid ? "File not mp3." : status.filename}
+                                            </span>
+                                          </div>
+
+                                          <div className={cn(
+                                            "h-3 w-px shrink-0 mx-0.5",
+                                            previewUrl === s.mp3Url ? "bg-slate-700" : isVerified ? "bg-slate-300 group-hover/play:bg-slate-400" : "bg-slate-350"
+                                          )} />
+
+                                          <div className="flex items-center gap-1.5 shrink-0 order-[-1]">
+                                            {previewUrl === s.mp3Url ? (
+                                              <Square className="w-2.5 h-2.5 fill-current" />
+                                            ) : isVerified ? (
+                                              <Play className="w-2.5 h-2.5 fill-current" />
+                                            ) : (
+                                              <XCircle className="w-2.5 h-2.5" />
+                                            )}
+                                            <span className="text-[14px] font-black uppercase whitespace-nowrap">
+                                              {previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked'}
+                                            </span>
+                                          </div>
+                                        </button>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                    </div>
                     {inactiveOnes.length > 5 && (
                       <p className="text-[12px] text-center text-slate-400 font-bold uppercase tracking-tighter pt-1">
                         + {inactiveOnes.length - 5} more hidden inactive items
                       </p>
                     )}
-                  </>
+                  </div>
                 );
               })()}
             </div>
@@ -1331,7 +1504,93 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
               {/* Left Column: Basic Info */}
               <div className="space-y-4 md:sticky md:top-0 md:self-start">
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
-                  {/* Fields Block */}
+                  {/* Spanning clock dial inside basic info (Moved to left) */}
+                  <div className="sm:col-span-5 md:col-span-4 flex items-center justify-center select-none">
+                    <div className="flex flex-col items-center justify-center p-[1px] bg-slate-50 border border-slate-200/80 rounded-xl shadow-xs hover:bg-slate-100/50 transition-colors w-[114px] h-[114px] shrink-0">
+                      <svg
+                        width="120"
+                        height="120"
+                        viewBox="0 0 80 80"
+                        className="cursor-pointer select-none active:brightness-95 transition-all w-[112px] h-[112px]"
+                        onMouseDown={e => {
+                          setIsDraggingClock(true);
+                          handleClockInteraction(e);
+                        }}
+                        onMouseMove={e => {
+                          if (isDraggingClock) {
+                            handleClockInteraction(e);
+                          }
+                        }}
+                        onMouseUp={() => setIsDraggingClock(false)}
+                        onMouseLeave={() => setIsDraggingClock(false)}
+                        onTouchStart={e => {
+                          setIsDraggingClock(true);
+                          handleClockInteraction(e);
+                        }}
+                        onTouchMove={e => {
+                          if (isDraggingClock) {
+                            handleClockInteraction(e);
+                          }
+                        }}
+                        onTouchEnd={() => setIsDraggingClock(false)}
+                      >
+                      {/* Clock Face base */}
+                      <circle 
+                        cx="40" 
+                        cy="40" 
+                        r="38" 
+                        className={cn(
+                          "fill-white stroke-slate-200 stroke-[2]",
+                          isDraggingClock && "stroke-blue-500 stroke-[2.5]"
+                        )} 
+                      />
+                      
+                      {/* Main numbers for orientation */}
+                      <text x="40" y="18" textAnchor="middle" className={cn("text-[13px] font-black fill-slate-400 select-none", isDraggingClock && "fill-slate-600")}>0</text>
+                      <text x="67" y="44" textAnchor="middle" className="text-[10px] font-bold fill-slate-350 select-none">15</text>
+                      <text x="40" y="71" textAnchor="middle" className="text-[10px] font-bold fill-slate-350 select-none">30</text>
+                      <text x="13" y="44" textAnchor="middle" className="text-[10px] font-bold fill-slate-350 select-none">45</text>
+                      
+                      {/* 5-minute ticks */}
+                      {Array.from({ length: 12 }).map((_, idx) => {
+                        const angle = idx * 30;
+                        if (idx % 3 === 0) return null;
+                        return (
+                          <line
+                            key={idx}
+                            x1="40"
+                            y1="5"
+                            x2="40"
+                            y2="8"
+                            transform={`rotate(${angle}, 40, 40)`}
+                            className={cn(
+                              "stroke-slate-300 stroke-[2]",
+                              isDraggingClock && "stroke-slate-400"
+                            )}
+                          />
+                        );
+                      })}
+                      
+                      {/* Moving minute hand */}
+                      <line
+                        x1="40"
+                        y1="40"
+                        x2="40"
+                        y2="10"
+                        transform={`rotate(${(formData.minute || 0) * 6}, 40, 40)`}
+                        stroke={isDraggingClock ? "#1e3a8a" : "#2563eb"}
+                        strokeWidth={isDraggingClock ? 5 : 3.5}
+                        strokeLinecap="round"
+                      />
+                      
+                      {/* Center cap */}
+                      <circle cx="40" cy="40" r="4.5" className={cn("fill-slate-800", isDraggingClock && "fill-slate-950")} />
+                      <circle cx="40" cy="40" r="1.5" className="fill-white" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  {/* Fields Block (Moved to right) */}
                   <div className="sm:col-span-7 md:col-span-8 flex flex-col justify-start gap-2">
                     {/* Horizontal row aligning Editor Title/ID and Status/Buttons on Left */}
                     <div className="flex items-center gap-3 pb-1.5 border-b border-slate-300">
@@ -1458,93 +1717,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                       </div>
                     </div>
                   </div>
-
-                  {/* Right Column: Spanning clock dial inside basic info */}
-                  <div className="sm:col-span-5 md:col-span-4 flex items-center justify-center select-none">
-                    <div className="flex flex-col items-center justify-center p-[1px] bg-slate-50 border border-slate-200/80 rounded-xl shadow-xs hover:bg-slate-100/50 transition-colors w-[114px] h-[114px] shrink-0">
-                      <svg
-                        width="120"
-                        height="120"
-                        viewBox="0 0 80 80"
-                        className="cursor-pointer select-none active:brightness-95 transition-all w-[112px] h-[112px]"
-                        onMouseDown={e => {
-                          setIsDraggingClock(true);
-                          handleClockInteraction(e);
-                        }}
-                        onMouseMove={e => {
-                          if (isDraggingClock) {
-                            handleClockInteraction(e);
-                          }
-                        }}
-                        onMouseUp={() => setIsDraggingClock(false)}
-                        onMouseLeave={() => setIsDraggingClock(false)}
-                        onTouchStart={e => {
-                          setIsDraggingClock(true);
-                          handleClockInteraction(e);
-                        }}
-                        onTouchMove={e => {
-                          if (isDraggingClock) {
-                            handleClockInteraction(e);
-                          }
-                        }}
-                        onTouchEnd={() => setIsDraggingClock(false)}
-                      >
-                      {/* Clock Face base */}
-                      <circle 
-                        cx="40" 
-                        cy="40" 
-                        r="38" 
-                        className={cn(
-                          "fill-white stroke-slate-200 stroke-[2]",
-                          isDraggingClock && "stroke-blue-500 stroke-[2.5]"
-                        )} 
-                      />
-                      
-                      {/* Main numbers for orientation */}
-                      <text x="40" y="18" textAnchor="middle" className={cn("text-[13px] font-black fill-slate-400 select-none", isDraggingClock && "fill-slate-600")}>0</text>
-                      <text x="67" y="44" textAnchor="middle" className="text-[10px] font-bold fill-slate-350 select-none">15</text>
-                      <text x="40" y="71" textAnchor="middle" className="text-[10px] font-bold fill-slate-350 select-none">30</text>
-                      <text x="13" y="44" textAnchor="middle" className="text-[10px] font-bold fill-slate-350 select-none">45</text>
-                      
-                      {/* 5-minute ticks */}
-                      {Array.from({ length: 12 }).map((_, idx) => {
-                        const angle = idx * 30;
-                        if (idx % 3 === 0) return null;
-                        return (
-                          <line
-                            key={idx}
-                            x1="40"
-                            y1="5"
-                            x2="40"
-                            y2="8"
-                            transform={`rotate(${angle}, 40, 40)`}
-                            className={cn(
-                              "stroke-slate-300 stroke-[2]",
-                              isDraggingClock && "stroke-slate-400"
-                            )}
-                          />
-                        );
-                      })}
-                      
-                      {/* Moving minute hand */}
-                      <line
-                        x1="40"
-                        y1="40"
-                        x2="40"
-                        y2="10"
-                        transform={`rotate(${(formData.minute || 0) * 6}, 40, 40)`}
-                        stroke={isDraggingClock ? "#1e3a8a" : "#2563eb"}
-                        strokeWidth={isDraggingClock ? 5 : 3.5}
-                        strokeLinecap="round"
-                      />
-                      
-                      {/* Center cap */}
-                      <circle cx="40" cy="40" r="4.5" className={cn("fill-slate-800", isDraggingClock && "fill-slate-950")} />
-                      <circle cx="40" cy="40" r="1.5" className="fill-white" />
-                    </svg>
-                  </div>
                 </div>
-              </div>
                             {/* Group Schedule Name and MP3 File Group to remove any whitespace/margin between them */}
                 <div className="space-y-0">
                   {/* Schedule Name */}
@@ -1965,7 +2138,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                           ? "bg-orange-50/45 border-orange-200"
                           : i % 2 === 0
                             ? "bg-white border-slate-300/90 hover:border-blue-600 hover:bg-blue-50/40 hover:ring-1 hover:ring-blue-600/20 hover:shadow-md"
-                            : "bg-slate-50 border-slate-300/90 hover:border-blue-600 hover:bg-blue-50/40 hover:ring-1 hover:ring-blue-600/20 hover:shadow-md"
+                            : "bg-slate-100 border-slate-300/90 hover:border-blue-600 hover:bg-blue-50/40 hover:ring-1 hover:ring-blue-600/20 hover:shadow-md"
                       )}
                     >
                       {/* Left: Move ONLY the Select button here */}

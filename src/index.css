@@ -1,9 +1,37 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
+:root {
+  /* Centralized base border settings */
+  --grid-border-base: #000000;
+  --grid-border-active-opacity: 16%;   /* slate-300 equivalent */
+  --grid-border-inactive-opacity: 9%;   /* slightly lighter */
+
+  /* Base highlight colors */
+  --grid-border-onetime-color: #a855f7;  /* purple */
+  --grid-border-hourly-color: #3b82f6;   /* blue */
+  --grid-border-advanced-color: #f97316; /* orange */
+
+  /* Computations for standard borders */
+  --card-border-active: color-mix(in srgb, var(--grid-border-base) var(--grid-border-active-opacity), transparent);
+  --card-border-inactive: color-mix(in srgb, var(--grid-border-base) var(--grid-border-inactive-opacity), transparent);
+
+  /* Highlight borders mixed with default black shading */
+  --card-border-onetime: color-mix(in srgb, var(--grid-border-onetime-color) 40%, var(--grid-border-base) 15%);
+  --card-border-hourly: color-mix(in srgb, var(--grid-border-hourly-color) 40%, var(--grid-border-base) 15%);
+  --card-border-advanced: color-mix(in srgb, var(--grid-border-advanced-color) 40%, var(--grid-border-base) 15%);
+}
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Custom borders standardized under a single theme namespace */
+  --color-grid-active: var(--card-border-active);
+  --color-grid-inactive: var(--card-border-inactive);
+  --color-grid-onetime: var(--card-border-onetime);
+  --color-grid-hourly: var(--card-border-hourly);
+  --color-grid-advanced: var(--card-border-advanced);
 }
 
 @layer base {
@@ -50,9 +78,6 @@
 }
 @media (max-width: 310px) {
   .hide-player-name {
-    display: none !important;
-  }
-  .hide-unlit-dot {
     display: none !important;
   }
 }

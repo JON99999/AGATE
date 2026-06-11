@@ -419,6 +419,21 @@ export default function App() {
 
   // Fancy Browser folder modal states
   const [showFancyBrowser, setShowFancyBrowser] = useState(false);
+  const [windowSize, setWindowSize] = useState({
+    width: typeof window !== "undefined" ? window.innerWidth : 1024,
+    height: typeof window !== "undefined" ? window.innerHeight : 768,
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
   const [fancyBrowserPath, setFancyBrowserPath] = useState("");
   const [fancyBrowserFolders, setFancyBrowserFolders] = useState<string[]>([]);
   const [fancyBrowserParent, setFancyBrowserParent] = useState<string | null>(
@@ -1917,19 +1932,7 @@ export default function App() {
             )}
 
             <div className="flex items-center gap-2 font-sans">
-              {playMode === "Export" && (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={handleExportPrerecord}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded shadow-sm border border-emerald-500 hover:border-emerald-600 transition-all font-black uppercase tracking-tighter text-[14px] cursor-pointer"
-                    title="Export prerecord playlist and files"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Export</span>
-                  </button>
-                </div>
-              )}
+
               {playMode === "Live" && (
                 <>
                   <p className="text-[12px] uppercase text-blue-600 font-black tracking-tight leading-none whitespace-nowrap">
@@ -2189,7 +2192,7 @@ export default function App() {
                       "w-3.5 h-3.5 transition-all duration-300 shrink-0",
                       playMode === "Live"
                         ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                        : "text-slate-500 hide-unlit-dot",
+                        : "text-slate-500",
                     )}
                   />
                   <span className="hide-live-text">Live</span>
@@ -2212,7 +2215,7 @@ export default function App() {
                       "w-3.5 h-3.5 transition-all duration-300 shrink-0",
                       playMode === "Prerecord"
                         ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                        : "text-slate-500 hide-unlit-dot",
+                        : "text-slate-500",
                     )}
                   />
                   <span className="hide-prerecord-text">Prerecord</span>
@@ -2235,7 +2238,7 @@ export default function App() {
                       "w-3.5 h-3.5 transition-all duration-300 shrink-0",
                       playMode === "Export"
                         ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                        : "text-slate-500 hide-unlit-dot",
+                        : "text-slate-500",
                     )}
                   />
                   <span className="hide-export-text">Export</span>
@@ -3298,86 +3301,330 @@ export default function App() {
               </div>
 
               {/* Modal Content depending on state */}
-              {exportState === "configuring" && (
-                <div className="space-y-4 flex flex-col pt-1">
-                  <div className="grid grid-cols-[60px_1fr] items-center gap-3">
-                    <label className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
-                      path
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={exportDestinationInput}
-                        onChange={(e) =>
-                          setExportDestinationInput(e.target.value)
-                        }
-                        placeholder="Select export folder pathway..."
-                        className="flex-1 bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-200 focus:outline-none focus:border-emerald-600 font-mono"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleBrowseExportDestination}
-                        className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[14px] font-black uppercase rounded cursor-pointer whitespace-nowrap active:translate-y-px"
-                      >
-                        Browse
-                      </button>
-                    </div>
-                  </div>
+              {exportState === "configuring" && (() => {
+                const h = windowSize.height;
+                const w = windowSize.width;
 
-                  <div className="grid grid-cols-[60px_1fr] items-start gap-3">
-                    <label className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none pt-1.5">
-                      name
-                    </label>
-                    <div className="space-y-1.5 flex-1">
-                      <input
-                        type="text"
-                        value={exportFolderPrefixInput}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setExportFolderPrefixInput(val);
-                          setExportTextPrefixInput(val);
-                          setExportPlaylistPrefixInput(val);
-                        }}
-                        placeholder="Show"
-                        className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
-                      />
-                      <div className="space-y-1 pt-1.5 font-mono text-[12px] select-all break-all leading-normal flex flex-col gap-1 text-slate-500">
-                        <div><span className="text-slate-400 font-bold">Folder:</span> <span className="text-emerald-400 font-bold">{getDynamicNames().folderName}</span></div>
-                        <div><span className="text-slate-400 font-bold">Plan:</span> <span className="text-emerald-400 font-bold">{getDynamicNames().textFilename}</span></div>
-                        <div><span className="text-slate-400 font-bold">Playlist:</span> <span className="text-emerald-400 font-bold">{getDynamicNames().playlistFilename}</span></div>
+                const isNarrow = w < 540;
+
+                // Adjust vertical height calculations if horizontal narrow rearrangement occurs
+                const eh = isNarrow ? (h - 130) : h;
+
+                const reducePlaylistAndPlanText = eh < 640;
+                const showPlanRow = eh >= 580;
+                const showPlaylistRow = eh >= 530;
+                const showMp3ExampleRow = eh >= 480;
+                const reduceFolderText = eh < 430;
+                const showFolderRow = eh >= 400;
+                const showPathLabel = eh >= 360;
+                const showNameLabel = eh >= 320;
+
+                const truncateMiddle = (str: string, maxLength: number) => {
+                  if (!str) return "";
+                  if (str.length <= maxLength) return str;
+                  const half = Math.floor((maxLength - 3) / 2);
+                  return str.substring(0, half) + "..." + str.substring(str.length - half);
+                };
+
+                return (
+                  <div className="space-y-4 flex flex-col pt-1">
+                    {isNarrow ? (
+                      <div className="space-y-3.5 text-left">
+                        {/* i. move the Path label and browse button to be on a row above the Path data field */}
+                        <div className="flex flex-col space-y-1.5">
+                          <div className="flex justify-between items-center text-[14px]">
+                            {showPathLabel ? (
+                              <label className="font-black uppercase tracking-wider text-slate-400 select-none">
+                                path
+                              </label>
+                            ) : <div />}
+                            <button
+                              type="button"
+                              onClick={handleBrowseExportDestination}
+                              className="px-3 py-1 bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-200 rounded cursor-pointer flex items-center justify-center min-w-[36px] h-8 active:translate-y-px shadow-sm"
+                              title="Browse"
+                            >
+                              {/* iv. Change the "Browse" description on the "Browse" button to a folder icon. */}
+                              <Folder className="w-4 h-4 text-emerald-400" />
+                            </button>
+                          </div>
+                          {/* ii. Allow the path data field to expand to 2 rows */}
+                          <textarea
+                            rows={2}
+                            value={exportDestinationInput}
+                            onChange={(e) => setExportDestinationInput(e.target.value)}
+                            placeholder="Select export folder pathway..."
+                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-202 focus:outline-none focus:border-emerald-600 font-mono resize-none leading-normal"
+                          />
+                        </div>
+
+                        {/* iii. Move the Name data field to below the Name label */}
+                        <div className="flex flex-col space-y-1.5">
+                          {showNameLabel && (
+                            <label className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              name
+                            </label>
+                          )}
+                          <input
+                            type="text"
+                            value={exportFolderPrefixInput}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setExportFolderPrefixInput(val);
+                              setExportTextPrefixInput(val);
+                              setExportPlaylistPrefixInput(val);
+                            }}
+                            placeholder="Show"
+                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
+                          />
+                        </div>
+
+                        {/* Closed distance data displays next to labels */}
+                        <div className="space-y-2 border-t border-slate-800/40 pt-3 flex flex-col items-start">
+                          {showFolderRow && (
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                                Folder:
+                              </span>
+                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                                {reduceFolderText ? truncateMiddle(getDynamicNames().folderName, 22) : getDynamicNames().folderName}
+                              </span>
+                            </div>
+                          )}
+
+                          {showPlanRow && (
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                                Plan:
+                              </span>
+                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                                {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().textFilename, 22) : getDynamicNames().textFilename}
+                              </span>
+                            </div>
+                          )}
+
+                          {showPlaylistRow && (
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                                Playlist:
+                              </span>
+                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                                {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().playlistFilename, 22) : getDynamicNames().playlistFilename}
+                              </span>
+                            </div>
+                          )}
+
+                          {showMp3ExampleRow && (
+                            <div className="flex items-baseline gap-2 flex-wrap border-t border-slate-800/20 pt-1.5 w-full">
+                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                                mp3 Name example:
+                              </span>
+                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                                {getDynamicNames().firstTrackFilename}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    ) : (
+                      <div className="space-y-3.5 text-left">
+                        {/* Path Row */}
+                        {showPathLabel ? (
+                          <div className="grid grid-cols-[60px_1fr] items-center gap-3">
+                            <label className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              path
+                            </label>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={exportDestinationInput}
+                                onChange={(e) => setExportDestinationInput(e.target.value)}
+                                placeholder="Select export folder pathway..."
+                                className="flex-1 bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-202 focus:outline-none focus:border-emerald-600 font-mono"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleBrowseExportDestination}
+                                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[14px] font-black uppercase rounded cursor-pointer whitespace-nowrap active:translate-y-px animate-none duration-100 ease-in-out shadow-sm"
+                              >
+                                Browse
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={exportDestinationInput}
+                              onChange={(e) => setExportDestinationInput(e.target.value)}
+                              placeholder="Select export folder pathway..."
+                              className="flex-1 bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-202 focus:outline-none focus:border-emerald-600 font-mono"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleBrowseExportDestination}
+                              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[14px] font-black uppercase rounded cursor-pointer whitespace-nowrap active:translate-y-px animate-none duration-100 ease-in-out shadow-sm"
+                            >
+                              Browse
+                            </button>
+                          </div>
+                        )}
 
-                  {/* mp3 Name example field showing first track name structure */}
-                  <div className="space-y-1.5 pt-1.5 border-t border-slate-800/40">
-                    <label className="block text-[14px] font-black uppercase tracking-wider text-slate-400">
-                      mp3 Name example
-                    </label>
-                    <p className="text-[12px] font-mono select-all break-all leading-normal">
-                      <span className="text-emerald-400 font-bold">{getDynamicNames().firstTrackFilename}</span>
-                    </p>
-                  </div>
+                        {/* Name Row */}
+                        {showNameLabel ? (
+                          <div className="grid grid-cols-[60px_1fr] items-center gap-3">
+                            <label className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              name
+                            </label>
+                            <input
+                              type="text"
+                              value={exportFolderPrefixInput}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setExportFolderPrefixInput(val);
+                                setExportTextPrefixInput(val);
+                                setExportPlaylistPrefixInput(val);
+                              }}
+                              placeholder="Show"
+                              className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
+                            />
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={exportFolderPrefixInput}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setExportFolderPrefixInput(val);
+                              setExportTextPrefixInput(val);
+                              setExportPlaylistPrefixInput(val);
+                            }}
+                            placeholder="Show"
+                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
+                          />
+                        )}
 
-                  <div className="flex gap-2 justify-end pt-3 border-t border-slate-800/40">
-                    <button
-                      type="button"
-                      onClick={() => setShowExportModal(false)}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase tracking-wider rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={runExportPrerecord}
-                      className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-black uppercase tracking-wider rounded shadow transition cursor-pointer shadow-emerald-950/20 active:translate-y-px"
-                    >
-                      <Download className="w-3.5 h-3.5 shrink-0" />
-                      <span>Export</span>
-                    </button>
+                        {/* Closed distance data displays next to labels */}
+                        <div className="space-y-2 border-t border-slate-800/40 pt-3.5 flex flex-col items-start w-full">
+                          {showFolderRow && (
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                                Folder:
+                              </span>
+                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                                {reduceFolderText ? truncateMiddle(getDynamicNames().folderName, 22) : getDynamicNames().folderName}
+                              </span>
+                            </div>
+                          )}
+
+                          {showPlanRow && (
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                                Plan:
+                              </span>
+                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                                {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().textFilename, 22) : getDynamicNames().textFilename}
+                              </span>
+                            </div>
+                          )}
+
+                          {showPlaylistRow && (
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                                Playlist:
+                              </span>
+                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                                {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().playlistFilename, 22) : getDynamicNames().playlistFilename}
+                              </span>
+                            </div>
+                          )}
+
+                          {showMp3ExampleRow && (
+                            <div className="flex items-baseline gap-2 flex-wrap border-t border-slate-800/20 pt-1.5 w-full">
+                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                                mp3 Name example:
+                              </span>
+                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                                {getDynamicNames().firstTrackFilename}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Footer Buttons with beautiful 3D styling */}
+                    {(() => {
+                      const useCompactButtons = w < 440;
+                      const useStackedButtons = w < 360;
+
+                      if (useStackedButtons) {
+                        return (
+                          <div className="flex flex-col gap-0 pt-3 border-t border-slate-800/40 w-full">
+                            <button
+                              type="button"
+                              onClick={runExportPrerecord}
+                              className="flex items-center justify-center gap-1.5 p-[2px] bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow w-full"
+                            >
+                              <Download className="w-4 h-4 shrink-0" />
+                              <span>Export</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowExportModal(false)}
+                              className="w-full p-[2px] bg-slate-800 hover:bg-slate-700 text-slate-300 text-[13px] font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer text-center"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      if (useCompactButtons) {
+                        return (
+                          <div className="flex gap-[2px] justify-between pt-3 border-t border-slate-800/40 w-full">
+                            <button
+                              type="button"
+                              onClick={() => setShowExportModal(false)}
+                              className="flex-1 px-[2px] py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[13px] font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer text-center"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={runExportPrerecord}
+                              className="flex-1 flex items-center justify-center gap-1 px-[2px] py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow"
+                            >
+                              <Download className="w-3.5 h-3.5 shrink-0" />
+                              <span>Export</span>
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex gap-2 justify-end pt-3 border-t border-slate-800/40">
+                          <button
+                            type="button"
+                            onClick={() => setShowExportModal(false)}
+                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[13px] font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={runExportPrerecord}
+                            className="flex items-center gap-1.5 px-4.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow"
+                          >
+                            <Download className="w-4 h-4 shrink-0" />
+                            <span>Export</span>
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {exportState === "exporting" && (
                 <div className="py-8 flex flex-col items-center justify-center space-y-4">
