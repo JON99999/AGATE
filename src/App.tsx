@@ -870,7 +870,7 @@ export default function App() {
 
   // Sync Timer Logic
   useEffect(() => {
-    const isInactive = isAsleep || !isWindowFocused;
+    const isInactive = isAsleep;
     const intervalDelay = isInactive ? 10000 : 1000;
 
     const timer = setInterval(() => {
@@ -897,7 +897,7 @@ export default function App() {
       }
     }, intervalDelay);
     return () => clearInterval(timer);
-  }, [token, playMode, isAsleep, isWindowFocused]);
+  }, [token, playMode, isAsleep]);
 
   // Background Cache Synchronization Logic (Pre-loading Audio into memory)
   useEffect(() => {

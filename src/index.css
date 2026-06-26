@@ -134,11 +134,28 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 /* === DEBUG ANIMATION SWITCH START === */
-/* Helper to stop all CSS-based animate-pulse and animate-spin across the entire app */
+/* Helper to stop all CSS-based animate-pulse, animate-spin, transitions, and heavy filters across the entire app */
 .disable-animations *,
-.disable-animations .animate-pulse,
-.disable-animations .animate-spin {
+.disable-animations *::before,
+.disable-animations *::after {
   animation: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  
+  transition: none !important;
+  transition-property: none !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}
+
+/* Disable heavy backdrop blurs which cause massive CPU spikes on older Intel Mac GPUs */
+.disable-animations .backdrop-blur,
+.disable-animations .backdrop-blur-sm,
+.disable-animations .backdrop-blur-md,
+.disable-animations .backdrop-blur-lg {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 /* === DEBUG ANIMATION SWITCH END === */
 
