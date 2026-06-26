@@ -134,46 +134,53 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 /* === DEBUG ANIMATION SWITCH START === */
-/* Helper to stop all CSS-based animate-pulse, animate-spin, transitions, and heavy filters across the entire app */
-.disable-animations *,
-.disable-animations *::before,
-.disable-animations *::after {
+/* Granular performance-overrides based on active selected optimizations */
+
+/* 1. CSS animations (pulse, spin, keyframes) */
+.disable-animations.opt-css-animations *,
+.disable-animations.opt-css-animations *::before,
+.disable-animations.opt-css-animations *::after {
   animation: none !important;
   animation-duration: 0s !important;
   animation-delay: 0s !important;
   animation-iteration-count: 1 !important;
-  
+}
+
+/* 2. CSS transitions */
+.disable-animations.opt-hover-transitions *,
+.disable-animations.opt-hover-transitions *::before,
+.disable-animations.opt-hover-transitions *::after {
   transition: none !important;
   transition-property: none !important;
   transition-duration: 0s !important;
   transition-delay: 0s !important;
 }
-
-/* Surgically Purge Inline Hover Transitions: Force zero transition durations on hover states */
-.disable-animations *:hover,
-.disable-animations *::before:hover,
-.disable-animations *::after:hover {
+.disable-animations.opt-hover-transitions *:hover,
+.disable-animations.opt-hover-transitions *::before:hover,
+.disable-animations.opt-hover-transitions *::after:hover {
   transition: none !important;
   transition-duration: 0s !important;
   transition-delay: 0s !important;
 }
 
-/* Throttle Mouse Hover Layout Computations: Stop expensive transforms, filters, and shadows that trigger layout reflow & repaint spikes */
-.disable-animations *:hover {
+/* 3. Hover Layout Transforms (scale, translate) */
+.disable-animations.opt-hover-transforms *:hover {
   transform: none !important;
   transform-style: flat !important;
-  box-shadow: none !important;
-  filter: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
   will-change: auto !important;
 }
 
-/* Disable heavy backdrop blurs which cause massive CPU spikes on older Intel Mac GPUs */
-.disable-animations .backdrop-blur,
-.disable-animations .backdrop-blur-sm,
-.disable-animations .backdrop-blur-md,
-.disable-animations .backdrop-blur-lg {
+/* 4. Hover shadows and visual filters */
+.disable-animations.opt-hover-shadows-filters *:hover {
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+/* 5. Backdrop blurs (glassmorphism filter paint triggers) */
+.disable-animations.opt-backdrop-blurs .backdrop-blur,
+.disable-animations.opt-backdrop-blurs .backdrop-blur-sm,
+.disable-animations.opt-backdrop-blurs .backdrop-blur-md,
+.disable-animations.opt-backdrop-blurs .backdrop-blur-lg {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }

@@ -206,14 +206,58 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
 
   // === DEBUG ANIMATION SWITCH START ===
+  interface OptimizationConfig {
+    cssAnimations: boolean;
+    hoverTransitions: boolean;
+    hoverTransforms: boolean;
+    hoverShadowsFilters: boolean;
+    backdropBlurs: boolean;
+    webWorkers: boolean;
+  }
+
+  const DEFAULT_OPTIMIZATIONS: OptimizationConfig = {
+    cssAnimations: true,
+    hoverTransitions: true,
+    hoverTransforms: true,
+    hoverShadowsFilters: true,
+    backdropBlurs: true,
+    webWorkers: true,
+  };
+
   const [animationsDisabled, setAnimationsDisabled] = useState(() => {
     return localStorage.getItem("debug_animations_disabled") === "true";
   });
 
+  const [activeOptimizations, setActiveOptimizations] = useState<OptimizationConfig>(() => {
+    try {
+      const stored = localStorage.getItem("debug_active_optimizations");
+      if (stored) {
+        return { ...DEFAULT_OPTIMIZATIONS, ...JSON.parse(stored) };
+      }
+    } catch (e) {
+      console.error("Failed to parse active optimizations", e);
+    }
+    return DEFAULT_OPTIMIZATIONS;
+  });
+
+  const [isOptimizationConfigOpen, setIsOptimizationConfigOpen] = useState(false);
+  const [tempOptimizations, setTempOptimizations] = useState<OptimizationConfig>(DEFAULT_OPTIMIZATIONS);
+
+  useEffect(() => {
+    if (isOptimizationConfigOpen) {
+      setTempOptimizations(activeOptimizations);
+    }
+  }, [isOptimizationConfigOpen, activeOptimizations]);
+
   const toggleAnimations = () => {
-    const newVal = !animationsDisabled;
-    setAnimationsDisabled(newVal);
-    localStorage.setItem("debug_animations_disabled", String(newVal));
+    if (animationsDisabled) {
+      // If active (red), click turns optimizations OFF completely (animations ON)
+      setAnimationsDisabled(false);
+      localStorage.setItem("debug_animations_disabled", "false");
+    } else {
+      // If inactive (yellow), click opens the configuration modal to configure and turn optimizations ON
+      setIsOptimizationConfigOpen(true);
+    }
   };
   // === DEBUG ANIMATION SWITCH END ===
 
@@ -845,12 +889,17 @@ export default function App() {
     }
   }, [token]);
 
-  // Track User Activity to prevent Sleep State
+  // Track User Activity to prevent Sleep State (Throttled to minimize CPU overhead on frequent mouse moves)
   useEffect(() => {
     if (isAsleep) return;
 
+    let lastActivityLogged = 0;
     const handleActivity = () => {
-      lastActiveTimeRef.current = Date.now();
+      const nowMs = Date.now();
+      if (nowMs - lastActivityLogged >= 10000) {
+        lastActivityLogged = nowMs;
+        lastActiveTimeRef.current = nowMs;
+      }
     };
 
     window.addEventListener("mousemove", handleActivity);
@@ -868,8 +917,78 @@ export default function App() {
     };
   }, [isAsleep]);
 
-  // Sync Timer Logic
+  // Web Worker for Timer Tick (Performance Optimization to reduce main thread CPU usage)
   useEffect(() => {
+    const useWorker = animationsDisabled && activeOptimizations.webWorkers;
+    if (!useWorker) return;
+
+    let worker: Worker | null = null;
+    try {
+      const workerCode = `
+        let intervalId = null;
+        self.onmessage = function(e) {
+          if (e.data.action === 'start') {
+            if (intervalId) clearInterval(intervalId);
+            const delay = e.data.delay || 1000;
+            intervalId = setInterval(() => {
+              self.postMessage({ type: 'tick' });
+            }, delay);
+          } else if (e.data.action === 'stop') {
+            if (intervalId) {
+              clearInterval(intervalId);
+              intervalId = null;
+            }
+          }
+        };
+      `;
+      const blob = new Blob([workerCode], { type: 'application/javascript' });
+      const workerUrl = URL.createObjectURL(blob);
+      worker = new Worker(workerUrl);
+
+      const isInactive = isAsleep;
+      const intervalDelay = isInactive ? 10000 : 1000;
+
+      worker.onmessage = (e) => {
+        if (e.data.type === 'tick') {
+          const current = new Date();
+          setNow(current);
+
+          // Check sleep timeout (30 mins)
+          if (!isAsleep && Date.now() - lastActiveTimeRef.current >= 30 * 60 * 1000) {
+            setIsAsleep(true);
+          }
+
+          if (playMode === "Live" && !isAsleep) {
+            setCountdown((prev) => {
+              const step = isInactive ? 10 : 1;
+              if (prev <= step) {
+                fetchData();
+                return 300;
+              }
+              return prev - step;
+            });
+          }
+        }
+      };
+
+      worker.postMessage({ action: 'start', delay: intervalDelay });
+    } catch (err) {
+      console.error("Failed to initialize Web Worker timer, falling back to main-thread", err);
+    }
+
+    return () => {
+      if (worker) {
+        worker.postMessage({ action: 'stop' });
+        worker.terminate();
+      }
+    };
+  }, [token, playMode, isAsleep, animationsDisabled, activeOptimizations.webWorkers]);
+
+  // Sync Timer Logic (Fallback to Main-Thread if Worker is disabled or inactive)
+  useEffect(() => {
+    const useWorker = animationsDisabled && activeOptimizations.webWorkers;
+    if (useWorker) return; // Managed by Web Worker effect instead
+
     const isInactive = isAsleep;
     const intervalDelay = isInactive ? 10000 : 1000;
 
@@ -897,7 +1016,7 @@ export default function App() {
       }
     }, intervalDelay);
     return () => clearInterval(timer);
-  }, [token, playMode, isAsleep]);
+  }, [token, playMode, isAsleep, animationsDisabled, activeOptimizations.webWorkers]);
 
   // Background Cache Synchronization Logic (Pre-loading Audio into memory)
   useEffect(() => {
@@ -1847,7 +1966,12 @@ export default function App() {
   return (
     <div className={cn(
       "flex flex-col h-screen bg-[#F8FAFC] font-sans overflow-hidden",
-      (animationsDisabled || isAsleep || !isWindowFocused) && "disable-animations"
+      (animationsDisabled || isAsleep || !isWindowFocused) && "disable-animations",
+      (animationsDisabled || isAsleep || !isWindowFocused) && activeOptimizations.cssAnimations && "opt-css-animations",
+      (animationsDisabled || isAsleep || !isWindowFocused) && activeOptimizations.hoverTransitions && "opt-hover-transitions",
+      (animationsDisabled || isAsleep || !isWindowFocused) && activeOptimizations.hoverTransforms && "opt-hover-transforms",
+      (animationsDisabled || isAsleep || !isWindowFocused) && activeOptimizations.hoverShadowsFilters && "opt-hover-shadows-filters",
+      (animationsDisabled || isAsleep || !isWindowFocused) && activeOptimizations.backdropBlurs && "opt-backdrop-blurs"
     )}>
       {/* Top Header - Branding & Nav */}
       <header className="bg-[#0F172A] px-3 py-2 shrink-0 z-20">
@@ -1919,11 +2043,11 @@ export default function App() {
             {/* === DEBUG ANIMATION SWITCH START === */}
             <button
               onClick={toggleAnimations}
-              title={animationsDisabled ? "Enable Animations" : "Disable Animations (Debug)"}
+              title={animationsDisabled ? "Performance Overrides: ACTIVE. Click to configure or disable" : "Performance Overrides: INACTIVE. Click to configure & enable"}
               className={cn(
-                "flex items-center justify-center p-1.5 rounded transition-colors cursor-pointer",
+                "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer",
                 animationsDisabled
-                  ? "bg-red-950/40 text-red-400 border border-red-500/30 hover:bg-red-900/40"
+                  ? "bg-red-950/40 text-red-400 border border-red-500/30 hover:bg-red-900/40 shadow-[0_0_10px_rgba(239,68,68,0.1)]"
                   : "text-slate-400 hover:text-white hover:bg-slate-800"
               )}
             >
@@ -3819,6 +3943,179 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Performance & CPU Overrides Configuration Modal */}
+      <AnimatePresence>
+        {isOptimizationConfigOpen && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-slate-100 flex flex-col max-h-[90vh]"
+            >
+              {/* Modal Header */}
+              <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+                <div className="flex items-center gap-2 text-yellow-400">
+                  <Zap className="w-5 h-5 text-yellow-400" />
+                  <h3 className="text-[14px] font-black uppercase tracking-widest text-white">
+                    Performance Overrides
+                  </h3>
+                </div>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-4 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+                <p className="text-[15px] text-slate-300 leading-relaxed font-sans">
+                  Choose which performance optimizations and CPU overrides to apply. 
+                  These features are surgically designed for radio broadcast hardware to maintain low overhead.
+                </p>
+
+                <div className="space-y-2.5">
+                  <p className="text-[14px] font-black uppercase text-slate-400 tracking-widest leading-none">
+                    Select Optimizations to Turn Off/Disable:
+                  </p>
+
+                  <div className="space-y-2">
+                    {/* CSS Animations */}
+                    <label className="flex items-start gap-3 p-2 bg-slate-950/40 border border-slate-800/60 rounded-lg hover:bg-slate-950/80 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempOptimizations.cssAnimations}
+                        onChange={(e) => setTempOptimizations(prev => ({ ...prev, cssAnimations: e.target.checked }))}
+                        className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-[14px] font-bold text-slate-200">Strict CSS Keyframes & Animations</p>
+                        <p className="text-[14px] text-slate-400">Stops continuous animate-pulse, animate-spin, and dynamic background animations.</p>
+                      </div>
+                    </label>
+
+                    {/* CSS Hover Transitions */}
+                    <label className="flex items-start gap-3 p-2 bg-slate-950/40 border border-slate-800/60 rounded-lg hover:bg-slate-950/80 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempOptimizations.hoverTransitions}
+                        onChange={(e) => setTempOptimizations(prev => ({ ...prev, hoverTransitions: e.target.checked }))}
+                        className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-[14px] font-bold text-slate-200">Purge Hover Transitions</p>
+                        <p className="text-[14px] text-slate-400">Instantly applies colors and layouts upon hover instead of using heavy transition effects.</p>
+                      </div>
+                    </label>
+
+                    {/* Hover Transforms */}
+                    <label className="flex items-start gap-3 p-2 bg-slate-950/40 border border-slate-800/60 rounded-lg hover:bg-slate-950/80 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempOptimizations.hoverTransforms}
+                        onChange={(e) => setTempOptimizations(prev => ({ ...prev, hoverTransforms: e.target.checked }))}
+                        className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-[14px] font-bold text-slate-200">Throttle Hover Transforms</p>
+                        <p className="text-[14px] text-slate-400">Suppresses scaling and moving on cursor roll-over to stop continuous layout recalculations.</p>
+                      </div>
+                    </label>
+
+                    {/* Hover Shadows & Filters */}
+                    <label className="flex items-start gap-3 p-2 bg-slate-950/40 border border-slate-800/60 rounded-lg hover:bg-slate-950/80 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempOptimizations.hoverShadowsFilters}
+                        onChange={(e) => setTempOptimizations(prev => ({ ...prev, hoverShadowsFilters: e.target.checked }))}
+                        className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-[14px] font-bold text-slate-200">Remove Hover Shadows & Filters</p>
+                        <p className="text-[14px] text-slate-400">Avoids expensive shadow casting and brightness/hue-rotation on list cards.</p>
+                      </div>
+                    </label>
+
+                    {/* Backdrop Blurs */}
+                    <label className="flex items-start gap-3 p-2 bg-slate-950/40 border border-slate-800/60 rounded-lg hover:bg-slate-950/80 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempOptimizations.backdropBlurs}
+                        onChange={(e) => setTempOptimizations(prev => ({ ...prev, backdropBlurs: e.target.checked }))}
+                        className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-[14px] font-bold text-slate-200">Disable Backdrop Blurs</p>
+                        <p className="text-[14px] text-slate-400">Forces flat, opaque backgrounds on modals to avoid costly GPU pixel shader blurring.</p>
+                      </div>
+                    </label>
+
+                    {/* Web Workers */}
+                    <label className="flex items-start gap-3 p-2 bg-slate-950/40 border border-slate-800/60 rounded-lg hover:bg-slate-950/80 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempOptimizations.webWorkers}
+                        onChange={(e) => setTempOptimizations(prev => ({ ...prev, webWorkers: e.target.checked }))}
+                        className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-[14px] font-bold text-slate-200">Isolate Processing into Web Workers</p>
+                        <p className="text-[14px] text-slate-400">Offloads periodic clock ticks, date calculations, and scheduling timeouts to background threads.</p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[13px] text-slate-400 font-mono">
+                  <span>Current State:</span>
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded font-bold uppercase",
+                    animationsDisabled 
+                      ? "bg-red-950/30 text-red-400 border border-red-500/20" 
+                      : "bg-emerald-950/30 text-emerald-400 border border-emerald-500/20"
+                  )}>
+                    {animationsDisabled ? "Optimizations Active (Flat State)" : "Optimizations Inactive (Normal)"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="px-4 py-3 bg-slate-950/60 border-t border-slate-800 flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsOptimizationConfigOpen(false)}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[14px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
+                >
+                  Cancel
+                </button>
+                {animationsDisabled && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAnimationsDisabled(false);
+                      localStorage.setItem("debug_animations_disabled", "false");
+                      setIsOptimizationConfigOpen(false);
+                    }}
+                    className="px-3.5 py-1.5 bg-red-950/40 text-red-400 hover:bg-red-900/30 text-[14px] font-bold uppercase rounded border border-red-500/20 transition cursor-pointer active:translate-y-px"
+                  >
+                    Restore Normal Playback
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveOptimizations(tempOptimizations);
+                    localStorage.setItem("debug_active_optimizations", JSON.stringify(tempOptimizations));
+                    setAnimationsDisabled(true);
+                    localStorage.setItem("debug_animations_disabled", "true");
+                    setIsOptimizationConfigOpen(false);
+                  }}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[14px] font-black uppercase rounded shadow-md transition cursor-pointer active:translate-y-px"
+                >
+                  Apply Selected Overrides
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
