@@ -213,6 +213,8 @@ export default function App() {
     hoverShadowsFilters: boolean;
     backdropBlurs: boolean;
     webWorkers: boolean;
+    pointerEventsNeutralization: boolean;
+    gpuCompositingLayering: boolean;
   }
 
   const DEFAULT_OPTIMIZATIONS: OptimizationConfig = {
@@ -222,6 +224,8 @@ export default function App() {
     hoverShadowsFilters: true,
     backdropBlurs: true,
     webWorkers: true,
+    pointerEventsNeutralization: true,
+    gpuCompositingLayering: true,
   };
 
   const [animationsDisabled, setAnimationsDisabled] = useState(() => {
@@ -919,7 +923,8 @@ export default function App() {
 
   // Web Worker for Timer Tick (Performance Optimization to reduce main thread CPU usage)
   useEffect(() => {
-    const useWorker = animationsDisabled && activeOptimizations.webWorkers;
+    // Permanently adopted as default when starting and when yellow (!animationsDisabled)
+    const useWorker = !animationsDisabled || (animationsDisabled && activeOptimizations.webWorkers);
     if (!useWorker) return;
 
     let worker: Worker | null = null;
@@ -986,7 +991,8 @@ export default function App() {
 
   // Sync Timer Logic (Fallback to Main-Thread if Worker is disabled or inactive)
   useEffect(() => {
-    const useWorker = animationsDisabled && activeOptimizations.webWorkers;
+    // Permanently adopted as default when starting and when yellow (!animationsDisabled)
+    const useWorker = !animationsDisabled || (animationsDisabled && activeOptimizations.webWorkers);
     if (useWorker) return; // Managed by Web Worker effect instead
 
     const isInactive = isAsleep;
@@ -1963,15 +1969,29 @@ export default function App() {
     );
   }
 
+  // Strict CSS animations is permanently adopted as default in ON position (under disable-animations and opt-css-animations)
+  // when starting and when yellow (!animationsDisabled). Other overrides are only applied in red state or asleep/unfocused.
+  const showCssAnimOverride = isAsleep || !isWindowFocused || !animationsDisabled || (animationsDisabled && activeOptimizations.cssAnimations);
+  const showHoverTransOverride = isAsleep || !isWindowFocused || (animationsDisabled && activeOptimizations.hoverTransitions);
+  const showHoverTransfOverride = isAsleep || !isWindowFocused || (animationsDisabled && activeOptimizations.hoverTransforms);
+  const showHoverShadowOverride = isAsleep || !isWindowFocused || (animationsDisabled && activeOptimizations.hoverShadowsFilters);
+  const showBackdropOverride = isAsleep || !isWindowFocused || (animationsDisabled && activeOptimizations.backdropBlurs);
+  const showPointerEventsOverride = isAsleep || !isWindowFocused || (animationsDisabled && activeOptimizations.pointerEventsNeutralization);
+  const showGpuLayeringOverride = isAsleep || !isWindowFocused || (animationsDisabled && activeOptimizations.gpuCompositingLayering);
+  
+  const anyOverrideActive = showCssAnimOverride || showHoverTransOverride || showHoverTransfOverride || showHoverShadowOverride || showBackdropOverride || showPointerEventsOverride || showGpuLayeringOverride;
+
   return (
     <div className={cn(
-      "flex flex-col h-screen bg-[#F8FAFC] font-sans overflow-hidden",
-      (animationsDisabled || isAsleep || !isWindowFocused) && "disable-animations",
-      (animationsDisabled || isAsleep || !isWindowFocused) && activeOptimizations.cssAnimations && "opt-css-animations",
-      (animationsDisabled || isAsleep || !isWindowFocused) && activeOptimizations.hoverTransitions && "opt-hover-transitions",
-      (animationsDisabled || isAsleep || !isWindowFocused) && activeOptimizations.hoverTransforms && "opt-hover-transforms",
-      (animationsDisabled || isAsleep || !isWindowFocused) && activeOptimizations.hoverShadowsFilters && "opt-hover-shadows-filters",
-      (animationsDisabled || isAsleep || !isWindowFocused) && activeOptimizations.backdropBlurs && "opt-backdrop-blurs"
+      "flex flex-col h-screen bg-[#F8FAFC] font-sans overflow-hidden layout-wrapper",
+      anyOverrideActive && "disable-animations",
+      showCssAnimOverride && "opt-css-animations",
+      showHoverTransOverride && "opt-hover-transitions",
+      showHoverTransfOverride && "opt-hover-transforms",
+      showHoverShadowOverride && "opt-hover-shadows-filters",
+      showBackdropOverride && "opt-backdrop-blurs",
+      showPointerEventsOverride && "opt-pointer-events-neutralization",
+      showGpuLayeringOverride && "opt-gpu-compositing-layering"
     )}>
       {/* Top Header - Branding & Nav */}
       <header className="bg-[#0F172A] px-3 py-2 shrink-0 z-20">
@@ -4062,6 +4082,34 @@ export default function App() {
                       <div className="flex-1">
                         <p className="text-[14px] font-bold text-slate-200">Isolate Processing into Web Workers</p>
                         <p className="text-[14px] text-slate-400">Offloads periodic clock ticks, date calculations, and scheduling timeouts to background threads.</p>
+                      </div>
+                    </label>
+
+                    {/* Option A: Pointer Events Neutralization */}
+                    <label className="flex items-start gap-3 p-2 bg-slate-950/40 border border-slate-800/60 rounded-lg hover:bg-slate-950/80 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempOptimizations.pointerEventsNeutralization}
+                        onChange={(e) => setTempOptimizations(prev => ({ ...prev, pointerEventsNeutralization: e.target.checked }))}
+                        className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-[14px] font-bold text-slate-200">Option A: Pointer Events Neutralization</p>
+                        <p className="text-[14px] text-slate-400">Neutralizes pointer-events on background areas to prevent heavy browser mouse movement hit-testing traversal.</p>
+                      </div>
+                    </label>
+
+                    {/* Option B: GPU Compositing Layering */}
+                    <label className="flex items-start gap-3 p-2 bg-slate-950/40 border border-slate-800/60 rounded-lg hover:bg-slate-950/80 transition-colors cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tempOptimizations.gpuCompositingLayering}
+                        onChange={(e) => setTempOptimizations(prev => ({ ...prev, gpuCompositingLayering: e.target.checked }))}
+                        className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <p className="text-[14px] font-bold text-slate-200">Option B: GPU Compositing Layering</p>
+                        <p className="text-[14px] text-slate-400">Forces separate GPU compositor layers for lists and buttons to completely isolate repaint boundaries.</p>
                       </div>
                     </label>
                   </div>

@@ -184,6 +184,36 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+
+/* Option A: Pointer Events Neutralization */
+/* Stops mousemove hit-testing traversal on large layout containers/margins when enabled. */
+.disable-animations.opt-pointer-events-neutralization.layout-wrapper,
+.disable-animations.opt-pointer-events-neutralization .static-layout-container,
+.disable-animations.opt-pointer-events-neutralization .empty-margin {
+  pointer-events: none !important;
+}
+/* Re-enable pointer events for interactive sub-elements or direct controllers inside them */
+.disable-animations.opt-pointer-events-neutralization.layout-wrapper button,
+.disable-animations.opt-pointer-events-neutralization.layout-wrapper input,
+.disable-animations.opt-pointer-events-neutralization.layout-wrapper select,
+.disable-animations.opt-pointer-events-neutralization.layout-wrapper a,
+.disable-animations.opt-pointer-events-neutralization.layout-wrapper [role="button"],
+.disable-animations.opt-pointer-events-neutralization.layout-wrapper .interactive-item,
+.disable-animations.opt-pointer-events-neutralization.layout-wrapper .card {
+  pointer-events: auto !important;
+}
+
+/* Option B: GPU Compositing Layering */
+/* Forces separate GPU backing/compositor layers for elements to isolate rendering and prevent CPU repaint cycles. */
+.disable-animations.opt-gpu-compositing-layering button,
+.disable-animations.opt-gpu-compositing-layering select,
+.disable-animations.opt-gpu-compositing-layering input,
+.disable-animations.opt-gpu-compositing-layering .card,
+.disable-animations.opt-gpu-compositing-layering .interactive-item,
+.disable-animations.opt-gpu-compositing-layering .gpu-accelerated {
+  will-change: transform, opacity !important;
+  transform: translateZ(0) !important;
+}
 /* === DEBUG ANIMATION SWITCH END === */
 
 
