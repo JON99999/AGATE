@@ -219,12 +219,12 @@ export default function App() {
 
   const DEFAULT_OPTIMIZATIONS: OptimizationConfig = {
     cssAnimations: true,
-    hoverTransitions: true,
-    hoverTransforms: true,
-    hoverShadowsFilters: true,
-    backdropBlurs: true,
-    webWorkers: true,
-    pointerEventsNeutralization: true,
+    hoverTransitions: false,
+    hoverTransforms: false,
+    hoverShadowsFilters: false,
+    backdropBlurs: false,
+    webWorkers: false,
+    pointerEventsNeutralization: false,
     gpuCompositingLayering: true,
   };
 
@@ -2060,24 +2060,7 @@ export default function App() {
                 Log
               </span>
             </button>
-            {/* === DEBUG ANIMATION SWITCH START === */}
-            <button
-              onClick={toggleAnimations}
-              title={animationsDisabled ? "Performance Overrides: ACTIVE. Click to configure or disable" : "Performance Overrides: INACTIVE. Click to configure & enable"}
-              className={cn(
-                "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer",
-                animationsDisabled
-                  ? "bg-red-950/40 text-red-400 border border-red-500/30 hover:bg-red-900/40 shadow-[0_0_10px_rgba(239,68,68,0.1)]"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800"
-              )}
-            >
-              {animationsDisabled ? (
-                <ZapOff className="w-3.5 h-3.5" />
-              ) : (
-                <Zap className="w-3.5 h-3.5 text-yellow-400" />
-              )}
-            </button>
-            {/* === DEBUG ANIMATION SWITCH END === */}
+
           </div>
         </div>
       </header>
@@ -3352,11 +3335,30 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setShowLocalHelp(true)}
-                    className="mr-auto flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
                   >
                     <HelpCircle className="w-3.5 h-3.5 text-purple-400" />
                     <span>Help</span>
                   </button>
+                  {/* === DEBUG ANIMATION SWITCH START === */}
+                  <button
+                    type="button"
+                    onClick={toggleAnimations}
+                    title={animationsDisabled ? "Performance Overrides: ACTIVE. Click to configure or disable" : "Performance Overrides: INACTIVE. Click to configure & enable"}
+                    className={cn(
+                      "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer mr-auto border border-transparent",
+                      animationsDisabled
+                        ? "bg-red-950/40 text-red-400 border-red-500/30 hover:bg-red-900/40 shadow-[0_0_10px_rgba(239,68,68,0.1)]"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                    )}
+                  >
+                    {animationsDisabled ? (
+                      <ZapOff className="w-3.5 h-3.5" />
+                    ) : (
+                      <Zap className="w-3.5 h-3.5 text-yellow-400" />
+                    )}
+                  </button>
+                  {/* === DEBUG ANIMATION SWITCH END === */}
                   <button
                     type="button"
                     onClick={() => setShowLocationsModal(false)}
@@ -4112,6 +4114,14 @@ export default function App() {
                         <p className="text-[14px] text-slate-400">Forces separate GPU compositor layers for lists and buttons to completely isolate repaint boundaries.</p>
                       </div>
                     </label>
+
+                    {/* Note about unutilized options */}
+                    <div className="p-3 bg-slate-950/20 border border-dashed border-slate-800 rounded-lg text-slate-300 space-y-1.5">
+                      <p className="text-[14px] font-bold text-slate-200">⚠️ Note on CPU Optimizations (Options 1-3)</p>
+                      <p className="text-[14px] leading-relaxed text-slate-400">
+                        Intel Mac desktop optimizations (Option 1: Modern Electron runtime, Option 2: Disable Hardware Acceleration, and Option 3: Disable Window Shadows) exist as configurable definitions inside the Electron main process layer (<code className="text-blue-400 font-mono text-[12px]">electron-main.cjs</code>). They are currently not active. To experiment with or enable them, you must configure their active flags directly in the source file.
+                      </p>
+                    </div>
                   </div>
                 </div>
 

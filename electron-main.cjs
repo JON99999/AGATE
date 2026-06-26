@@ -19,14 +19,14 @@ const isIntelMac = isMac && process.arch === 'x64';
 // to address historical macOS Sequoia/Tahoe drawing bugs.
 
 // OPTION 2: Disable Hardware Acceleration (Bypasses rendering bottlenecks on Intel graphics card drivers)
-const DISABLE_HARDWARE_ACCELERATION_FOR_INTEL_MAC = true;
+const DISABLE_HARDWARE_ACCELERATION_FOR_INTEL_MAC = false; // Set to false to disable this optimization
 if (DISABLE_HARDWARE_ACCELERATION_FOR_INTEL_MAC && isIntelMac) {
   console.log('[Intel Mac Optimization] Option 2 Active: Disabling Hardware Acceleration to bypass GPU rendering lag.');
   app.disableHardwareAcceleration();
 }
 
 // OPTION 3: Disable App Window Shadows (Drastically reduces WindowServer compositing overhead during mouse movement)
-const DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC = true;
+const DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC = false; // Set to false to disable this optimization
 // ==========================================================================================
 
 let mainWindow;
