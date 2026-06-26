@@ -4,6 +4,31 @@ const fs = require('fs');
 const net = require('net');
 const http = require('http');
 
+// ==========================================================================================
+// INTEL MAC PERFORMANCE OPTIMIZATIONS (1-3) FOR MOUSE-MOVEMENT CPU LAG
+// ==========================================================================================
+// Under user rule guidelines, these options are clearly grouped and notated below for easy
+// toggle, adjustments, or future removal if needed.
+
+const isMac = process.platform === 'darwin';
+const isIntelMac = isMac && process.arch === 'x64';
+
+// OPTION 1: Use Updated Electron Framework Version
+// Note: Handled in package.json. The application currently targets and runs on a very modern 
+// Electron version ("^42.1.0"), ensuring that the underlying Chromium engine has modern patches
+// to address historical macOS Sequoia/Tahoe drawing bugs.
+
+// OPTION 2: Disable Hardware Acceleration (Bypasses rendering bottlenecks on Intel graphics card drivers)
+const DISABLE_HARDWARE_ACCELERATION_FOR_INTEL_MAC = true;
+if (DISABLE_HARDWARE_ACCELERATION_FOR_INTEL_MAC && isIntelMac) {
+  console.log('[Intel Mac Optimization] Option 2 Active: Disabling Hardware Acceleration to bypass GPU rendering lag.');
+  app.disableHardwareAcceleration();
+}
+
+// OPTION 3: Disable App Window Shadows (Drastically reduces WindowServer compositing overhead during mouse movement)
+const DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC = true;
+// ==========================================================================================
+
 let mainWindow;
 let appMode = 'Admin';
 let serverPort = 3000;
@@ -67,9 +92,12 @@ async function startServer() {
 }
 
 function createWindow() {
+  const disableShadows = DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC && isIntelMac;
+
   let windowOptions = {
     height: 800,
     title: appMode === 'Player' ? "Interstitial-er Player" : "Interstitial-er Admin",
+    hasShadow: !disableShadows, // OPTION 3: Disable window shadows on Intel Macs to bypass expensive WindowServer calculations
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
