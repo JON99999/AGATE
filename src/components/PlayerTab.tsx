@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { format, addMinutes, subMinutes, isSameMinute, isBefore, isAfter, startOfMinute, differenceInSeconds, parseISO } from 'date-fns';
-import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download } from 'lucide-react';
+import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download, Ear } from 'lucide-react';
 import { Schedule, ScheduleType, LogEntry } from '../types';
 import { cn, getMP3Status } from '../lib/utils';
 import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache } from '../lib/driveService';
@@ -580,7 +580,7 @@ export default function PlayerTab({
           className="flex-1 overflow-y-auto space-y-2 pb-4 scroll-smooth"
         >
           {/* Action stacked buttons above the MP3 list, satisfying layout requests A & B */}
-          <div className="space-y-1.5 pt-1.5 px-1.5">
+          <div className="sticky top-0 bg-slate-900 z-10 space-y-1.5 pt-1.5 pb-2 px-1.5 border-b border-slate-800/60">
             <button
               id="bg-btn-execute-export"
               onClick={onExecuteExport}
@@ -677,21 +677,46 @@ export default function PlayerTab({
                       }
                     }}
                     className={cn(
-                      "rounded border shadow-sm p-3 transition-all flex flex-col gap-1.5 mx-1",
+                      "rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 mx-1 text-left select-none relative",
                       bgClass,
                       isAdmin && "cursor-pointer"
                     )}
                   >
-                    <div className="flex justify-between items-center bg-slate-905 -mx-3 -mt-3 px-3 py-1.5 rounded-t border-b border-slate-700/60">
+                    {/* Header: Date & Time in full-width strip */}
+                    <div className="flex justify-between items-center bg-slate-900/60 -mx-2 -mt-2 px-2.5 py-1 rounded-t border-b border-slate-700/60">
                       <div className="flex items-center gap-2">
-                        <span className="text-[12px] uppercase font-bold text-slate-300 tracking-tighter">
-                          Break #{idx + 1}
+                        <span className="text-[12px] uppercase font-black text-slate-400 tracking-tighter">
+                          {format(slot, 'MMM dd')}
                         </span>
                         <span className="text-[12px] font-mono font-black text-emerald-400">
                           {item.slotTime}
                         </span>
                       </div>
+                      
                       <div className="flex items-center gap-2">
+                        {playingSlotKey === `export-preview-${key}` ? (
+                          <div className="flex items-center gap-1 text-[12px] font-black uppercase text-emerald-400">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                            Preview
+                          </div>
+                        ) : isPresent ? (
+                          <span className="text-[12px] text-white px-1 py-0.5 rounded font-black uppercase leading-none bg-emerald-600">Next</span>
+                        ) : isUpcoming ? (
+                          <span className="text-[12px] text-white px-1 py-0.5 rounded font-black uppercase leading-none shadow-sm bg-emerald-600 shadow-emerald-950/35">Next</span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Track Row: Title + Play/Stop Icon */}
+                    <div className="flex items-center justify-between gap-2 mt-1">
+                      <div className={cn(
+                        "text-[12px] font-bold leading-tight break-words line-clamp-2 flex-1",
+                        playingSlotKey === `export-preview-${key}` ? "text-emerald-400" : "text-slate-200"
+                      )}>
+                        {item.scheduleName}
+                      </div>
+
+                      <div className="shrink-0">
                         {item.exists ? (
                           <button
                             type="button"
@@ -721,66 +746,58 @@ export default function PlayerTab({
                               }
                             }}
                             className={cn(
-                              "p-1 rounded hover:bg-slate-800 transition cursor-pointer flex items-center justify-center border border-transparent active:scale-95",
+                              "p-1 rounded-full transition-all shadow-sm flex items-center justify-center cursor-pointer active:scale-95 border",
                               playingSlotKey === `export-preview-${key}`
-                                ? "bg-emerald-600/20 text-emerald-400 border-emerald-500/20"
-                                : "text-slate-400 hover:text-slate-200"
+                                ? "bg-slate-900 border-emerald-500/20 text-emerald-400"
+                                : "bg-slate-700 hover:bg-slate-650 hover:text-white text-slate-300 border-transparent"
                             )}
                             title="Preview Audio"
                           >
                             {playingSlotKey === `export-preview-${key}` ? (
-                              <Pause className="w-3.5 h-3.5" />
+                              <Square className="w-2.5 h-2.5 fill-current" />
                             ) : (
-                              <Play className="w-3.5 h-3.5" />
+                              <Ear className="w-3 h-3" />
                             )}
                           </button>
                         ) : (
-                          <span className="text-[12px] text-red-400 font-extrabold uppercase tracking-wider">Missing</span>
+                          <div 
+                            className="p-1 rounded-full bg-red-950/40 text-red-400 border border-red-900/50 flex items-center justify-center shadow-sm"
+                            title="Missing File"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </div>
                         )}
                       </div>
                     </div>
 
-                    <div className="text-[12px] font-extrabold text-slate-100 mt-1" title={item.scheduleName}>
-                      {item.scheduleName}
-                    </div>
-
-                    <div className="text-[12px] font-mono leading-tight space-y-1">
-                      <div className={cn("text-slate-200 break-all", isExpanded ? "" : "line-clamp-2")}>
-                        <span className="text-slate-400 font-bold uppercase text-[11px] tracking-wider">MP3: </span>{item.fileName}
-                      </div>
-                      <div className={cn("text-emerald-300 break-all select-all", isExpanded ? "" : "line-clamp-2")} title={item.targetFileName}>
-                        <span className="text-slate-400 font-bold uppercase text-[11px] tracking-wider">As: </span>{item.targetFileName}
-                      </div>
-                    </div>
-
-                    {/* Status indicator row inside cards on the Export mode, satisfying rule 5 */}
-                    <div className="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between">
+                    {/* Status & Details Footer */}
+                    <div className="flex items-center justify-between mt-1">
                       {item.exists ? (
                         <div className="flex items-center gap-1.5">
                           {exported ? (
                             <>
-                              <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                              <CheckCircle className="w-3 h-3 text-emerald-400" />
                               <span className="text-[14px] font-bold text-emerald-400 uppercase tracking-tighter">
                                 Exported
                               </span>
                             </>
                           ) : played ? (
                             <>
-                              <CheckCircle className="w-3.5 h-3.5 text-green-400" />
+                              <CheckCircle className="w-3 h-3 text-green-400" />
                               <span className="text-[14px] font-bold text-green-400 uppercase tracking-tighter">
                                 Played {playedLog ? format(parseISO(playedLog.timestamp), 'HH:mm') : ''}
                               </span>
                             </>
                           ) : isMissedRecent || isMissedOld ? (
                             <>
-                              <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
+                              <AlertCircle className="w-3 h-3 text-amber-500" />
                               <span className="text-[14px] font-bold text-amber-500 uppercase tracking-tighter">
                                 Missed
                               </span>
                             </>
                           ) : (
                             <>
-                              <Clock className="w-3.5 h-3.5 text-slate-500" />
+                              <Clock className="w-3 h-3 text-slate-500" />
                               <span className="text-[14px] font-bold text-slate-500 uppercase tracking-tighter">
                                 To be played
                               </span>
@@ -789,12 +806,35 @@ export default function PlayerTab({
                         </div>
                       ) : (
                         <div className="flex items-center gap-1.5">
-                          <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                          <AlertCircle className="w-3 h-3 text-red-400" />
                           <span className="text-[14px] font-bold text-red-400 uppercase tracking-tighter">
                             Missing File
                           </span>
                         </div>
                       )}
+
+                      {playingSlotKey === `export-preview-${key}` ? (
+                        <div className="flex items-center gap-1 text-[12px] font-mono font-bold leading-none text-emerald-400">
+                          <span>{formatTime(currentTime)}</span>
+                          <span className="opacity-30">/</span>
+                          <span>{formatTime(duration)}</span>
+                        </div>
+                      ) : item.exists ? (
+                        <span className="text-[12px] font-mono font-bold text-slate-500 leading-none">
+                          {mp3DurationCache.get(item.fileName) || item.duration || '--:--'}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="text-[14px] font-sans leading-tight space-y-1 mt-1">
+                      <div className={cn("break-all leading-tight", isExpanded ? "" : "line-clamp-2")}>
+                        <span className="text-slate-500 font-sans font-bold uppercase text-[11px] tracking-wider font-sans">MP3: </span>
+                        <span className="text-slate-500 font-mono text-[11px] font-sans">{item.fileName || ""}</span>
+                      </div>
+                      <div className={cn("break-all select-all leading-tight", isExpanded ? "" : "line-clamp-2")} title={item.targetFileName}>
+                        <span className="text-slate-500 font-sans font-bold uppercase text-[11px] tracking-wider font-sans">As: </span>
+                        <span className="text-emerald-400 font-mono text-[11px]">{item.targetFileName}</span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -848,10 +888,10 @@ export default function PlayerTab({
               {isPre && index === 0 && (
                 <div 
                   ref={activeItemRef}
-                  className="bg-purple-600 h-6 flex items-center justify-between px-3 rounded shadow-sm border border-purple-500 mx-1"
+                  className="bg-purple-600 h-6 flex items-center justify-between pl-1 pr-3 rounded shadow-sm border border-purple-500"
                   id="prerecord-start-indicator"
                 >
-                  <span className="text-[12px] font-black uppercase text-white tracking-widest font-sans flex items-center gap-1.5">
+                  <span className="text-[12px] font-black uppercase text-white tracking-normal font-sans flex items-center gap-1.5 font-sans">
                     <CassetteTape className="w-3.5 h-3.5 text-white/90 shrink-0" />
                     Prerecord Start
                   </span>

@@ -24,6 +24,8 @@ This application is primarily a **Desktop Application** built with Electron and 
 - Configurations for all three priorities must be maintained in `package.json`.
 - Distribution should focus on `dmg` and `zip` for Mac, and `nsis` (installer) or `portable` for Windows.
 - **No Staging or Backup Workarounds for Mac packaging**: Under no circumstances should Mac builds be split into multiple sequential `electron-builder` invocations requiring backup files, manual file moving, or custom renaming/staging workarounds in `build-apps.cjs`. Always run a single unified compile invocation: `npx electron-builder --mac --x64 --arm64` to output both targets in one clean pass.
+- **GitHub Release-First Assumptions**: Always construct, refactor, and check code under the strict assumption that compilation and packaging occur on virtualized runners when building releases via the GitHub web interface. Ensure cross-platform build stability, explicit dependency typing, and robust bundler support to run seamlessly without interactive intervention.
+- **Preemptive Cross-Platform Validation**: Before finalizing changes, proactively double-check all packaging methods and script invocations for runner-specific hazards (e.g., case-sensitivity in relative imports, implicit paths, absent native compile chains, and OS differences) to eliminate repetitive build fail cycles on GitHub Actions.
 
 ## UI Styling & Naming Guidelines
 
@@ -44,6 +46,7 @@ This application is primarily a **Desktop Application** built with Electron and 
 - **No Human Emotion or Pretentiousness**: Do not be glib, excited, or use exclamation marks or any phrasing that simulates human emotion (including happiness, sadness, or hopefulness). Treat yourself strictly as a tool for coding, not a person. You should ask probing questions or follow up with technical ideas/suggestions, but all dialogue must remain objective and dispassionate.
 - **Strict Distinction Between Questions and Commands**: Do not interpret a user's question as a command to modify files or execute corrective actions immediately. Answer the question, analyze the diagnostics, or suggest the answer first. Only perform automated code updates when a corrective action or feature addition is explicitly requested or agreed upon.
 - **Error Link Requirement**: When explicitly asked to "Check your work in Github" or similar requests, the agent MUST consult and strictly follow the protocol defined in `/CheckYourWorkInGithubPrompt.md` at the project root. Under normal conversational flows or unrelated developer queries, this specific protocol does not apply.
+- **GitHub Build Error Triaging**: Whenever checking GitHub release failures or compilation issues, do not run standard local checks blindly. Proactively check if compilation errors are due to virtualized environment constraints unique to modern headless pipelines running on different runner architectures through the GitHub web release actions interface. Ensure each solution explicitly resolves these remote compilation issues to minimize release cycle delays.
 
 ## Integrity of Data and Schedules
 

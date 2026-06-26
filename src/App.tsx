@@ -38,6 +38,8 @@ import {
   AlarmClock,
   NotebookPen,
   Undo2,
+  Zap,
+  ZapOff,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -202,6 +204,37 @@ export default function App() {
       : "Interstitial-er Admin";
   }, [isPlayerMode]);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // === DEBUG ANIMATION SWITCH START ===
+  const [animationsDisabled, setAnimationsDisabled] = useState(() => {
+    return localStorage.getItem("debug_animations_disabled") === "true";
+  });
+
+  const toggleAnimations = () => {
+    const newVal = !animationsDisabled;
+    setAnimationsDisabled(newVal);
+    localStorage.setItem("debug_animations_disabled", String(newVal));
+  };
+  // === DEBUG ANIMATION SWITCH END ===
+
+  const [isWindowFocused, setIsWindowFocused] = useState(true);
+
+  useEffect(() => {
+    const handleFocus = () => setIsWindowFocused(true);
+    const handleBlur = () => setIsWindowFocused(false);
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+
+    if (typeof document !== "undefined" && document.hasFocus) {
+      setIsWindowFocused(document.hasFocus());
+    }
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -837,6 +870,9 @@ export default function App() {
 
   // Sync Timer Logic
   useEffect(() => {
+    const isInactive = isAsleep || !isWindowFocused;
+    const intervalDelay = isInactive ? 10000 : 1000;
+
     const timer = setInterval(() => {
       const current = new Date();
       setNow(current);
@@ -851,16 +887,17 @@ export default function App() {
 
       if (playMode === "Live" && !isAsleep) {
         setCountdown((prev) => {
-          if (prev <= 1) {
+          const step = isInactive ? 10 : 1;
+          if (prev <= step) {
             fetchData();
             return 300;
           }
-          return prev - 1;
+          return prev - step;
         });
       }
-    }, 1000);
+    }, intervalDelay);
     return () => clearInterval(timer);
-  }, [token, playMode, isAsleep]);
+  }, [token, playMode, isAsleep, isWindowFocused]);
 
   // Background Cache Synchronization Logic (Pre-loading Audio into memory)
   useEffect(() => {
@@ -1808,7 +1845,10 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[#F8FAFC] font-sans overflow-hidden">
+    <div className={cn(
+      "flex flex-col h-screen bg-[#F8FAFC] font-sans overflow-hidden",
+      (animationsDisabled || isAsleep || !isWindowFocused) && "disable-animations"
+    )}>
       {/* Top Header - Branding & Nav */}
       <header className="bg-[#0F172A] px-3 py-2 shrink-0 z-20">
         <div className="flex items-center justify-between gap-3 w-full mx-auto">
@@ -1876,6 +1916,24 @@ export default function App() {
                 Log
               </span>
             </button>
+            {/* === DEBUG ANIMATION SWITCH START === */}
+            <button
+              onClick={toggleAnimations}
+              title={animationsDisabled ? "Enable Animations" : "Disable Animations (Debug)"}
+              className={cn(
+                "flex items-center justify-center p-1.5 rounded transition-colors cursor-pointer",
+                animationsDisabled
+                  ? "bg-red-950/40 text-red-400 border border-red-500/30 hover:bg-red-900/40"
+                  : "text-slate-400 hover:text-white hover:bg-slate-800"
+              )}
+            >
+              {animationsDisabled ? (
+                <ZapOff className="w-3.5 h-3.5" />
+              ) : (
+                <Zap className="w-3.5 h-3.5 text-yellow-400" />
+              )}
+            </button>
+            {/* === DEBUG ANIMATION SWITCH END === */}
           </div>
         </div>
       </header>
@@ -3769,7 +3827,10 @@ export default function App() {
       {/* Sleep Mode Overlay Modal */}
       <AnimatePresence>
         {isAsleep && (
-          <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
+          <div 
+            onClick={handleWakeUp}
+            className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[9999] flex items-center justify-center p-4 cursor-pointer"
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

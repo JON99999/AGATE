@@ -133,5 +133,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
 }
 
+/* === DEBUG ANIMATION SWITCH START === */
+/* Helper to stop all CSS-based animate-pulse and animate-spin across the entire app */
+.disable-animations *,
+.disable-animations .animate-pulse,
+.disable-animations .animate-spin {
+  animation: none !important;
+}
+/* === DEBUG ANIMATION SWITCH END === */
+
 
 
