@@ -149,6 +149,26 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   transition-delay: 0s !important;
 }
 
+/* Surgically Purge Inline Hover Transitions: Force zero transition durations on hover states */
+.disable-animations *:hover,
+.disable-animations *::before:hover,
+.disable-animations *::after:hover {
+  transition: none !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}
+
+/* Throttle Mouse Hover Layout Computations: Stop expensive transforms, filters, and shadows that trigger layout reflow & repaint spikes */
+.disable-animations *:hover {
+  transform: none !important;
+  transform-style: flat !important;
+  box-shadow: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  will-change: auto !important;
+}
+
 /* Disable heavy backdrop blurs which cause massive CPU spikes on older Intel Mac GPUs */
 .disable-animations .backdrop-blur,
 .disable-animations .backdrop-blur-sm,
