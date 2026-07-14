@@ -3,11 +3,36 @@ import { format } from 'date-fns';
 import { 
   Search, 
   Music,
-  Download
+  Download,
+  FileText
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LogEntry } from '../types';
 import { cn, getMP3Status } from '../lib/utils';
+
+export const getLogAssetType = (log: LogEntry): 'audio' | 'script' => {
+  if (log.assetType) return log.assetType;
+  
+  const fileName = log.mp3Name ? log.mp3Name.toLowerCase() : '';
+  
+  if (
+    fileName.endsWith('.txt') || 
+    fileName.endsWith('.md') || 
+    fileName.endsWith('.pdf') || 
+    fileName.endsWith('.docx') || 
+    fileName.endsWith('.doc')
+  ) {
+    return 'script';
+  }
+  
+  if (fileName && !fileName.endsWith('.mp3') && !fileName.endsWith('.wav') && !fileName.endsWith('.m4a') && !fileName.endsWith('.ogg')) {
+    if (fileName === 'script' || fileName === 'script file' || fileName.includes('read') || fileName.includes('script')) {
+      return 'script';
+    }
+  }
+  
+  return 'audio';
+};
 
 interface LogTabProps {
   logs: LogEntry[];
@@ -143,11 +168,13 @@ export default function LogTab({ logs }: LogTabProps) {
           const filenameMatch = getMP3Status(l.mp3Name).filename.toLowerCase().includes(q);
           const idMatch = l.scheduleId.toLowerCase().includes(q);
           const playModeMatch = l.playMode && l.playMode.toLowerCase().includes(q);
+          const assetType = getLogAssetType(l);
+          const assetTypeMatch = assetType.toLowerCase().includes(q);
           
           const timestampMatch = format(new Date(l.timestamp), 'yyyy-MM-dd HH:mm:ss').includes(q);
           const actualTimestampMatch = l.logTimeStamp && format(new Date(l.logTimeStamp), 'yyyy-MM-dd HH:mm:ss').includes(q);
           
-          return scheduleNameMatch || filenameMatch || idMatch || playModeMatch || timestampMatch || actualTimestampMatch;
+          return scheduleNameMatch || filenameMatch || idMatch || playModeMatch || assetTypeMatch || timestampMatch || actualTimestampMatch;
         } catch (e) {
           return l.scheduleName.toLowerCase().includes(q) || l.scheduleId.toLowerCase().includes(q);
         }
@@ -196,7 +223,7 @@ export default function LogTab({ logs }: LogTabProps) {
 
   // Export to CSV
   const handleExportCSV = () => {
-    const headers = ['Scheduled Date', 'Scheduled Time', 'Actual Playback Time', 'Schedule Name', 'Play Mode', 'MP3 File', 'Schedule ID'];
+    const headers = ['Scheduled Date', 'Scheduled Time', 'Actual Playback Time', 'Schedule Name', 'Play Mode', 'MP3 File', 'Schedule ID', 'Asset Type'];
     const rows = sortedAndFilteredLogsAll.map(log => [
       format(new Date(log.timestamp), 'yyyy-MM-dd'),
       format(new Date(log.timestamp), 'HH:mm:ss'),
@@ -204,7 +231,8 @@ export default function LogTab({ logs }: LogTabProps) {
       log.scheduleName,
       log.playMode || 'Live',
       log.mp3Name,
-      log.scheduleId
+      log.scheduleId,
+      getLogAssetType(log)
     ]);
 
     const csvContent = [
@@ -231,7 +259,8 @@ export default function LogTab({ logs }: LogTabProps) {
       'Schedule Name': log.scheduleName,
       'Play Mode': log.playMode || 'Live',
       'MP3 File': log.mp3Name,
-      'Schedule ID': log.scheduleId
+      'Schedule ID': log.scheduleId,
+      'Asset Type': getLogAssetType(log)
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -494,7 +523,11 @@ export default function LogTab({ logs }: LogTabProps) {
                 {/* MP3 path cell */}
                 <div className="flex-1 min-w-0 px-2 flex items-start py-2.5">
                   <div className="flex items-start gap-1.5 min-w-0 w-full mt-0.5">
-                    <Music className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                    {getLogAssetType(log) === 'script' ? (
+                      <FileText className="w-3.5 h-3.5 text-purple-500 shrink-0 mt-0.5" />
+                    ) : (
+                      <Music className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                    )}
                     <span className="text-[14px] font-mono text-slate-500 line-clamp-2 break-all leading-tight w-full" title={log.mp3Name}>
                       {getMP3Status(log.mp3Name).filename}
                     </span>

@@ -330,7 +330,20 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
   };
 
   const soundLibrary = driveMP3s;
-  const filteredFiles = soundLibrary.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredFiles = soundLibrary.filter(f => {
+    const nameLower = f.name.toLowerCase();
+    
+    // Filter by type
+    if (formData.assetType === 'script') {
+      const allowed = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'];
+      if (!allowed.some(ext => nameLower.endsWith(ext))) return false;
+    } else {
+      // default: audio
+      if (!nameLower.endsWith('.mp3')) return false;
+    }
+    
+    return nameLower.includes(searchQuery.toLowerCase());
+  });
 
   const startEdit = (s: Schedule) => {
     setEditingId(s.id);
@@ -1213,9 +1226,9 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                          <span className={cn(
                                            "text-[14px] font-bold uppercase truncate",
                                            previewUrl === s.mp3Url ? "text-white" :
-                                           !status.exists ? "text-red-600 font-extrabold" : !status.valid ? "text-orange-600 font-extrabold" : "text-slate-600 group-hover/play:text-blue-800"
+                                           !status.exists ? "text-red-600 font-extrabold" : !status.valid && s.assetType !== 'script' ? "text-orange-600 font-extrabold" : "text-slate-600 group-hover/play:text-blue-800"
                                          )}>
-                                           {!status.exists ? "File not found." : !status.valid ? "File not mp3." : status.filename}
+                                           {!status.exists ? "File not found." : !status.valid && s.assetType !== 'script' ? "File not mp3." : status.filename}
                                          </span>
                                        </div>
 
@@ -1449,9 +1462,9 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                             <span className={cn(
                                               "text-[14px] font-bold uppercase truncate",
                                               previewUrl === s.mp3Url ? "text-white" :
-                                              !status.exists ? "text-red-600 font-extrabold" : !status.valid ? "text-orange-600 font-extrabold" : "text-slate-600 group-hover/play:text-slate-800"
+                                              !status.exists ? "text-red-600 font-extrabold" : !status.valid && s.assetType !== 'script' ? "text-orange-600 font-extrabold" : "text-slate-600 group-hover/play:text-slate-800"
                                             )}>
-                                              {!status.exists ? "File not found." : !status.valid ? "File not mp3." : status.filename}
+                                              {!status.exists ? "File not found." : !status.valid && s.assetType !== 'script' ? "File not mp3." : status.filename}
                                             </span>
                                           </div>
 
@@ -1643,8 +1656,39 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                       </div>
                     </div>
 
-                    {/* Type and Play Time rows */}
-                    <div className="grid grid-cols-1 sm:grid-cols-[1.2fr_0.8fr] gap-4">
+                    {/* Type, Play Time, and Asset Type rows */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {/* Asset Type */}
+                      <div className="space-y-1">
+                        <label className="text-[14px]/none font-black text-slate-400 uppercase tracking-widest block select-none">Asset Type</label>
+                        <div className="flex items-center -space-x-px shrink-0 w-full">
+                          <button
+                            type="button"
+                            onClick={() => setFormData({...formData, assetType: 'audio'})}
+                            className={cn(
+                              "px-2 py-0.5 text-[13px] font-black uppercase transition-all select-none cursor-pointer rounded-l rounded-r-none h-10 flex-1 flex items-center justify-center leading-none border",
+                              (formData.assetType || 'audio') === 'audio'
+                                ? "bg-blue-600 border-blue-600 text-white shadow-xs z-10 font-black"
+                                : "bg-white border-slate-300 text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                            )}
+                          >
+                            MP3 Audio
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormData({...formData, assetType: 'script'})}
+                            className={cn(
+                              "px-2 py-0.5 text-[13px] font-black uppercase transition-all select-none cursor-pointer rounded-r rounded-l-none h-10 flex-1 flex items-center justify-center leading-none border",
+                              formData.assetType === 'script'
+                                ? "bg-blue-600 border-blue-600 text-white shadow-xs z-10 font-black"
+                                : "bg-white border-slate-300 text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                            )}
+                          >
+                            Live Read
+                          </button>
+                        </div>
+                      </div>
+
                       {/* Schedule Type */}
                       <div className="space-y-1">
                         <label className="text-[14px]/none font-black text-slate-400 uppercase tracking-widest block select-none">type</label>
@@ -1741,7 +1785,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                   {/* MP3 File Group with Blue Header */}
                   <div className="space-y-0 mt-0">
                     <div className="bg-blue-600 text-white text-[13px] font-black uppercase tracking-widest px-3 py-1.5 rounded-t-none select-none">
-                      MP3 File
+                      {formData.assetType === 'script' ? 'Script / Image File' : 'MP3 File'}
                     </div>
                     <div className="p-3 bg-slate-50 border-x border-b border-slate-350 rounded-b-lg space-y-3 shadow-xs">
                       {/* MP3 Row */}
@@ -1749,7 +1793,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                         {formData.mp3Url ? (
                           <span className="text-[16px] font-mono font-bold text-slate-850 break-all" title={getFilenameFromUrlOrPath(formData.mp3Url)}>
                             {getFilenameFromUrlOrPath(formData.mp3Url)}
-                            {formData.duration && ` (${formData.duration})`}
+                            {formData.assetType !== 'script' && formData.duration && ` (${formData.duration})`}
                           </span>
                         ) : (
                           <span className="text-[16px] font-medium text-slate-400 italic">None Selected</span>
@@ -1757,7 +1801,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                       </div>
 
                       {/* Display metadata inline underneath the filename if available */}
-                      {formData.mp3Url && (() => {
+                      {formData.mp3Url && formData.assetType !== 'script' && (() => {
                         const filename = getFilenameFromUrlOrPath(formData.mp3Url);
                         const meta = metadataCache[filename];
                         if (meta && (meta.title || meta.artist || meta.album)) {
@@ -1778,11 +1822,12 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                             <>
                               {(() => {
                                 const status = getMP3Status(formData.mp3Url);
-                                const isVerified = status.exists && status.valid;
+                                const isScript = formData.assetType === 'script';
+                                const isVerified = status.exists && (isScript || status.valid);
                                 return (
                                   <>
                                     {isVerified ? (
-                                      <CheckCircle className="w-4 h-4 text-green-600 shrink-0" title="File Verified" />
+                                      <CheckCircle className="w-4 h-4 text-green-600 shrink-0" title={isScript ? "Script Verified" : "File Verified"} />
                                     ) : !status.exists ? (
                                       <AlertCircle className="w-4 h-4 text-red-500 shrink-0 animate-pulse" title="File not found" />
                                     ) : (
@@ -1795,19 +1840,19 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                           File not found.
                                         </span>
                                       )}
-                                      {!status.valid && status.exists && (
+                                      {!isScript && !status.valid && status.exists && (
                                         <span className="font-black text-orange-500 uppercase">
                                           File not mp3.
                                         </span>
                                       )}
                                       {isVerified && (
                                         <span className="font-black text-green-600 uppercase">
-                                          File Verified
+                                          {isScript ? "Script / Image Verified" : "File Verified"}
                                         </span>
                                       )}
                                     </div>
 
-                                    {isVerified && (
+                                    {!isScript && isVerified && (
                                       <button
                                         type="button"
                                         onClick={() => togglePreview(formData.mp3Url)}
@@ -1827,7 +1872,9 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                               })()}
                             </>
                           ) : (
-                            <p className="text-[14px] text-slate-400 font-medium">Please select an MP3 file path from the library</p>
+                            <p className="text-[14px] text-slate-400 font-medium">
+                              {formData.assetType === 'script' ? 'Please select a script/image file path from the library' : 'Please select an MP3 file path from the library'}
+                            </p>
                           )}
                         </div>
                         
@@ -2098,7 +2145,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 </div>
                 <div>
                   <h3 className="text-[14px] font-black text-slate-800 uppercase tracking-widest leading-none">
-                    Select Mp3
+                    {formData.assetType === 'script' ? 'Select Script / Image' : 'Select Mp3'}
                   </h3>
                 </div>
               </div>
@@ -2108,7 +2155,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input 
                   type="text" 
-                  placeholder="Search mp3's..." 
+                  placeholder={formData.assetType === 'script' ? "Search scripts & images..." : "Search mp3's..."}
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-[14px] font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans"
@@ -2129,12 +2176,15 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
               <div className="space-y-1 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
                 {filteredFiles.length > 0 ? filteredFiles.map((file, i) => {
                   const dispDuration = pickerDurations[file.name] || file.duration || '';
+                  const isMp3 = file.name.toLowerCase().endsWith('.mp3');
+                  const isScriptAsset = formData.assetType === 'script';
+                  const showWarning = !isMp3 && !isScriptAsset;
                   return (
                     <div 
                       key={i}
                       className={cn(
                         "w-full text-left p-1.5 px-3 rounded-lg flex items-center transition-all border gap-3 duration-150 shadow-xs",
-                        !file.name.toLowerCase().endsWith('.mp3')
+                        showWarning
                           ? "bg-orange-50/45 border-orange-200"
                           : i % 2 === 0
                             ? "bg-white border-slate-300/90 hover:border-blue-600 hover:bg-blue-50/40 hover:ring-1 hover:ring-blue-600/20 hover:shadow-md"
@@ -2159,14 +2209,14 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                       <div className="min-w-0 flex-1 flex flex-col justify-center">
                         <div className="flex flex-wrap items-baseline gap-1.5 leading-tight">
                           <span className={cn(
-                            "text-[14px] font-bold line-clamp-1 break-all text-slate-800",
-                            !file.name.toLowerCase().endsWith('.mp3') ? "text-orange-700 font-black" : "text-slate-800"
+                            "text-[14px] font-bold line-clamp-1 break-all",
+                            showWarning ? "text-orange-700 font-black" : "text-slate-800"
                           )}>
                             {file.name}
                           </span>
                           
                           {/* Audio metadata duration logic - format same as on edit page */}
-                          {dispDuration && (
+                          {!isScriptAsset && dispDuration && (
                             <span className="text-[12px] font-mono font-bold text-slate-400 whitespace-nowrap ml-1">
                               ({dispDuration})
                             </span>
@@ -2174,7 +2224,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                         </div>
 
                         {/* Display ID3 Metadata and subtitles if cached */}
-                        {(() => {
+                        {!isScriptAsset && (() => {
                           const meta = metadataCache[file.name];
                           if (meta && (meta.title || meta.artist || meta.album)) {
                             const parts = [meta.title, meta.artist, meta.album].filter(Boolean);
@@ -2187,8 +2237,11 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                           return null;
                         })()}
 
-                        {!file.name.toLowerCase().endsWith('.mp3') && (
+                        {showWarning && (
                           <span className="text-[12px] font-black text-orange-500 uppercase bg-orange-100 px-1.5 py-0.5 rounded inline-block mt-0.5 font-sans">No .mp3 extension</span>
+                        )}
+                        {!isMp3 && isScriptAsset && (
+                          <span className="text-[12px] font-black text-blue-600 uppercase bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded inline-block mt-0.5 font-sans">Script / Image Asset</span>
                         )}
                       </div>
 

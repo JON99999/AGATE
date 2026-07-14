@@ -485,15 +485,21 @@ async function startServer() {
         return res.json([]);
       }
       const files = fs.readdirSync(folderPath);
+      const allowedExtensions = ['.mp3', '.txt', '.pdf', '.png', '.jpg', '.jpeg'];
       const mp3List = files
-        .filter(f => f.toLowerCase().endsWith('.mp3'))
+        .filter(f => {
+          const ext = path.extname(f).toLowerCase();
+          return allowedExtensions.includes(ext);
+        })
         .map(f => {
           const fullPath = path.join(folderPath, f);
           const stats = fs.statSync(fullPath);
+          const ext = path.extname(f).toLowerCase();
+          const isScript = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].includes(ext);
           return {
             name: f,
             size: `${(stats.size / (1024 * 1024)).toFixed(1)} MB`,
-            duration: '0:15', // Default starting duration
+            duration: isScript ? '—' : '0:15', // Default starting duration for audio, placeholder for scripts
             path: `/api/stream-local?file=${encodeURIComponent(f)}`
           };
         });
@@ -524,6 +530,60 @@ async function startServer() {
       }
     } catch (e: any) {
       res.status(500).send(e.message || 'Streaming failed');
+    }
+  });
+
+  // API - Get live-read script/image content
+  app.get('/api/live-read/content', (req, res) => {
+    try {
+      const file = req.query.file as string;
+      if (!file) return res.status(400).json({ error: 'Filename required' });
+
+      const folderPath = currentSettings.localPathMP3s;
+      if (!folderPath || !fs.existsSync(folderPath)) {
+        return res.status(404).json({ error: 'Media & Scripts folder not defined or offline' });
+      }
+
+      const targetFilePath = path.join(folderPath, path.basename(file));
+      if (!fs.existsSync(targetFilePath)) {
+        return res.status(404).json({ error: 'File not found' });
+      }
+
+      const ext = path.extname(file).toLowerCase();
+      const isText = ext === '.txt';
+
+      const responseData: any = {
+        name: file,
+        path: targetFilePath,
+        extension: ext,
+        url: `/api/stream-local?file=${encodeURIComponent(file)}`
+      };
+
+      if (isText) {
+        // Read raw file content (supporting UTF-8 text for .txt)
+        const textContent = fs.readFileSync(targetFilePath, 'utf8');
+        responseData.content = textContent;
+      }
+
+      res.json(responseData);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to read file' });
+    }
+  });
+
+  // API - Trigger Electron spawn live read window
+  app.post('/api/live-read/spawn', (req, res) => {
+    try {
+      const data = req.body;
+      if (typeof global !== 'undefined' && (global as any).spawnLiveRead) {
+        (global as any).spawnLiveRead(data);
+        return res.json({ success: true, mode: 'electron' });
+      } else {
+        console.log('Spawn live read window requested (browser fallback):', data);
+        return res.json({ success: true, mode: 'browser' });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || 'Failed to spawn window' });
     }
   });
 

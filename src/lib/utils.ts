@@ -93,3 +93,49 @@ export const getFilenameFromUrlOrPath = (pathOrUrl: string | undefined): string 
   return lastPart || pathOrUrl;
 };
 
+export function parseCustomTimeText(text: string, baseDate: Date = new Date()): Date | null {
+  if (!text) return null;
+  const cleaned = text.trim();
+  
+  // 1. Check for AM/PM formats (e.g. "12:04:15 PM" or "12:04 PM")
+  const ampmMatch = cleaned.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+  if (ampmMatch) {
+    const d = new Date(baseDate);
+    let hrs = parseInt(ampmMatch[1], 10);
+    const mins = parseInt(ampmMatch[2], 10);
+    const secs = ampmMatch[3] ? parseInt(ampmMatch[3], 10) : 0;
+    const ampm = ampmMatch[4].toUpperCase();
+    
+    if (ampm === 'PM' && hrs < 12) hrs += 12;
+    if (ampm === 'AM' && hrs === 12) hrs = 0;
+    
+    if (hrs >= 0 && hrs < 24 && mins >= 0 && mins < 60 && secs >= 0 && secs < 60) {
+      d.setHours(hrs, mins, secs, 0);
+      return d;
+    }
+  }
+  
+  // 2. Check for 24-hour format or plain time without AM/PM (e.g. "14:05:30" or "14:05")
+  const plainMatch = cleaned.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (plainMatch) {
+    const d = new Date(baseDate);
+    const hrs = parseInt(plainMatch[1], 10);
+    const mins = parseInt(plainMatch[2], 10);
+    const secs = plainMatch[3] ? parseInt(plainMatch[3], 10) : 0;
+    
+    if (hrs >= 0 && hrs < 24 && mins >= 0 && mins < 60 && secs >= 0 && secs < 60) {
+      d.setHours(hrs, mins, secs, 0);
+      return d;
+    }
+  }
+  
+  return null;
+}
+
+export function getParsedCustomTimeISO(customTime: string | undefined, baseDate: Date): string {
+  if (!customTime) return baseDate.toISOString();
+  const parsed = parseCustomTimeText(customTime, baseDate);
+  return parsed ? parsed.toISOString() : baseDate.toISOString();
+}
+
+

@@ -178,6 +178,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 /* 5. Backdrop blurs (glassmorphism filter paint triggers) */
 .disable-animations.opt-backdrop-blurs .backdrop-blur,
+.disable-animations.opt-backdrop-blurs .backdrop-blur-xs,
 .disable-animations.opt-backdrop-blurs .backdrop-blur-sm,
 .disable-animations.opt-backdrop-blurs .backdrop-blur-md,
 .disable-animations.opt-backdrop-blurs .backdrop-blur-lg {

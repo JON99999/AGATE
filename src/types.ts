@@ -35,6 +35,7 @@ export interface Schedule {
   endDate?: string;
   metadata: ScheduleMetadata;
   duration?: string;
+  assetType?: 'audio' | 'script';
 }
 
 export interface LogEntry {
@@ -46,4 +47,5 @@ export interface LogEntry {
   status: 'played' | 'skipped' | 'failed';
   playMode?: 'Live' | 'Prerecord' | 'Export';
   logTimeStamp?: string;
+  assetType?: 'audio' | 'script';
 }

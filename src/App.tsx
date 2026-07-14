@@ -59,6 +59,7 @@ import { Schedule, ScheduleType, LogEntry } from "./types";
 import PlayerTab from "./components/PlayerTab";
 import SchedulerTab from "./components/SchedulerTab";
 import LogTab from "./components/LogTab";
+import LiveReadPopout from "./components/LiveReadPopout";
 import GoogleAuthSection from "./components/GoogleAuthSection";
 import LocalHelpModal from "./components/LocalHelpModal";
 import { cn, extractFolderId } from "./lib/utils";
@@ -88,6 +89,12 @@ import {
 } from "./lib/driveService";
 
 export default function App() {
+  const isPopout = typeof window !== "undefined" && window.location.search.includes("popout=true");
+
+  if (isPopout) {
+    return <LiveReadPopout />;
+  }
+
   const isPlayerMode = (import.meta as any).env?.VITE_APP_MODE === "Player";
 
   // Custom fetch override to support local environment ports transparently
@@ -1085,8 +1092,9 @@ export default function App() {
     const enrichedEntry: LogEntry = {
       ...entry,
       playMode: entry.playMode === "Export" ? "Export" : playMode,
-      logTimeStamp: new Date().toISOString(),
+      logTimeStamp: entry.logTimeStamp || new Date().toISOString(),
       timestamp: entry.scheduledTime || entry.timestamp || new Date().toISOString(),
+      assetType: entry.assetType || "audio",
     };
 
     if (settings.mode === "Local") {
@@ -1119,6 +1127,14 @@ export default function App() {
       console.error("Failed to add log:", error);
     }
   };
+
+  useEffect(() => {
+    if ((window as any).electronAPI && (window as any).electronAPI.onLiveReadLogged) {
+      (window as any).electronAPI.onLiveReadLogged((logEntry: LogEntry) => {
+        addLog(logEntry);
+      });
+    }
+  }, []);
 
   const handleToggleMode = () => {
     if (playMode === "Live") {
@@ -2924,7 +2940,7 @@ export default function App() {
                       <div>
                         <div className="flex justify-between items-center mb-1">
                           <label className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
-                            Local MP3s Directory Path
+                            Local Media & Script Directory Path
                           </label>
                           {!draftLocalPathMP3s ? (
                             <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">
@@ -2938,7 +2954,7 @@ export default function App() {
                         </div>
                         <input
                           type="text"
-                          placeholder="e.g. /Users/name/Music/MP3s"
+                          placeholder="e.g. /Users/name/Music/MediaAndScripts"
                           value={draftLocalPathMP3s}
                           onChange={(e) =>
                             setDraftLocalPathMP3s(e.target.value)
@@ -2966,8 +2982,7 @@ export default function App() {
                           )}
                         </div>
                         <p className="text-[12px] text-slate-500 mt-0.5">
-                          Absolute path containing your secondary .mp3 playback
-                          audio files.
+                          Absolute path containing your secondary .mp3 playback audio, script, and image files.
                         </p>
                       </div>
 
@@ -3083,7 +3098,7 @@ export default function App() {
                       <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
                         <div className="flex justify-between items-center">
                           <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
-                            mp3's
+                            media & scripts
                           </span>
                           {draftDriveFolderMP3s ? (
                             <span className="text-[12px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
@@ -3232,7 +3247,7 @@ export default function App() {
                       <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
                         <div className="flex justify-between items-center">
                           <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
-                            Demo mp3's
+                            Demo media & scripts
                           </span>
                           <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                             Demo

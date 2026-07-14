@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, Menu, session, dialog } = require('electron');
+const { app, BrowserWindow, screen, Menu, session, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -102,6 +102,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       devTools: appMode !== 'Player',
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   };
 
@@ -193,3 +194,72 @@ app.on('activate', function () {
 app.on('will-quit', () => {
   // Graceful exit is handled by electron shutting down the process
 });
+
+// ==========================================================================================
+// ELECTRON IPC HANDLERS FOR LIVE READ POP-OUT WINDOW (PHASE 2)
+// ==========================================================================================
+let liveReadWindow = null;
+let currentLiveReadData = null; // Holds { name, path, content, isScript, text }
+
+global.spawnLiveRead = async (data) => {
+  currentLiveReadData = data;
+
+  if (liveReadWindow) {
+    try {
+      liveReadWindow.close();
+    } catch (e) {}
+  }
+
+  const disableShadows = DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC && isIntelMac;
+
+  liveReadWindow = new BrowserWindow({
+    width: 650,
+    height: 550,
+    title: "Live Read Script - " + (data.name || "Script"),
+    alwaysOnTop: true, // Floats over other apps
+    resizable: true, // Resizable
+    hasShadow: !disableShadows,
+    titleBarStyle: isMac ? 'hiddenInset' : 'default', // Minimally bordered / modern standard title bar
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs')
+    }
+  });
+
+  // Load the web app with a special query parameter indicating it is a popout
+  const popoutUrl = `http://127.0.0.1:${serverPort}/?popout=true`;
+  liveReadWindow.loadURL(popoutUrl);
+
+  liveReadWindow.on('closed', () => {
+    liveReadWindow = null;
+  });
+
+  return { success: true };
+};
+
+ipcMain.handle('spawn-live-read', async (event, data) => {
+  return global.spawnLiveRead(data);
+});
+
+ipcMain.handle('get-live-read-data', async () => {
+  return currentLiveReadData;
+});
+
+ipcMain.handle('log-live-read-commit', async (event, logEntry) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('live-read-logged', logEntry);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('close-live-read-window', async () => {
+  if (liveReadWindow) {
+    try {
+      liveReadWindow.close();
+    } catch (e) {}
+    liveReadWindow = null;
+  }
+  return { success: true };
+});
+
