@@ -318,13 +318,21 @@ export default function PlayerTab({
       
       const scheduledTimeISO = getParsedCustomTimeISO(customScriptTimes[slotKey], slot);
 
+      const slotISO = slot.toISOString();
+      const playedLog = logs.find(l => 
+        l.scheduleId === s.id && 
+        (l.scheduledTime === slotISO || isSameMinute(parseISO(l.timestamp), slot)) &&
+        l.status === 'played'
+      );
+
       const payload = {
         name: filename,
         fileName: filename,
         filePath: s.mp3Url,
         scheduleId: s.id,
         scheduleName: s.name,
-        scheduledTime: scheduledTimeISO
+        scheduledTime: scheduledTimeISO,
+        initialLoggedTime: playedLog?.timestamp || ''
       };
 
       if ((window as any).electronAPI && (window as any).electronAPI.spawnLiveRead) {
@@ -473,9 +481,11 @@ export default function PlayerTab({
         
         const rawName = item.scheduleName || 'Unnamed Break';
         const safeScheduleName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
-        const targetFileName = `Break ${itemIdx} - (${safeSlotTime}) - (${safeScheduleName}).mp3`;
-        
         const sourceFileName = item.fileName || '';
+        const dotIndex = sourceFileName.lastIndexOf('.');
+        const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex) : '.mp3';
+        const targetFileName = `Break ${itemIdx} - (${safeSlotTime}) - (${safeScheduleName})${ext}`;
+        
         const status = getMP3Status(sourceFileName).exists ? 'Found' : 'Missing';
 
         if (status === 'Found') {
@@ -533,7 +543,10 @@ export default function PlayerTab({
         const safeSlotTime = slotTimeStr.replace(/:/g, '-');
         const rawName = s.name || 'Unnamed Break';
         const safeScheduleName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
-        const targetFileName = `Break ${itemIdx} - (${safeSlotTime}) - (${safeScheduleName}).mp3`;
+        const sourceFileName = s.mp3Url || '';
+        const dotIndex = sourceFileName.lastIndexOf('.');
+        const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex) : '.mp3';
+        const targetFileName = `Break ${itemIdx} - (${safeSlotTime}) - (${safeScheduleName})${ext}`;
         const exists = getMP3Status(s.mp3Url).exists;
 
         items.push({
@@ -616,8 +629,13 @@ export default function PlayerTab({
     const m3uLines: string[] = ['#EXTM3U'];
     itemsToExport.forEach((item, idx) => {
       const itemIdx = idx + 1;
-      m3uLines.push(`#EXTINF:-1,Break ${itemIdx} - ${item.slotTime} - ${item.scheduleName}`);
-      m3uLines.push(item.targetFileName);
+      const sourceFileName = item.fileName || '';
+      const dotIndex = sourceFileName.lastIndexOf('.');
+      const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex).toLowerCase() : '';
+      if (ext === '.mp3') {
+        m3uLines.push(`#EXTINF:-1,Break ${itemIdx} - ${item.slotTime} - ${item.scheduleName}`);
+        m3uLines.push(item.targetFileName);
+      }
     });
     return m3uLines.join('\n');
   }, [itemsToExport]);
@@ -771,34 +789,9 @@ export default function PlayerTab({
                         <span className="text-[12px] uppercase font-black text-slate-400 tracking-tighter">
                           {format(slot, 'MMM dd')}
                         </span>
-                        {item.assetType === 'script' ? (() => {
-                          const customVal = customScriptTimes[`${item.scheduleId}-${item.slotISO}`];
-                          const isValid = !customVal || parseCustomTimeText(customVal) !== null;
-                          return (
-                            <input
-                              type="text"
-                              value={customVal || item.slotTime}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => {
-                                setCustomScriptTimes(prev => ({
-                                  ...prev,
-                                  [`${item.scheduleId}-${item.slotISO}`]: e.target.value
-                                }));
-                              }}
-                              className={cn(
-                                "w-16 rounded text-[14px] font-mono font-bold px-1 py-0.5 text-center outline-none transition-colors border",
-                                isValid 
-                                  ? "bg-slate-900 border-slate-700 text-emerald-400 focus:ring-1 focus:ring-emerald-500"
-                                  : "bg-slate-900 border-rose-500 text-rose-500 focus:ring-1 focus:ring-rose-500 ring-1 ring-rose-500"
-                              )}
-                              title={isValid ? "Custom scheduled time for script" : "Invalid time format (Expected HH:MM, HH:MM:SS, AM/PM)"}
-                            />
-                          );
-                        })() : (
-                          <span className="text-[12px] font-mono font-black text-emerald-400">
-                            {item.slotTime}
-                          </span>
-                        )}
+                        <span className="text-[12px] font-mono font-black text-emerald-400">
+                          {item.slotTime}
+                        </span>
                       </div>
                       
                       <div className="flex items-center gap-2">
@@ -821,11 +814,6 @@ export default function PlayerTab({
                         "text-[12px] font-bold leading-tight break-words line-clamp-2 flex-1 flex items-center gap-1.5",
                         playingSlotKey === `export-preview-${key}` ? "text-emerald-400" : "text-slate-200"
                       )}>
-                        {item.assetType === 'script' && (
-                          <span className="text-[10px] bg-blue-950 text-blue-400 border border-blue-800/40 px-1 py-0.5 rounded font-black uppercase tracking-wider select-none shrink-0 inline-block leading-none">
-                            Live Read
-                          </span>
-                        )}
                         <span>{item.scheduleName}</span>
                       </div>
 
@@ -847,7 +835,8 @@ export default function PlayerTab({
                                 filePath: item.fileName,
                                 scheduleId: item.scheduleId,
                                 scheduleName: item.scheduleName,
-                                scheduledTime: scheduledTimeISO
+                                scheduledTime: scheduledTimeISO,
+                                initialLoggedTime: playedLog?.timestamp || ''
                               };
 
                               if ((window as any).electronAPI && (window as any).electronAPI.spawnLiveRead) {
@@ -857,10 +846,19 @@ export default function PlayerTab({
                                 setActiveLiveReadOverlay(payload);
                               }
                             }}
-                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[14px] uppercase rounded-lg shadow-sm flex items-center gap-1 cursor-pointer transition-all active:scale-95 leading-none"
+                            className={cn(
+                              "p-1 rounded-full transition-all shadow-sm flex items-center justify-center cursor-pointer active:scale-95 border",
+                              played 
+                                ? "bg-blue-900 border-blue-500/20 text-blue-400 hover:bg-blue-850" 
+                                : "bg-blue-600 hover:bg-blue-700 text-white border-transparent"
+                            )}
+                            title={played ? "Re-read / View Script" : "Read Script"}
                           >
-                            <FileText className="w-3.5 h-3.5 text-white" />
-                            <span>Display</span>
+                            {played ? (
+                              <RefreshCw className="w-3 h-3" />
+                            ) : (
+                              <FileText className="w-3 h-3" />
+                            )}
                           </button>
                         ) : item.exists ? (
                           <button
@@ -930,7 +928,7 @@ export default function PlayerTab({
                             <>
                               <CheckCircle className="w-3 h-3 text-green-400" />
                               <span className="text-[14px] font-bold text-green-400 uppercase tracking-tighter">
-                                Played {playedLog ? format(parseISO(playedLog.timestamp), 'HH:mm') : ''}
+                                {item.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.timestamp), 'HH:mm') : ''}
                               </span>
                             </>
                           ) : isMissedRecent || isMissedOld ? (
@@ -944,7 +942,7 @@ export default function PlayerTab({
                             <>
                               <Clock className="w-3 h-3 text-slate-500" />
                               <span className="text-[14px] font-bold text-slate-500 uppercase tracking-tighter">
-                                To be played
+                                {item.assetType === 'script' ? 'To be read' : 'To be played'}
                               </span>
                             </>
                           )}
@@ -966,7 +964,7 @@ export default function PlayerTab({
                         </div>
                       ) : item.exists ? (
                         <span className="text-[12px] font-mono font-bold text-slate-500 leading-none">
-                          {mp3DurationCache.get(item.fileName) || item.duration || '--:--'}
+                          {item.assetType === 'script' ? 'read' : (mp3DurationCache.get(item.fileName) || item.duration || '--:--')}
                         </span>
                       ) : null}
                     </div>
@@ -1130,41 +1128,19 @@ export default function PlayerTab({
                          cardOpacityClass
                        )}
                      >
-                   {/* Header: Date & Time */}
-                   <div className="flex justify-between items-center bg-slate-50 -mx-2 -mt-2 px-2 py-1 rounded-t">
-                     <div className="flex items-center gap-2">
-                       <span className="text-[12px] uppercase font-black text-slate-500 tracking-tighter">
-                         {format(slot, 'MMM dd')}
-                       </span>
-                       {
-                        s.assetType === 'script' && isPre ? (
-                          <input
-                            type="text"
-                            value={customVal || format(slot, 'HH:mm')}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => {
-                              setCustomScriptTimes(prev => ({
-                                ...prev,
-                                [slotKey]: e.target.value
-                              }));
-                            }}
-                            className={cn(
-                              "w-16 rounded text-[14px] font-mono font-bold px-1 py-0.5 text-center outline-none transition-colors border",
-                              isValid
-                                ? "bg-slate-100 border-slate-300 text-purple-600 focus:ring-1 focus:ring-purple-500"
-                                : "bg-slate-100 border-rose-500 text-rose-500 focus:ring-1 focus:ring-rose-500 ring-1 ring-rose-500"
-                            )}
-                            title={isValid ? "Custom scheduled time for script" : "Invalid time format (Expected HH:MM, HH:MM:SS, AM/PM)"}
-                          />
-                        ) : (
-                         <span className={cn(
-                           "text-[12px] font-mono font-black",
-                           isMissedRecent && !isCurrentlyPlaying ? "text-amber-800" : (isPresent || isCurrentlyPlaying || isUpcoming) ? (isPre ? "text-purple-600" : "text-blue-600") : "text-slate-900"
-                         )}>
-                           {format(slot, 'HH:mm')}
-                         </span>
-                       )}
-                     </div>
+                    {/* Header: Date & Time */}
+                    <div className="flex justify-between items-center bg-slate-50 -mx-2 -mt-2 px-2 py-1 rounded-t">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[12px] uppercase font-black text-slate-500 tracking-tighter">
+                          {format(slot, 'MMM dd')}
+                        </span>
+                        <span className={cn(
+                          "text-[12px] font-mono font-black",
+                          isMissedRecent && !isCurrentlyPlaying ? "text-amber-800" : (isPresent || isCurrentlyPlaying || isUpcoming) ? (isPre ? "text-purple-600" : "text-blue-600") : "text-slate-900"
+                        )}>
+                          {format(slot, 'HH:mm')}
+                        </span>
+                      </div>
                      {isCurrentlyPlaying ? (
                        <div className={cn(
                          "flex items-center gap-1 text-[12px] font-black uppercase",
@@ -1279,7 +1255,7 @@ export default function PlayerTab({
                        </div>
                      ) : isVerified ? (
                        <span className="text-[12px] font-mono font-bold text-slate-400 leading-none">
-                         {s.assetType === 'script' ? '0:00' : (mp3DurationCache.get(s.mp3Url) || s.duration || '--:--')}
+                         {s.assetType === 'script' ? 'read' : (mp3DurationCache.get(s.mp3Url) || s.duration || '--:--')}
                        </span>
                      ) : null}
                    </div>

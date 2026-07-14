@@ -957,11 +957,13 @@ async function startServer() {
         const rawName = item.scheduleName || 'Unnamed Break';
         const safeScheduleName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
         
+        const sourceFileName = item.fileName || '';
+        const ext = path.extname(sourceFileName) || '.mp3';
+        
         // Construct sequential file name as requested
         const paddedIdx = String(itemIdx).padStart(2, '0');
-        const targetFileName = `Break ${paddedIdx} at ${safeSlotTime} - ${safeScheduleName}.mp3`;
+        const targetFileName = `Break ${paddedIdx} at ${safeSlotTime} - ${safeScheduleName}${ext}`;
         
-        const sourceFileName = item.fileName || '';
         const sourceFilePath = path.join(sourceFolder, path.basename(sourceFileName));
         const destFilePath = path.join(exportFolderPath, targetFileName);
 
@@ -989,9 +991,11 @@ async function startServer() {
           status
         });
 
-        // Add to m3u playlist lines (referencing only the local target name in export folder)
-        m3uLines.push(`#EXTINF:-1,Break ${itemIdx} - ${itemSlotTime} - ${rawName}`);
-        m3uLines.push(targetFileName);
+        // Add to m3u playlist lines if it's an MP3 (referencing only the local target name in export folder)
+        if (ext.toLowerCase() === '.mp3') {
+          m3uLines.push(`#EXTINF:-1,Break ${itemIdx} - ${itemSlotTime} - ${rawName}`);
+          m3uLines.push(targetFileName);
+        }
 
         // Add to summary text file
         if (status === 'Found & Copied') {

@@ -18,17 +18,53 @@ interface LiveReadPopoutProps {
   initialScheduleId?: string;
   initialScheduleName?: string;
   initialScheduledTime?: string;
+  initialLoggedTime?: string;
   onClose?: () => void;
   onLogCommit?: (entry: LogEntry) => void;
   isOverlay?: boolean;
   isPreview?: boolean;
 }
 
+const isMac = typeof window !== 'undefined' && (
+  /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent) || 
+  (navigator.platform && navigator.platform.toUpperCase().indexOf('MAC') >= 0)
+);
+
+const formatToHHMM = (isoString: string) => {
+  try {
+    const d = new Date(isoString);
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12; // Hour '0' should be '12'
+    return `${String(hours).padStart(2, '0')}:${minutes}:${seconds} ${ampm}`;
+  } catch (e) {
+    return '';
+  }
+};
+
+const getLoggedAtLabel = (isoString: string) => {
+  try {
+    const d = new Date(isoString);
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return `${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+  } catch (e) {
+    return 'HH:MM';
+  }
+};
+
 export default function LiveReadPopout({
   initialFileName = '',
   initialScheduleId = '',
   initialScheduleName = '',
   initialScheduledTime = '',
+  initialLoggedTime = '',
   onClose,
   onLogCommit,
   isOverlay = false,
@@ -39,6 +75,7 @@ export default function LiveReadPopout({
   const [scheduleId, setScheduleId] = useState(initialScheduleId);
   const [scheduleName, setScheduleName] = useState(initialScheduleName);
   const [scheduledTime, setScheduledTime] = useState(initialScheduledTime);
+  const [loggedTime, setLoggedTime] = useState(initialLoggedTime);
 
   // Content states
   const [fileContent, setFileContent] = useState<string>('');
@@ -55,6 +92,19 @@ export default function LiveReadPopout({
   const [isEditingLogTime, setIsEditingLogTime] = useState(false);
 
   // 1. Initial Data Loading (IPC or URL parameter fallbacks)
+  const initialFormattedLoggedTime = React.useMemo(() => {
+    if (!loggedTime) return '';
+    return formatToHHMM(loggedTime);
+  }, [loggedTime]);
+
+  useEffect(() => {
+    if (loggedTime) {
+      const formatted = formatToHHMM(loggedTime);
+      setLogTimeText(formatted);
+      setIsEditingLogTime(true);
+    }
+  }, [loggedTime]);
+
   useEffect(() => {
     async function loadInitialData() {
       // Try Electron IPC first
@@ -66,6 +116,7 @@ export default function LiveReadPopout({
             setScheduleId(ipcData.scheduleId || '');
             setScheduleName(ipcData.scheduleName || '');
             setScheduledTime(ipcData.scheduledTime || '');
+            setLoggedTime(ipcData.initialLoggedTime || '');
             if (ipcData.name) {
               fetchFileContent(ipcData.name);
             }
@@ -82,12 +133,14 @@ export default function LiveReadPopout({
       const sId = params.get('scheduleId') || '';
       const sName = params.get('scheduleName') || '';
       const sTime = params.get('scheduledTime') || '';
+      const sLogged = params.get('initialLoggedTime') || '';
 
       if (f) {
         setFileName(f);
         setScheduleId(sId);
         setScheduleName(sName);
         setScheduledTime(sTime);
+        setLoggedTime(sLogged);
         fetchFileContent(f);
       } else if (initialFileName) {
         fetchFileContent(initialFileName);
@@ -139,8 +192,8 @@ export default function LiveReadPopout({
       const timeStr = formatTime(now);
       setCurrentTimeText(timeStr);
       
-      // Auto pre-fill log time input unless user edited it
-      if (!isEditingLogTime) {
+      // Auto pre-fill log time input unless user edited it or we have a logged time
+      if (!isEditingLogTime && !loggedTime) {
         setLogTimeText(timeStr);
       }
     };
@@ -148,7 +201,7 @@ export default function LiveReadPopout({
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
-  }, [isEditingLogTime]);
+  }, [isEditingLogTime, loggedTime]);
 
   // Handle Zoom In / Zoom Out (Announcer friendly readability)
   const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 2, 40));
@@ -210,13 +263,27 @@ export default function LiveReadPopout({
   const isImage = ['.png', '.jpg', '.jpeg'].includes(extension);
   const isPdf = extension === '.pdf';
 
+  const hasBeenLogged = !!loggedTime;
+  const isTimeChangedFromLogged = hasBeenLogged && logTimeText !== initialFormattedLoggedTime;
+  
+  const closeButtonText = hasBeenLogged ? "Close" : "Close - Not Read";
+  const isLogButtonDisabled = loading || !!error || !isLogTimeValid || (hasBeenLogged && !isTimeChangedFromLogged);
+  const logButtonText = isTimeChangedFromLogged
+    ? "Log Again"
+    : hasBeenLogged
+      ? `Logged at ${getLoggedAtLabel(loggedTime)}`
+      : "Log as Read";
+
   return (
     <div className={cn(
       "flex flex-col h-screen select-none font-sans text-slate-800 bg-slate-100",
       isOverlay ? "rounded-xl border border-slate-300 shadow-2xl max-w-3xl w-full max-h-[85vh] h-full overflow-hidden" : ""
     )}>
       {/* HEADER SECTION (MINIMAL BORDERS) */}
-      <div className="flex justify-between items-center bg-slate-900 text-white px-4 py-3 border-b border-slate-800 shrink-0">
+      <div className={cn(
+        "flex justify-between items-center bg-slate-900 text-white px-4 py-3 border-b border-slate-800 shrink-0",
+        isMac && !isOverlay ? "pl-20" : ""
+      )}>
         <div className="flex items-center gap-3 min-w-0">
           <div className="p-1.5 rounded-md bg-blue-600/20 text-blue-400">
             {isImage ? <Eye className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
@@ -364,6 +431,9 @@ export default function LiveReadPopout({
                     setLogTimeText(e.target.value);
                     setIsEditingLogTime(true);
                   }}
+                  onFocus={() => {
+                    setIsEditingLogTime(true);
+                  }}
                   className={cn(
                     "w-full bg-transparent outline-none border-0 font-mono font-bold text-[13px]",
                     isLogTimeValid ? "text-slate-700" : "text-rose-600"
@@ -372,7 +442,10 @@ export default function LiveReadPopout({
                 />
                 {isEditingLogTime && (
                   <button 
-                    onClick={() => setIsEditingLogTime(false)}
+                    onClick={() => {
+                      setIsEditingLogTime(false);
+                      setLoggedTime(''); // Reset logged status so we tick live
+                    }}
                     className="text-[10px] bg-slate-200 text-slate-600 px-1 py-0.5 rounded font-black uppercase hover:bg-slate-300 transition-colors ml-1"
                     title="Reset to live ticking clock"
                   >
@@ -390,16 +463,16 @@ export default function LiveReadPopout({
                 className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 hover:text-slate-800 font-black text-[13px] uppercase rounded-lg transition-all shadow-xs flex items-center gap-1.5 select-none cursor-pointer leading-none"
               >
                 <X className="w-4 h-4" />
-                Close - Not Read
+                {closeButtonText}
               </button>
               <button
                 type="button"
                 onClick={handleLogAsRead}
-                disabled={loading || !!error || !isLogTimeValid}
+                disabled={isLogButtonDisabled}
                 className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white font-black text-[13px] uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none"
               >
                 <Check className="w-4 h-4" />
-                Log as Read
+                {logButtonText}
               </button>
             </div>
           </div>
