@@ -9,5 +9,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('live-read-logged');
     ipcRenderer.on('live-read-logged', (event, logEntry) => callback(logEntry));
   },
+  onLiveReadClosed: (callback) => {
+    ipcRenderer.removeAllListeners('live-read-closed');
+    ipcRenderer.on('live-read-closed', (event) => callback());
+  },
   closeLiveReadWindow: () => ipcRenderer.invoke('close-live-read-window'),
 });

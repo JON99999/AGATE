@@ -233,6 +233,9 @@ global.spawnLiveRead = async (data) => {
 
   liveReadWindow.on('closed', () => {
     liveReadWindow = null;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('live-read-closed');
+    }
   });
 
   return { success: true };

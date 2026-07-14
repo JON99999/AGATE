@@ -1129,10 +1129,18 @@ export default function App() {
   };
 
   useEffect(() => {
-    if ((window as any).electronAPI && (window as any).electronAPI.onLiveReadLogged) {
-      (window as any).electronAPI.onLiveReadLogged((logEntry: LogEntry) => {
-        addLog(logEntry);
-      });
+    if ((window as any).electronAPI) {
+      if ((window as any).electronAPI.onLiveReadLogged) {
+        (window as any).electronAPI.onLiveReadLogged((logEntry: LogEntry) => {
+          addLog(logEntry);
+          window.dispatchEvent(new CustomEvent('live-read-logged', { detail: logEntry }));
+        });
+      }
+      if ((window as any).electronAPI.onLiveReadClosed) {
+        (window as any).electronAPI.onLiveReadClosed(() => {
+          window.dispatchEvent(new CustomEvent('live-read-closed'));
+        });
+      }
     }
   }, []);
 
@@ -2325,6 +2333,7 @@ export default function App() {
                   now={now}
                   driveMP3s={driveMP3s}
                   isDriveActive={isDriveActive}
+                  onRefresh={handleRefresh}
                 />
               </motion.div>
             ) : (

@@ -54,6 +54,23 @@ export default function PlayerTab({
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    const handleLogged = () => {
+      setActiveLiveReadOverlay(null);
+    };
+    const handleClosed = () => {
+      setActiveLiveReadOverlay(null);
+    };
+
+    window.addEventListener('live-read-logged', handleLogged);
+    window.addEventListener('live-read-closed', handleClosed);
+
+    return () => {
+      window.removeEventListener('live-read-logged', handleLogged);
+      window.removeEventListener('live-read-closed', handleClosed);
+    };
+  }, []);
+
   const currentTimeText = useMemo(() => {
     let hours = nowClock.getHours();
     const minutes = String(nowClock.getMinutes()).padStart(2, '0');
@@ -744,6 +761,7 @@ export default function PlayerTab({
                     className={cn(
                       "rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 mx-1 text-left select-none relative",
                       bgClass,
+                      item.assetType === 'script' && (item.exists ? "border-l-4 border-l-blue-500" : "border-l-4 border-l-rose-500"),
                       isAdmin && "cursor-pointer"
                     )}
                   >
@@ -800,10 +818,15 @@ export default function PlayerTab({
                     {/* Track Row: Title + Play/Stop Icon */}
                     <div className="flex items-center justify-between gap-2 mt-1">
                       <div className={cn(
-                        "text-[12px] font-bold leading-tight break-words line-clamp-2 flex-1",
+                        "text-[12px] font-bold leading-tight break-words line-clamp-2 flex-1 flex items-center gap-1.5",
                         playingSlotKey === `export-preview-${key}` ? "text-emerald-400" : "text-slate-200"
                       )}>
-                        {item.scheduleName}
+                        {item.assetType === 'script' && (
+                          <span className="text-[10px] bg-blue-950 text-blue-400 border border-blue-800/40 px-1 py-0.5 rounded font-black uppercase tracking-wider select-none shrink-0 inline-block leading-none">
+                            Live Read
+                          </span>
+                        )}
+                        <span>{item.scheduleName}</span>
                       </div>
 
                       <div className="shrink-0">
@@ -1281,7 +1304,7 @@ export default function PlayerTab({
       </div>
 
       {/* No Playback Error Overlay as per user request */}
-      {activeLiveReadOverlay && (
+      {activeLiveReadOverlay && !(window as any).electronAPI && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <LiveReadPopout
             initialFileName={activeLiveReadOverlay.fileName}

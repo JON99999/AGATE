@@ -21,6 +21,7 @@ interface LiveReadPopoutProps {
   onClose?: () => void;
   onLogCommit?: (entry: LogEntry) => void;
   isOverlay?: boolean;
+  isPreview?: boolean;
 }
 
 export default function LiveReadPopout({
@@ -30,7 +31,8 @@ export default function LiveReadPopout({
   initialScheduledTime = '',
   onClose,
   onLogCommit,
-  isOverlay = false
+  isOverlay = false,
+  isPreview = false
 }: LiveReadPopoutProps) {
   // Configured file & schedule states
   const [fileName, setFileName] = useState(initialFileName);
@@ -332,63 +334,76 @@ export default function LiveReadPopout({
       </div>
 
       {/* FOOTER & LOGGING CONTROLS */}
-      <div className="bg-slate-50 border-t border-slate-200 p-4 shrink-0 flex flex-col sm:flex-row justify-between items-center gap-4">
-        {/* Timestamp editor and custom logger input */}
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          <div className="text-[13px] font-black text-slate-400 uppercase tracking-widest block select-none">
-            Logged Time:
-          </div>
-          <div className={cn(
-            "relative flex items-center bg-white border rounded px-2 py-1.5 focus-within:ring-1 max-w-[160px] w-full transition-all",
-            isLogTimeValid 
-              ? "border-slate-300 focus-within:ring-blue-500 focus-within:border-blue-500" 
-              : "border-rose-500 focus-within:ring-rose-500 focus-within:border-rose-500 ring-1 ring-rose-500"
-          )}>
-            <input 
-              type="text"
-              value={logTimeText}
-              onChange={(e) => {
-                setLogTimeText(e.target.value);
-                setIsEditingLogTime(true);
-              }}
-              className={cn(
-                "w-full bg-transparent outline-none border-0 font-mono font-bold text-[13px]",
-                isLogTimeValid ? "text-slate-700" : "text-rose-600"
-              )}
-              title="Click to manually edit log execution time"
-            />
-            {isEditingLogTime && (
-              <button 
-                onClick={() => setIsEditingLogTime(false)}
-                className="text-[10px] bg-slate-200 text-slate-600 px-1 py-0.5 rounded font-black uppercase hover:bg-slate-300 transition-colors ml-1"
-                title="Reset to live ticking clock"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Logging action buttons */}
-        <div className="flex gap-3 w-full sm:w-auto shrink-0 justify-end">
+      <div className="bg-slate-50 border-t border-slate-200 p-4 shrink-0 flex justify-end items-center">
+        {isPreview ? (
           <button
             type="button"
             onClick={handleCloseNotRead}
-            className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 hover:text-slate-800 font-black text-[13px] uppercase rounded-lg transition-all shadow-xs flex items-center gap-1.5 select-none cursor-pointer leading-none"
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-[13px] uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none h-10"
           >
             <X className="w-4 h-4" />
-            Close - Not Read
+            Close Preview
           </button>
-          <button
-            type="button"
-            onClick={handleLogAsRead}
-            disabled={loading || !!error || !isLogTimeValid}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white font-black text-[13px] uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none"
-          >
-            <Check className="w-4 h-4" />
-            Log as Read
-          </button>
-        </div>
+        ) : (
+          <div className="w-full flex flex-col sm:flex-row justify-between items-center gap-4">
+            {/* Timestamp editor and custom logger input */}
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="text-[13px] font-black text-slate-400 uppercase tracking-widest block select-none">
+                Logged Time:
+              </div>
+              <div className={cn(
+                "relative flex items-center bg-white border rounded px-2 py-1.5 focus-within:ring-1 max-w-[160px] w-full transition-all",
+                isLogTimeValid 
+                  ? "border-slate-300 focus-within:ring-blue-500 focus-within:border-blue-500" 
+                  : "border-rose-500 focus-within:ring-rose-500 focus-within:border-rose-500 ring-1 ring-rose-500"
+              )}>
+                <input 
+                  type="text"
+                  value={logTimeText}
+                  onChange={(e) => {
+                    setLogTimeText(e.target.value);
+                    setIsEditingLogTime(true);
+                  }}
+                  className={cn(
+                    "w-full bg-transparent outline-none border-0 font-mono font-bold text-[13px]",
+                    isLogTimeValid ? "text-slate-700" : "text-rose-600"
+                  )}
+                  title="Click to manually edit log execution time"
+                />
+                {isEditingLogTime && (
+                  <button 
+                    onClick={() => setIsEditingLogTime(false)}
+                    className="text-[10px] bg-slate-200 text-slate-600 px-1 py-0.5 rounded font-black uppercase hover:bg-slate-300 transition-colors ml-1"
+                    title="Reset to live ticking clock"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Logging action buttons */}
+            <div className="flex gap-3 w-full sm:w-auto shrink-0 justify-end">
+              <button
+                type="button"
+                onClick={handleCloseNotRead}
+                className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 hover:text-slate-800 font-black text-[13px] uppercase rounded-lg transition-all shadow-xs flex items-center gap-1.5 select-none cursor-pointer leading-none"
+              >
+                <X className="w-4 h-4" />
+                Close - Not Read
+              </button>
+              <button
+                type="button"
+                onClick={handleLogAsRead}
+                disabled={loading || !!error || !isLogTimeValid}
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white font-black text-[13px] uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none"
+              >
+                <Check className="w-4 h-4" />
+                Log as Read
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
