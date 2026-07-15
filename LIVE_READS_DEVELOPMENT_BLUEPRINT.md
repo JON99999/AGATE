@@ -107,8 +107,8 @@ Please implement Phase 3 of the Live Reads Integration for "Interstitial-er".
    - In the Schedule Creator / "Add New" form, allow specifying whether an item is a standard audio file or a "Live Read" script.
    - If selected as a Live Read, adjust the fields to prompt for a script path and skip duration configs in favor of timestamp mappings.
 4. **Version Update**:
-   - Set the application version globally to `0.10.7` in `package.json`, `package-lock.json`, and any other applicable files.
-   - Update `HOW_TO_RELEASE_IN_GITHUB_ONLINE.md` to reference `v0.10.7`.
+   - Set the application version globally to `0.10.8` in `package.json`, `package-lock.json`, and any other applicable files.
+   - Update `HOW_TO_RELEASE_IN_GITHUB_ONLINE.md` to reference `v0.10.8`.
 
 Run complete linter and compiler validations to verify structural and execution safety across all modules.
 ```
@@ -116,7 +116,7 @@ Run complete linter and compiler validations to verify structural and execution 
 ---
 
 ## Phase 4: Logging Backend Integration & Export Reporting
-**Target Version**: `0.10.7`
+**Target Version**: `0.10.8`
 
 ### Objectives
 - Update the logger and export modules to capture Live Read executions. Ensure "Read" items are appended to play logs with their logged time-of-day timestamps.

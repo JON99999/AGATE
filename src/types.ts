@@ -49,3 +49,18 @@ export interface LogEntry {
   logTimeStamp?: string;
   assetType?: 'audio' | 'script';
 }
+
+export interface Show {
+  id: string;
+  day: 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
+  startHour: number;
+  startMinute: number;
+  durationHours: number;
+  durationMinutes: number;
+  name: string;
+  nameShort: string;
+  host: string;
+  description: string;
+  active: boolean;
+}
+

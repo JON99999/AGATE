@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { format, addMinutes, subMinutes, isSameMinute, isBefore, isAfter, startOfMinute, differenceInSeconds, parseISO } from 'date-fns';
 import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download, Ear, FileText, Volume2 } from 'lucide-react';
-import { Schedule, ScheduleType, LogEntry } from '../types';
-import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO } from '../lib/utils';
+import { Schedule, ScheduleType, LogEntry, Show } from '../types';
+import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow } from '../lib/utils';
 import LiveReadPopout from './LiveReadPopout';
 import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache } from '../lib/driveService';
 
@@ -20,6 +20,7 @@ interface PlayerTabProps {
   onExecuteExport?: () => void;
   isAdmin?: boolean;
   onRefresh?: () => Promise<any> | void;
+  shows?: Show[];
 }
 
 export default function PlayerTab({ 
@@ -35,7 +36,8 @@ export default function PlayerTab({
   onConfigureTimeframe,
   onExecuteExport,
   isAdmin = false,
-  onRefresh
+  onRefresh,
+  shows = []
 }: PlayerTabProps) {
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
   const playingAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -1020,14 +1022,37 @@ export default function PlayerTab({
           const sForSlot = getSchedulesForSlot(slot);
           const isPre = playMode === 'Prerecord';
           const isPresent = !isPre && isSameMinute(slot, now);
+
+          const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+          const dayName = daysOrder[slot.getDay()];
+          const hour = slot.getHours();
+          const minute = slot.getMinutes();
+
+          const startingShows = shows.filter(show => 
+            show.day === dayName && 
+            show.startHour === hour && 
+            show.startMinute === minute
+          );
           
-          if (sForSlot.length === 0 && !isPresent && !(isPre && index === 0)) return null;
+          if (sForSlot.length === 0 && !isPresent && !(isPre && index === 0) && startingShows.length === 0) return null;
 
           const isPast = !isPre && isBefore(slot, now) && !isPresent;
           const diffSeconds = !isPre ? Math.abs(differenceInSeconds(now, slot)) : 0;
 
           return (
             <div key={slot.toISOString()} className="space-y-2">
+              {startingShows.map(show => (
+                <div 
+                  key={`show-start-${show.id}`}
+                  className="bg-[#FFCB05] text-black p-1 px-3 rounded shadow-sm border border-[#D9AD04] flex flex-col justify-center text-[12px] font-black tracking-normal leading-tight mx-1 select-none uppercase"
+                  style={{ minHeight: '1.75rem' }}
+                >
+                  <div className="line-clamp-2 font-sans">
+                    {show.name}
+                  </div>
+                </div>
+              ))}
+
               {isPre && index === 0 && (
                 <div 
                   ref={activeItemRef}
@@ -1118,11 +1143,24 @@ export default function PlayerTab({
                  const isThisCardDisplayed = playMode === 'Live' && activeLiveReadOverlay && activeLiveReadOverlay.scheduleId === s.id && activeLiveReadOverlay.scheduledTime === slot.toISOString();
                  
                  return (
-                   <div key={`${slot.toISOString()}-${s.id}-${idx}`} className="flex items-center gap-3 w-full">
+                   <div key={`${slot.toISOString()}-${s.id}-${idx}`} className="flex items-stretch gap-2.5 w-full pr-1">
+                     {(() => {
+                       const activeShows = shows.filter(show => 
+                         isTimeInShow(show, dayName, hour, minute)
+                       );
+                       const activeShow = activeShows[0];
+                       return activeShow ? (
+                         <div 
+                           className="w-1 bg-[#FFCB05] rounded shrink-0 self-stretch animate-fade-in" 
+                           title={`Active during show: ${activeShow.name}`}
+                         />
+                       ) : null;
+                     })()}
                      <div 
                        onClick={() => isVerified ? handlePlay(s, slot) : null}
                        className={cn(
                          "flex-1 rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 select-none cursor-pointer hover:shadow hover:border-slate-300 active:scale-[99.5%] active:bg-slate-50/30 text-left",
+                         shows.some(show => isTimeInShow(show, dayName, hour, minute)) ? "rounded-l-none border-l-0" : "",
                          cardBorderClass,
                          cardBgClass,
                          cardOpacityClass
@@ -1173,12 +1211,25 @@ export default function PlayerTab({
                            handlePlay(s, slot);
                          }}
                          className={cn(
-                           "px-3 py-1 text-white font-black text-[14px] uppercase rounded-lg shadow-sm flex items-center gap-1 cursor-pointer transition-all active:scale-95 leading-none",
-                           isPre ? "bg-purple-600 hover:bg-purple-700" : "bg-blue-600 hover:bg-blue-700"
+                           "shrink-0 p-1 rounded-full transition-all shadow-sm cursor-pointer",
+                           !isVerified ? "bg-red-50 text-red-300" :
+                           isCurrentlyPlaying ? "bg-slate-900 text-white" :
+                           (played || exported) ? "bg-slate-100 text-slate-500" :
+                           isMissedRecent ? "bg-slate-500 text-white" :
+                           isPresent || isUpcoming ? (isPre ? "bg-purple-600 text-white shadow-md shadow-purple-200" : "bg-blue-600 text-white shadow-md shadow-blue-200") :
+                           "bg-slate-700 text-white"
                          )}
+                         title={!isVerified ? "Invalid or missing file" : (played || exported) ? "Read Again" : "Display Script"}
                        >
-                         <FileText className="w-3.5 h-3.5 text-white" />
-                         <span>Display</span>
+                         {!isVerified ? (
+                           <X className="w-2.5 h-2.5" />
+                         ) : (played || exported) ? (
+                           <RefreshCw className="w-2.5 h-2.5" />
+                         ) : isCurrentlyPlaying ? (
+                           <Square className="w-2.5 h-2.5 fill-current" />
+                         ) : (
+                           <FileText className="w-2.5 h-2.5" />
+                         )}
                        </button>
                      ) : (
                        <div 

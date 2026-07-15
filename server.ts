@@ -87,6 +87,11 @@ function getScheduleBackupPath() {
   return path.join(DATA_DIR, 'backups', 'schedules_backup.json');
 }
 
+function getShowsFilePath() {
+  const schedulePath = getScheduleFilePath();
+  return path.join(path.dirname(schedulePath), 'shows.json');
+}
+
 // Try detecting Electron context-isolation open dialog options dynamically
 let electronDialog: any = null;
 try {
@@ -647,6 +652,244 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to save schedules:', e);
       res.status(500).json({ error: 'Failed to write schedules data: ' + e.message });
+    }
+  });
+
+  // API - Shows
+  app.get('/api/shows', (req, res) => {
+    try {
+      const filePath = getShowsFilePath();
+      if (!fs.existsSync(filePath)) {
+        const defaultShows = [
+          {
+            "id": "1",
+            "day": "Sunday",
+            "startHour": 10,
+            "startMinute": 0,
+            "durationHours": 2,
+            "durationMinutes": 0,
+            "name": "Soul Sunday & Eclectic Beats",
+            "nameShort": "Soul_Sunday_Ecle",
+            "host": "DJ Skeet",
+            "description": "Deep cuts of St. Louis soul, vintage jazz, and eclectic instrumental beats to smooth out your Sunday.",
+            "active": true
+          },
+          {
+            "id": "2",
+            "day": "Monday",
+            "startHour": 12,
+            "startMinute": 0,
+            "durationHours": 1,
+            "durationMinutes": 30,
+            "name": "indie/STL Showcase",
+            "nameShort": "indie_STL_Showca",
+            "host": "Alek",
+            "description": "Highlighting local St. Louis indie rock, post-punk, and alternative artists.",
+            "active": true
+          },
+          {
+            "id": "3",
+            "day": "Tuesday",
+            "startHour": 14,
+            "startMinute": 0,
+            "durationHours": 2,
+            "durationMinutes": 0,
+            "name": "Electronic Exploration",
+            "nameShort": "Electronic_Explo",
+            "host": "Sarah G.",
+            "description": "Ambient soundscapes, techno, and experimental electronic music from across the Midwest.",
+            "active": true
+          },
+          {
+            "id": "4",
+            "day": "Wednesday",
+            "startHour": 16,
+            "startMinute": 0,
+            "durationHours": 2,
+            "durationMinutes": 0,
+            "name": "Dub-Plate Special",
+            "nameShort": "Dub_Plate_Specia",
+            "host": "Dubman",
+            "description": "Classic Jamaican reggae, modern dubwise, and deep low-frequency bass selections.",
+            "active": true
+          },
+          {
+            "id": "5",
+            "day": "Thursday",
+            "startHour": 9,
+            "startMinute": 0,
+            "durationHours": 1,
+            "durationMinutes": 30,
+            "name": "Morning Coffee Jazz",
+            "nameShort": "Morning_Coffee_J",
+            "host": "Jazzcat",
+            "description": "Cool jazz, classic bop, and warm conversation to kickstart your Thursday morning.",
+            "active": true
+          },
+          {
+            "id": "6",
+            "day": "Friday",
+            "startHour": 20,
+            "startMinute": 0,
+            "durationHours": 2,
+            "durationMinutes": 0,
+            "name": "Friday Night Fever",
+            "nameShort": "Friday_Night_Fev",
+            "host": "DJ Fever",
+            "description": "High-energy disco, house, and classic dance grooves to kick off the weekend.",
+            "active": true
+          },
+          {
+            "id": "7",
+            "day": "Saturday",
+            "startHour": 18,
+            "startMinute": 0,
+            "durationHours": 3,
+            "durationMinutes": 0,
+            "name": "The STL Soundclash",
+            "nameShort": "The_STL_Soundcla",
+            "host": "Resident DJs",
+            "description": "A collaborative showcase of St. Louis hip-hop, experimental beats, and electronic mixes clashing live.",
+            "active": true
+          }
+        ];
+        const parentDir = path.dirname(filePath);
+        if (!fs.existsSync(parentDir)) {
+          fs.mkdirSync(parentDir, { recursive: true });
+        }
+        fs.writeFileSync(filePath, JSON.stringify(defaultShows, null, 2));
+        return res.json(defaultShows);
+      }
+      const data = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(data || '[]');
+      res.json(Array.isArray(parsed) ? parsed : []);
+    } catch (e) {
+      console.error('Failed to read shows:', e);
+      res.status(500).json([]);
+    }
+  });
+
+  app.post('/api/shows', (req, res) => {
+    try {
+      const filePath = getShowsFilePath();
+      const parentDir = path.dirname(filePath);
+      if (!fs.existsSync(parentDir)) {
+        fs.mkdirSync(parentDir, { recursive: true });
+      }
+      const shows = req.body;
+      fs.writeFileSync(filePath, JSON.stringify(shows, null, 2));
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error('Failed to save shows:', e);
+      res.status(500).json({ error: 'Failed to write shows data: ' + e.message });
+    }
+  });
+
+  // API - Verify Evergreen folders
+  app.post('/api/shows/verify-evergreens', (req, res) => {
+    try {
+      const folderPath = currentSettings.localPathMP3s;
+      if (!folderPath || !fs.existsSync(folderPath)) {
+        return res.status(400).json({ error: 'Local Media Directory is not defined or is offline. Please configure Local Media Directory in Settings.' });
+      }
+      const evergreensPath = path.join(folderPath, 'Evergreens');
+      let evergreensFolderCreated = false;
+      if (!fs.existsSync(evergreensPath)) {
+        fs.mkdirSync(evergreensPath, { recursive: true });
+        evergreensFolderCreated = true;
+      }
+
+      const showsFilePath = getShowsFilePath();
+      let shows: any[] = [];
+      if (fs.existsSync(showsFilePath)) {
+        const data = fs.readFileSync(showsFilePath, 'utf-8');
+        shows = JSON.parse(data || '[]');
+      }
+
+      const createdFolders: string[] = [];
+      for (const show of shows) {
+        if (show.nameShort) {
+          const showFolderPath = path.join(evergreensPath, show.nameShort);
+          if (!fs.existsSync(showFolderPath)) {
+            fs.mkdirSync(showFolderPath, { recursive: true });
+            createdFolders.push(show.nameShort);
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        evergreensFolderCreated,
+        evergreensPath,
+        createdFolders
+      });
+    } catch (err: any) {
+      console.error('Error in /api/shows/verify-evergreens:', err);
+      res.status(500).json({ error: 'Verification failed: ' + err.message });
+    }
+  });
+
+  // API - Check if Evergreen folder exists
+  app.post('/api/shows/evergreen/check-folder', (req, res) => {
+    try {
+      const { oldNameShort, newNameShort } = req.body;
+      const folderPath = currentSettings.localPathMP3s;
+      if (!folderPath || !fs.existsSync(folderPath)) {
+        return res.status(400).json({ error: 'Local Media Directory is not defined or is offline.' });
+      }
+      const evergreensPath = path.join(folderPath, 'Evergreens');
+      if (!fs.existsSync(evergreensPath)) {
+        return res.json({ success: true, oldExists: false, newExists: false });
+      }
+      const oldExists = oldNameShort ? fs.existsSync(path.join(evergreensPath, oldNameShort)) : false;
+      const newExists = newNameShort ? fs.existsSync(path.join(evergreensPath, newNameShort)) : false;
+      res.json({ success: true, oldExists, newExists });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API - Apply Evergreen folder creation or renaming
+  app.post('/api/shows/evergreen/apply-change', (req, res) => {
+    try {
+      const { action, nameShort, oldNameShort, renameFolder } = req.body;
+      const folderPath = currentSettings.localPathMP3s;
+      if (!folderPath || !fs.existsSync(folderPath)) {
+        return res.status(400).json({ error: 'Local Media Directory is not defined or is offline.' });
+      }
+      const evergreensPath = path.join(folderPath, 'Evergreens');
+      if (!fs.existsSync(evergreensPath)) {
+        fs.mkdirSync(evergreensPath, { recursive: true });
+      }
+
+      const newFolderPath = path.join(evergreensPath, nameShort);
+      let folderCreated = false;
+      let folderRenamed = false;
+
+      if (action === 'update' && oldNameShort && oldNameShort !== nameShort) {
+        const oldFolderPath = path.join(evergreensPath, oldNameShort);
+        if (fs.existsSync(oldFolderPath) && renameFolder) {
+          if (!fs.existsSync(newFolderPath)) {
+            fs.renameSync(oldFolderPath, newFolderPath);
+            folderRenamed = true;
+          }
+        } else {
+          if (!fs.existsSync(newFolderPath)) {
+            fs.mkdirSync(newFolderPath, { recursive: true });
+            folderCreated = true;
+          }
+        }
+      } else {
+        if (!fs.existsSync(newFolderPath)) {
+          fs.mkdirSync(newFolderPath, { recursive: true });
+          folderCreated = true;
+        }
+      }
+
+      res.json({ success: true, folderCreated, folderRenamed });
+    } catch (err: any) {
+      console.error('Error in /api/shows/evergreen/apply-change:', err);
+      res.status(500).json({ error: err.message });
     }
   });
 

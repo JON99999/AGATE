@@ -55,7 +55,7 @@ import {
   startOfDay,
   endOfDay,
 } from "date-fns";
-import { Schedule, ScheduleType, LogEntry } from "./types";
+import { Schedule, ScheduleType, LogEntry, Show } from "./types";
 import PlayerTab from "./components/PlayerTab";
 import SchedulerTab from "./components/SchedulerTab";
 import LogTab from "./components/LogTab";
@@ -291,8 +291,34 @@ export default function App() {
     };
   }, []);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [shows, setShows] = useState<Show[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const loadShows = async () => {
+    try {
+      const res = await fetch("/api/shows");
+      if (res.ok) {
+        const data = await res.json();
+        setShows(data || []);
+      }
+    } catch (e) {
+      console.error("Failed to load shows:", e);
+    }
+  };
+
+  const saveShows = async (newShows: Show[]) => {
+    try {
+      await fetch("/api/shows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newShows),
+      });
+      setShows(newShows);
+    } catch (error) {
+      console.error("Failed to save shows:", error);
+    }
+  };
   const [now, setNow] = useState(new Date());
   const [syncTime, setSyncTime] = useState(new Date());
   const [countdown, setCountdown] = useState(300);
@@ -863,6 +889,8 @@ export default function App() {
         setScrollTrigger((prev) => prev + 1);
         setIsDriveActive(true);
       }
+      // Load shows list
+      await loadShows().catch(() => {});
       // Trigger background archiving invisibly on successful fetch
       await runArchiving(settings.mode).catch(() => {});
     } catch (error) {
@@ -1028,6 +1056,7 @@ export default function App() {
         });
       }
     }, intervalDelay);
+
     return () => clearInterval(timer);
   }, [token, playMode, isAsleep, animationsDisabled, activeOptimizations.webWorkers]);
 
@@ -2315,6 +2344,7 @@ export default function App() {
                   onExecuteExport={handleExportPrerecord}
                   isAdmin={isAdmin}
                   onRefresh={handleRefresh}
+                  shows={shows}
                 />
               </motion.div>
             ) : activeTab === "scheduler" ? (
@@ -2328,6 +2358,8 @@ export default function App() {
                 <SchedulerTab
                   schedules={schedules}
                   onSave={saveSchedules}
+                  shows={shows}
+                  onSaveShows={saveShows}
                   isAdmin={isAdmin}
                   onAdminToggle={setIsAdmin}
                   now={now}

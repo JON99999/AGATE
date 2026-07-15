@@ -138,4 +138,39 @@ export function getParsedCustomTimeISO(customTime: string | undefined, baseDate:
   return parsed ? parsed.toISOString() : baseDate.toISOString();
 }
 
+interface SimpleShow {
+  day: 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
+  startHour: number;
+  startMinute: number;
+  durationHours: number;
+  durationMinutes: number;
+  name: string;
+}
+
+export function isTimeInShow(
+  show: SimpleShow,
+  dayName: 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday',
+  hour: number,
+  minute: number = 0
+): boolean {
+  const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const showDayIdx = daysOrder.indexOf(show.day);
+  const targetDayIdx = daysOrder.indexOf(dayName);
+  
+  if (showDayIdx === -1 || targetDayIdx === -1) return false;
+  
+  const startMin = showDayIdx * 1440 + show.startHour * 60 + show.startMinute;
+  const durationMin = show.durationHours * 60 + show.durationMinutes;
+  const endMin = startMin + durationMin;
+  
+  const targetMin = targetDayIdx * 1440 + hour * 60 + minute;
+  
+  if (endMin <= 10080) {
+    return targetMin >= startMin && targetMin < endMin;
+  } else {
+    // wraps around
+    return targetMin >= startMin || targetMin < (endMin % 10080);
+  }
+}
+
 

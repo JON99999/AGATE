@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, ShieldAlert, Copy, Check, XCircle, FolderOpen, Music, Search, Play, Square, ChevronUp, ChevronDown, RefreshCw, Eye } from 'lucide-react';
-import { Schedule, ScheduleType, ScheduleMetadata } from '../types';
-import { cn, getMP3Status, formatDuration, getFilenameFromUrlOrPath } from '../lib/utils';
+import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, ShieldAlert, Copy, Check, XCircle, FolderOpen, Music, Search, Play, Square, ChevronUp, ChevronDown, RefreshCw, Eye, User, BookOpen } from 'lucide-react';
+import { Schedule, ScheduleType, ScheduleMetadata, Show } from '../types';
+import { cn, getMP3Status, formatDuration, getFilenameFromUrlOrPath, isTimeInShow } from '../lib/utils';
 import { getPlayableUrl, DRIVE_FOLDERS } from '../lib/driveService';
 import LiveReadPopout from './LiveReadPopout';
 
@@ -114,6 +114,13 @@ function parseID3Bytes(bytes: Uint8Array): { title?: string; artist?: string; al
   return null;
 }
 
+const cleanNameShort = (val: string): string => {
+  let cleaned = val.replace(/[^a-zA-Z0-9_]/g, '_');
+  cleaned = cleaned.replace(/_+/g, '_');
+  cleaned = cleaned.replace(/^_+|_+$/g, '');
+  return cleaned.slice(0, 16);
+};
+
 interface SchedulerTabProps {
   schedules: Schedule[];
   onSave: (schedules: Schedule[]) => void;
@@ -123,9 +130,11 @@ interface SchedulerTabProps {
   driveMP3s?: any[];
   isDriveActive?: boolean;
   onRefresh?: () => Promise<any> | void;
+  shows?: Show[];
+  onSaveShows?: (shows: Show[]) => void;
 }
 
-export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle, now, driveMP3s = [], isDriveActive = false, onRefresh }: SchedulerTabProps) {
+export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle, now, driveMP3s = [], isDriveActive = false, onRefresh, shows = [], onSaveShows }: SchedulerTabProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Schedule>>({});
   const isNew = editingId ? !schedules.some(s => s.id === editingId) : false;
@@ -137,6 +146,176 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Shows related states
+  const [showFilterQuery, setShowFilterQuery] = useState('');
+  const [editingShowId, setEditingShowId] = useState<string | null>(null);
+  const [showFormData, setShowFormData] = useState<Partial<Show>>({});
+  const [isNameShortManuallyEdited, setIsNameShortManuallyEdited] = useState(false);
+  const [isVerifyingEvergreens, setIsVerifyingEvergreens] = useState(false);
+
+  const handleVerifyEvergreens = async () => {
+    setIsVerifyingEvergreens(true);
+    try {
+      const response = await fetch('/api/shows/verify-evergreens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to verify evergreen folders');
+      }
+      
+      const createdMsg = data.createdFolders.length > 0 
+        ? `\n\nCreated folders for shows: ${data.createdFolders.join(', ')}`
+        : '';
+      alert(`Evergreen verification completed successfully!\n\nFolder location: ${data.evergreensPath}${createdMsg}`);
+    } catch (err: any) {
+      alert(`Error verifying evergreen folders:\n${err.message}`);
+    } finally {
+      setIsVerifyingEvergreens(false);
+    }
+  };
+
+  const createNewShow = () => {
+    setEditingShowId('new');
+    setIsNameShortManuallyEdited(false);
+    const maxIdNum = shows.reduce((max, s) => {
+      const num = parseInt(s.id, 10);
+      return !isNaN(num) && num > max ? num : max;
+    }, 0);
+    const newId = (maxIdNum + 1).toString();
+
+    setShowFormData({
+      id: newId,
+      day: 'Monday',
+      startHour: 9,
+      startMinute: 0,
+      durationHours: 1,
+      durationMinutes: 0,
+      name: '',
+      nameShort: '',
+      host: '',
+      description: '',
+      active: true
+    });
+  };
+
+  const startEditShow = (show: Show) => {
+    setEditingShowId(show.id);
+    setIsNameShortManuallyEdited(true);
+    setShowFormData({ ...show });
+  };
+
+  const handleDeleteShow = (id: string) => {
+    if (confirm("Are you sure you want to delete this show?")) {
+      const filtered = shows.filter(s => s.id !== id);
+      if (onSaveShows) {
+        onSaveShows(filtered);
+      }
+      setEditingShowId(null);
+    }
+  };
+
+  const handleSaveShow = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showFormData.name) {
+      alert("Show name is required.");
+      return;
+    }
+
+    const finalNameShort = showFormData.nameShort ? cleanNameShort(showFormData.nameShort) : cleanNameShort(showFormData.name);
+    if (!finalNameShort) {
+      alert("Short Name is required.");
+      return;
+    }
+
+    // 6.a. Before adding or editing, ensure nameShort is unique
+    const otherShows = shows.filter(s => s.id !== editingShowId);
+    const isUnique = !otherShows.some(s => s.nameShort.toLowerCase() === finalNameShort.toLowerCase());
+    if (!isUnique) {
+      alert(`The short name "${finalNameShort}" is already in use by another show. Please provide a unique short name.`);
+      return;
+    }
+
+    const isNewShow = editingShowId === 'new';
+    let renameFolder = false;
+    let oldNameShort = '';
+
+    if (!isNewShow) {
+      const originalShow = shows.find(s => s.id === editingShowId);
+      if (originalShow) {
+        oldNameShort = originalShow.nameShort;
+      }
+    }
+
+    try {
+      // 6.c. If nameShort is edited, check if old folder exists
+      if (!isNewShow && oldNameShort && oldNameShort !== finalNameShort) {
+        const checkRes = await fetch('/api/shows/evergreen/check-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ oldNameShort, newNameShort: finalNameShort })
+        });
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData.oldExists) {
+            // 6.c.1 Ask user if they want to change the folder name
+            renameFolder = confirm(`Do you want to rename the existing Evergreen folder '${oldNameShort}' to match the new name '${finalNameShort}'?`);
+          }
+        }
+      }
+
+      // Create or rename folder
+      const applyRes = await fetch('/api/shows/evergreen/apply-change', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: isNewShow ? 'create' : 'update',
+          nameShort: finalNameShort,
+          oldNameShort: isNewShow ? undefined : oldNameShort,
+          renameFolder
+        })
+      });
+
+      if (!applyRes.ok) {
+        const applyErr = await applyRes.json();
+        console.warn('Evergreen folder sync status:', applyErr.error);
+      }
+    } catch (err: any) {
+      console.error('Failed to sync Evergreen folder:', err);
+    }
+
+    const updatedShow: Show = {
+      id: showFormData.id || (shows.reduce((max, s) => {
+        const num = parseInt(s.id, 10);
+        return !isNaN(num) && num > max ? num : max;
+      }, 0) + 1).toString(),
+      day: (showFormData.day as any) || 'Monday',
+      startHour: typeof showFormData.startHour === 'number' ? showFormData.startHour : 9,
+      startMinute: typeof showFormData.startMinute === 'number' ? showFormData.startMinute : 0,
+      durationHours: typeof showFormData.durationHours === 'number' ? showFormData.durationHours : 0,
+      durationMinutes: typeof showFormData.durationMinutes === 'number' ? showFormData.durationMinutes : 0,
+      name: showFormData.name || '',
+      nameShort: finalNameShort || 'show',
+      host: showFormData.host || '',
+      description: showFormData.description || '',
+      active: showFormData.active !== undefined ? showFormData.active : true,
+    };
+
+    let newShows: Show[];
+    const exists = shows.some(s => s.id === editingShowId);
+    if (exists) {
+      newShows = shows.map(s => s.id === editingShowId ? updatedShow : s);
+    } else {
+      newShows = [...shows, updatedShow];
+    }
+
+    if (onSaveShows) {
+      onSaveShows(newShows);
+    }
+    setEditingShowId(null);
+  };
 
   useEffect(() => {
     if (isPickerOpen && onRefresh) {
@@ -253,7 +432,7 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
   }, [formData.mp3Url]);
 
   // Calendar View states
-  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'calendar' | 'shows'>('list');
   const [calendarLayoutMode, setCalendarLayoutMode] = useState<'full' | 'compact'>(() => (localStorage.getItem('interstitial_calendar_layout_mode') as 'full' | 'compact') || 'full');
   const [showInactive, setShowInactive] = useState<boolean>(false);
   const [calendarDate, setCalendarDate] = useState<Date>(() => new Date(now));
@@ -684,9 +863,382 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
     );
   }
 
+  const renderShowEditForm = () => {
+    const isNewShow = editingShowId === 'new';
+    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    
+    return (
+      <form onSubmit={handleSaveShow} className="flex-1 flex flex-col min-h-0 bg-slate-100 p-6 overflow-y-auto">
+        <div className="max-w-3xl mx-auto w-full bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+          <div className="p-5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="bg-blue-600 p-1.5 rounded text-white">
+                <BookOpen className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-[18px] font-black text-slate-800 uppercase tracking-tight">
+                  {isNewShow ? "Create New Show" : "Edit Show Settings"}
+                </h2>
+                <p className="text-[12px] font-mono text-slate-400 mt-0.5">
+                  ID: {showFormData.id}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditingShowId(null)}
+              className="text-slate-400 hover:text-slate-600 font-bold text-[20px] cursor-pointer"
+            >
+              &times;
+            </button>
+          </div>
+
+          <div className="p-6 space-y-5 flex-1 overflow-y-auto">
+            {/* Show Name & Short Name */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[14px] font-black text-slate-700 uppercase tracking-wider block">
+                  Show Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Saint Boogie Brass Hour"
+                  value={showFormData.name || ''}
+                  onChange={e => {
+                    const newName = e.target.value;
+                    const updates: Partial<Show> = { name: newName };
+                    if (!isNameShortManuallyEdited) {
+                      updates.nameShort = cleanNameShort(newName);
+                    }
+                    setShowFormData({ ...showFormData, ...updates });
+                  }}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[16px] font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[14px] font-black text-slate-700 uppercase tracking-wider block">
+                  Short Name (for filenames)
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Saint_Boogie_Bra"
+                  value={showFormData.nameShort || ''}
+                  onChange={e => {
+                    setIsNameShortManuallyEdited(true);
+                    const rawVal = e.target.value;
+                    // Only allow alphanumeric characters and underscores
+                    const sanitized = rawVal.replace(/[^a-zA-Z0-9_]/g, '');
+                    setShowFormData({ ...showFormData, nameShort: sanitized.slice(0, 16) });
+                  }}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[16px] font-mono font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800"
+                />
+                <p className="text-[12px] text-slate-400 font-medium">
+                  Max 16 characters. Alphanumeric and underscores only.
+                </p>
+              </div>
+            </div>
+
+            {/* Show Host & Show Day */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[14px] font-black text-slate-700 uppercase tracking-wider block">
+                  Show Host
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. DJ Skeet"
+                  value={showFormData.host || ''}
+                  onChange={e => setShowFormData({ ...showFormData, host: e.target.value })}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[16px] font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[14px] font-black text-slate-700 uppercase tracking-wider block">
+                  Show Day
+                </label>
+                <select
+                  value={showFormData.day || 'Monday'}
+                  onChange={e => setShowFormData({ ...showFormData, day: e.target.value as any })}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[16px] font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 cursor-pointer"
+                >
+                  {daysOfWeek.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Start Time of Show */}
+            <div className="space-y-1.5">
+              <label className="text-[14px] font-black text-slate-700 uppercase tracking-wider block">
+                Start Time of Show (Military Time)
+              </label>
+              <div className="flex gap-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="23"
+                    value={showFormData.startHour !== undefined ? showFormData.startHour : 9}
+                    onChange={e => setShowFormData({ ...showFormData, startHour: Math.max(0, Math.min(23, parseInt(e.target.value) || 0)) })}
+                    className="w-20 px-3 py-2 bg-white border border-slate-300 rounded-lg text-[16px] font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                  />
+                  <span className="text-[14px] font-bold text-slate-500 uppercase tracking-tight">Hours</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={showFormData.startMinute !== undefined ? showFormData.startMinute : 0}
+                    onChange={e => setShowFormData({ ...showFormData, startMinute: Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) })}
+                    className="w-20 px-3 py-2 bg-white border border-slate-300 rounded-lg text-[16px] font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                  />
+                  <span className="text-[14px] font-bold text-slate-500 uppercase tracking-tight">Minutes</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Duration of Show */}
+            <div className="space-y-1.5">
+              <label className="text-[14px] font-black text-slate-700 uppercase tracking-wider block">
+                Duration of Show
+              </label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="23"
+                    value={showFormData.durationHours !== undefined ? showFormData.durationHours : 1}
+                    onChange={e => setShowFormData({ ...showFormData, durationHours: Math.max(0, parseInt(e.target.value) || 0) })}
+                    className="w-20 px-3 py-2 bg-white border border-slate-300 rounded-lg text-[16px] font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                  />
+                  <span className="text-[14px] font-bold text-slate-500 uppercase tracking-tight">Hours</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={showFormData.durationMinutes !== undefined ? showFormData.durationMinutes : 0}
+                    onChange={e => setShowFormData({ ...showFormData, durationMinutes: Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) })}
+                    className="w-20 px-3 py-2 bg-white border border-slate-300 rounded-lg text-[16px] font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
+                  />
+                  <span className="text-[14px] font-bold text-slate-500 uppercase tracking-tight">Minutes</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Show Description */}
+            <div className="space-y-1.5">
+              <label className="text-[14px] font-black text-slate-700 uppercase tracking-wider block">
+                Show Description
+              </label>
+              <textarea
+                rows={3}
+                placeholder="Enter show details and programming details..."
+                value={showFormData.description || ''}
+                onChange={e => setShowFormData({ ...showFormData, description: e.target.value })}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-[16px] font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 leading-normal"
+              />
+            </div>
+
+            {/* Active Status Flag */}
+            <div className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-lg">
+              <div>
+                <span className="text-[14px] font-black text-slate-700 uppercase tracking-wide block">
+                  Show Broadcast Status
+                </span>
+                <p className="text-[12px] text-slate-400 mt-0.5">
+                  Define whether this show's profile is currently active in the weekly schedule listings.
+                </p>
+              </div>
+              <div className="flex items-center -space-x-px">
+                <button
+                  type="button"
+                  onClick={() => setShowFormData({ ...showFormData, active: true })}
+                  className={cn(
+                    "px-4 py-1.5 text-[12px] font-black uppercase rounded-l border cursor-pointer",
+                    showFormData.active
+                      ? "bg-emerald-600 text-white border-emerald-600"
+                      : "bg-white text-slate-400 border-slate-250 hover:bg-slate-50"
+                  )}
+                >
+                  Active
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowFormData({ ...showFormData, active: false })}
+                  className={cn(
+                    "px-4 py-1.5 text-[12px] font-black uppercase rounded-r border cursor-pointer",
+                    !showFormData.active
+                      ? "bg-slate-600 text-white border-slate-600"
+                      : "bg-white text-slate-400 border-slate-250 hover:bg-slate-50"
+                  )}
+                >
+                  Inactive
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center shrink-0">
+            <div>
+              {!isNewShow && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteShow(showFormData.id!)}
+                  className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded text-[12px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Show</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingShowId(null)}
+                className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded text-[12px] font-black uppercase tracking-wider transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white border border-blue-700 rounded text-[12px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>Save Changes</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
+    );
+  };
+
+  const renderShowsList = () => {
+    // Filter by search query
+    const filteredShows = shows.filter(show => {
+      if (!showFilterQuery) return true;
+      const q = showFilterQuery.toLowerCase();
+      return (
+        show.name.toLowerCase().includes(q) ||
+        show.host.toLowerCase().includes(q) ||
+        show.description.toLowerCase().includes(q) ||
+        show.day.toLowerCase().includes(q)
+      );
+    });
+
+    // Group or Sort by day of week and start time
+    const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const sortedShows = [...filteredShows].sort((a, b) => {
+      const dayDiff = daysOrder.indexOf(a.day) - daysOrder.indexOf(b.day);
+      if (dayDiff !== 0) return dayDiff;
+      const hourDiff = (a.startHour || 0) - (b.startHour || 0);
+      if (hourDiff !== 0) return hourDiff;
+      return (a.startMinute || 0) - (b.startMinute || 0);
+    });
+
+    if (sortedShows.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl border border-slate-200 border-dashed text-center flex-1">
+          <BookOpen className="w-12 h-12 text-slate-300 mb-3" />
+          <h3 className="text-[16px] font-black text-slate-700 uppercase tracking-wider">No Shows Found</h3>
+          <p className="text-[12px] text-slate-400 max-w-sm mt-1">
+            {showFilterQuery ? "No shows match your filter criteria." : "There are currently no show profiles stored in shows.json. Click '+ ADD NEW SHOW' to create one."}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-4 overflow-y-auto flex-1 pb-4 pr-1 custom-scrollbar">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {sortedShows.map(show => (
+            <div
+              key={show.id}
+              className={cn(
+                "bg-white rounded-xl border p-4.5 flex flex-col justify-between shadow-xs transition-all relative",
+                show.active ? "border-slate-200" : "border-slate-200 bg-slate-50 opacity-70"
+              )}
+            >
+              <div>
+                {/* Header info */}
+                <div className="flex justify-between items-start gap-2 mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-150 rounded text-[12px] font-black uppercase tracking-wide">
+                      {show.day}
+                    </span>
+                    <span className="flex items-center gap-1 text-[12px] font-mono text-slate-400 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                      <Clock className="w-3 h-3 text-slate-400" />
+                      {show.startHour !== undefined && show.startMinute !== undefined ? (
+                        <span className="text-slate-700 mr-0.5">
+                          {show.startHour.toString().padStart(2, '0')}:{show.startMinute.toString().padStart(2, '0')} •
+                        </span>
+                      ) : null}
+                      <span>{show.durationHours}h {show.durationMinutes}m</span>
+                    </span>
+                  </div>
+                  <span className={cn(
+                    "text-[12px] font-black uppercase px-2 py-0.5 rounded border",
+                    show.active 
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                      : "bg-slate-100 text-slate-400 border-slate-200"
+                  )}>
+                    {show.active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+
+                {/* Show Details */}
+                <h3 className="text-[16px] font-black text-slate-800 tracking-tight leading-tight mb-1">
+                  {show.name}
+                </h3>
+                {show.host && (
+                  <div className="flex items-center gap-1 text-[12px] text-slate-500 font-bold mb-3">
+                    <User className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Hosted by: <strong className="text-slate-700">{show.host}</strong></span>
+                  </div>
+                )}
+                
+                {show.description && (
+                  <p className="text-[12px] text-slate-500 leading-normal mb-4 font-medium line-clamp-3 font-sans">
+                    {show.description}
+                  </p>
+                )}
+              </div>
+
+              {/* Actions footer */}
+              <div className="flex justify-between items-center border-t border-slate-100 pt-3 mt-auto">
+                <span className="text-[12px] text-slate-400 font-mono font-bold uppercase">
+                  ID: {show.id} {show.nameShort && `• Code: ${show.nameShort}`}
+                </span>
+                <button
+                  onClick={() => startEditShow(show)}
+                  className="flex items-center gap-1 py-1 px-3 hover:bg-blue-600 hover:text-white bg-white border border-blue-300 rounded text-blue-700 transition-all shadow-sm group/btn cursor-pointer"
+                >
+                  <FileText className="w-3 h-3" />
+                  <span className="text-[12px] font-black uppercase tracking-tight">View/Edit</span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full font-sans">
-      {!editingId ? (
+      {editingShowId ? (
+        renderShowEditForm()
+      ) : !editingId ? (
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between mb-3 px-1 shrink-0">
             <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
@@ -727,6 +1279,25 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 )} />
                 <span>Calendar</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('shows')}
+                className={cn(
+                  "px-3 py-1.5 flex items-center gap-1.5 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border",
+                  viewMode === 'shows'
+                    ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
+                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
+                )}
+              >
+                <BookOpen className="w-3.5 h-3.5 text-slate-400" />
+                <span className={cn(
+                  "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                  viewMode === 'shows'
+                    ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                    : "bg-slate-800"
+                )} />
+                <span>Shows</span>
+              </button>
             </div>
             
             <div className="flex gap-2.5 items-center">
@@ -734,14 +1305,14 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
                 <input 
                   type="text" 
-                  placeholder="Filter schedules..." 
-                  value={scheduleFilterQuery}
-                  onChange={e => setScheduleFilterQuery(e.target.value)}
+                  placeholder={viewMode === 'shows' ? "Filter shows..." : "Filter schedules..."} 
+                  value={viewMode === 'shows' ? showFilterQuery : scheduleFilterQuery}
+                  onChange={e => viewMode === 'shows' ? setShowFilterQuery(e.target.value) : setScheduleFilterQuery(e.target.value)}
                   className="w-full pl-8 pr-6 py-1 bg-white border border-slate-350 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans text-slate-850 placeholder-slate-450 h-8"
                 />
-                {scheduleFilterQuery && (
+                {((viewMode === 'shows' && showFilterQuery) || (viewMode !== 'shows' && scheduleFilterQuery)) && (
                   <button 
-                    onClick={() => setScheduleFilterQuery('')}
+                    onClick={() => viewMode === 'shows' ? setShowFilterQuery('') : setScheduleFilterQuery('')}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer"
                     title="Clear filter"
                   >
@@ -749,11 +1320,22 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                   </button>
                 )}
               </div>
+              {viewMode === 'shows' && (
+                <button 
+                  onClick={handleVerifyEvergreens}
+                  disabled={isVerifyingEvergreens}
+                  className="p-1.5 px-3 bg-slate-600 text-white rounded text-[12px] font-black tracking-tighter shadow-sm hover:bg-slate-700 transition-colors uppercase cursor-pointer h-8 border border-slate-700 disabled:opacity-55 flex items-center gap-1.5"
+                  title="Verify or create Evergreen folders for all shows"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-slate-200" />
+                  {isVerifyingEvergreens ? "VERIFYING..." : "VERIFY EVERGREENS"}
+                </button>
+              )}
               <button 
-                onClick={createNew}
+                onClick={viewMode === 'shows' ? createNewShow : createNew}
                 className="p-1.5 px-4 bg-blue-600 text-white rounded text-[12px] font-black tracking-tighter shadow-sm hover:bg-blue-700 transition-colors uppercase cursor-pointer h-8 border border-blue-700"
               >
-                + ADD NEW
+                {viewMode === 'shows' ? "+ ADD SHOW" : "+ ADD NEW"}
               </button>
             </div>
           </div>
@@ -981,6 +1563,13 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                         {/* Day slots */}
                         {getWeekDays(calendarDate).map((day, dayIdx) => {
                           const cellSchedules = getSchedulesForDateTime(day, hour);
+                          const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+                          const dayName = daysOrder[day.getDay()];
+                          const cellStartingShows = shows.filter(show => 
+                            show.day === dayName && 
+                            show.startHour === hour
+                          );
+
                           return (
                             <div 
                               key={dayIdx} 
@@ -991,53 +1580,90 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                                   : "min-h-[28px] flex flex-col gap-1"
                               )}
                             >
+                              {cellStartingShows.map(show => (
+                                <div 
+                                  key={`show-start-${show.id}`}
+                                  className="bg-[#FFCB05] text-black p-1 px-1.5 rounded border border-[#D9AD04] flex flex-col justify-center text-[12px] font-black tracking-normal leading-tight w-full select-none uppercase mb-1 shadow-sm"
+                                  style={{ minHeight: '1.75rem' }}
+                                >
+                                  <div className="line-clamp-2 font-sans">
+                                    {show.name}
+                                  </div>
+                                </div>
+                              ))}
+
                               {cellSchedules.map(s => {
                                 const formattedMin = s.minute.toString().padStart(2, '0');
                                 const summaryText = `ID: ${s.id} — ${s.name}\nTime: :${formattedMin}\nFile: ${s.mp3Url || 'None'}\nMode: ${s.type}`;
+                                const sTimeActiveShows = shows.filter(show => 
+                                  isTimeInShow(show, dayName, hour, s.minute)
+                                );
+                                const sTimeActiveShow = sTimeActiveShows[0];
+
                                 if (calendarLayoutMode === 'compact') {
                                   return (
-                                    <button
-                                      key={s.id}
-                                      type="button"
-                                      onClick={() => setSelectedCalendarSchedule(s)}
-                                      className={cn(
-                                        "inline-flex items-center justify-center p-0.5 px-0.5 rounded font-mono text-[12px] font-black leading-none shadow-sm border cursor-pointer select-none shrink-0 transition-all hover:scale-105",
-                                        !s.enabled 
-                                          ? "bg-slate-100 text-slate-400 border-grid-inactive line-through" 
-                                          : s.type === ScheduleType.ONE_TIME 
-                                            ? "bg-purple-100 text-purple-700 border-grid-onetime font-extrabold" 
-                                            : s.type === ScheduleType.BASIC_HOURLY 
-                                              ? "bg-blue-100 text-blue-700 border-grid-hourly" 
-                                              : "bg-orange-100 text-orange-700 border-grid-advanced"
+                                    <div key={s.id} className="inline-flex items-stretch gap-[2px]">
+                                      {sTimeActiveShow && (
+                                        <div 
+                                          className="w-[3px] bg-[#FFCB05] rounded shrink-0 self-stretch" 
+                                          title={`Active during show: ${sTimeActiveShow.name}`}
+                                        />
                                       )}
-                                      title={summaryText}
-                                    >
-                                      {formattedMin}
-                                    </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedCalendarSchedule(s)}
+                                        className={cn(
+                                          "inline-flex items-center justify-center p-0.5 px-0.5 rounded font-mono text-[12px] font-black leading-none shadow-sm border cursor-pointer select-none shrink-0 transition-all hover:scale-105",
+                                          sTimeActiveShow ? "rounded-l-none border-l-0" : "",
+                                          !s.enabled 
+                                            ? "bg-slate-100 text-slate-400 border-grid-inactive line-through" 
+                                            : s.type === ScheduleType.ONE_TIME 
+                                              ? "bg-purple-100 text-purple-700 border-grid-onetime font-extrabold" 
+                                              : s.type === ScheduleType.BASIC_HOURLY 
+                                                ? "bg-blue-100 text-blue-700 border-grid-hourly" 
+                                                : "bg-orange-100 text-orange-700 border-grid-advanced",
+                                          s.assetType === 'script' && "border-l-2 border-l-blue-500",
+                                          s.assetType === 'audio' && "border-l-2 border-l-purple-500"
+                                        )}
+                                        title={summaryText}
+                                      >
+                                        {formattedMin}
+                                      </button>
+                                    </div>
                                   );
                                 }
                                 return (
-                                  <button
-                                    key={s.id}
-                                    type="button"
-                                    onClick={() => setSelectedCalendarSchedule(s)}
-                                    className={cn(
-                                      "w-full text-left p-1 rounded font-sans text-[12px] leading-tight truncate shadow-sm border block cursor-pointer select-none transition-all hover:translate-x-0.5",
-                                      !s.enabled 
-                                        ? "bg-slate-105 text-slate-400 border-grid-inactive line-through" 
-                                        : s.type === ScheduleType.ONE_TIME 
-                                          ? "bg-purple-50 text-purple-700 border-grid-onetime font-bold" 
-                                          : s.type === ScheduleType.BASIC_HOURLY 
-                                            ? "bg-blue-50 text-blue-700 border-grid-hourly" 
-                                            : "bg-orange-50 text-orange-700 border-grid-advanced"
+                                  <div key={s.id} className="flex items-stretch gap-1 w-full">
+                                    {sTimeActiveShow && (
+                                      <div 
+                                        className="w-1 bg-[#FFCB05] rounded shrink-0 self-stretch" 
+                                        title={`Active during show: ${sTimeActiveShow.name}`}
+                                      />
                                     )}
-                                    title={summaryText}
-                                  >
-                                    <div className="truncate flex items-center gap-0.5">
-                                      <span className="font-mono font-black text-[12px] text-slate-455 shrink-0">:{formattedMin}</span>
-                                      <span className="truncate">{s.name}</span>
-                                    </div>
-                                  </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedCalendarSchedule(s)}
+                                      className={cn(
+                                        "flex-1 text-left p-1 rounded font-sans text-[12px] leading-tight truncate shadow-sm border block cursor-pointer select-none transition-all hover:translate-x-0.5",
+                                        sTimeActiveShow ? "rounded-l-none border-l-0" : "",
+                                        !s.enabled 
+                                          ? "bg-slate-105 text-slate-400 border-grid-inactive line-through" 
+                                          : s.type === ScheduleType.ONE_TIME 
+                                            ? "bg-purple-50 text-purple-700 border-grid-onetime font-bold" 
+                                            : s.type === ScheduleType.BASIC_HOURLY 
+                                              ? "bg-blue-50 text-blue-700 border-grid-hourly" 
+                                              : "bg-orange-50 text-orange-700 border-grid-advanced",
+                                        s.assetType === 'script' && "border-l-2 border-l-blue-500",
+                                        s.assetType === 'audio' && "border-l-2 border-l-purple-500"
+                                      )}
+                                      title={summaryText}
+                                    >
+                                      <div className="truncate flex items-center gap-0.5">
+                                        <span className="font-mono font-black text-[12px] text-slate-455 shrink-0">:{formattedMin}</span>
+                                        <span className="truncate">{s.name}</span>
+                                      </div>
+                                    </button>
+                                  </div>
                                 );
                               })}
                             </div>
@@ -1049,6 +1675,8 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                 </div>
               </div>
             </div>
+          ) : viewMode === 'shows' ? (
+            renderShowsList()
           ) : (
             <div className="flex flex-col gap-6 overflow-y-auto flex-1 pb-4 pr-1 custom-scrollbar">
             {/* Active Schedules Section */}
@@ -1107,7 +1735,9 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                           onClick={() => startEdit(s)}
                           className={cn(
                             "transition-all cursor-pointer group relative flex items-stretch min-h-[64px]",
-                            idx % 2 === 0 ? "bg-white" : "bg-slate-205"
+                            idx % 2 === 0 ? "bg-white" : "bg-slate-205",
+                            s.assetType === 'script' && "border-l-4 border-l-blue-500",
+                            s.assetType === 'audio' && "border-l-4 border-l-purple-500"
                           )}
                         >
                           {/* Left: clock dial, spanning the entire card height, no pixel gap, high contrast lines */}
@@ -1368,7 +1998,9 @@ export default function SchedulerTab({ schedules, onSave, isAdmin, onAdminToggle
                               onClick={() => startEdit(s)}
                               className={cn(
                                 "transition-all cursor-pointer group relative flex items-stretch min-h-[64px]",
-                                idx % 2 === 0 ? "bg-white" : "bg-slate-205"
+                                idx % 2 === 0 ? "bg-white" : "bg-slate-205",
+                                s.assetType === 'script' && "border-l-4 border-l-blue-500",
+                                s.assetType === 'audio' && "border-l-4 border-l-purple-500"
                               )}
                             >
                               {/* Left: Clock Dial Pointer, no pixel gap, increased line contrast */}

@@ -94,6 +94,20 @@ export default function LogTab({ logs }: LogTabProps) {
   const [sortField, setSortField] = useState<SortField>('timestamp');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(1000);
+
+  React.useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
   // Adjustable column widths
   const [colWidths, setColWidths] = useState({
     time: 210,
@@ -292,91 +306,179 @@ export default function LogTab({ logs }: LogTabProps) {
     );
   };
 
+  const isTight = containerWidth < 800;
+
   return (
-    <div className="flex flex-col h-full space-y-3 font-sans">
+    <div ref={containerRef} className="flex flex-col h-full space-y-3 font-sans">
       {/* Search, Range, Count & Exports unified in a single compact bar */}
-      <div className="bg-white rounded-xl border border-slate-350 p-2.5 shadow-sm shrink-0 flex flex-wrap items-center gap-3 justify-between">
-        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
-          {/* Search filter */}
-          <div className="relative w-full max-w-[210px] shrink-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
-            <input 
-              type="text" 
-              placeholder="Filter logs by name..." 
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-350 rounded-lg text-[14px] font-bold outline-none focus:ring-1 focus:ring-blue-500/80 transition-all font-sans text-slate-850 placeholder-slate-450"
-            />
-          </div>
-          
-          {/* Date Range filters */}
-          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
-            <div className="flex items-center gap-1">
-              <span className="text-[14px] font-black text-slate-500 uppercase tracking-wider shrink-0">From:</span>
+      {isTight ? (
+        <div className="bg-white rounded-xl border border-slate-350 p-1.5 shadow-sm shrink-0 flex flex-col gap-1.5">
+          {/* Row 1: Search + Export Buttons */}
+          <div className="flex items-center justify-between gap-1.5 w-full">
+            {/* Search filter */}
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
               <input 
-                type="date" 
-                value={startDateStr}
-                onChange={e => setStartDateStr(e.target.value)}
-                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-350 rounded-lg text-[14px] font-bold outline-none text-slate-700 cursor-pointer transition-colors"
+                type="text" 
+                placeholder="Filter logs by name..." 
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-2 py-1 bg-slate-50 border border-slate-350 rounded-lg text-[14px] font-bold outline-none focus:ring-1 focus:ring-blue-500/80 transition-all font-sans text-slate-850 placeholder-slate-450"
+              />
+            </div>
+
+            {/* Export buttons */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={handleExportCSV}
+                className="px-2 py-1 bg-blue-50 hover:bg-blue-100 border border-blue-350 rounded-lg text-[14px] font-bold text-blue-700 transition-colors flex items-center gap-1 cursor-pointer"
+                title="Export filtered logs as CSV"
+              >
+                <Download className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                CSV
+              </button>
+              <button
+                onClick={handleExportXLSX}
+                className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-350 rounded-lg text-[14px] font-bold text-emerald-700 transition-colors flex items-center gap-1 cursor-pointer"
+                title="Export filtered logs as Excel"
+              >
+                <Download className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                XLSX
+              </button>
+            </div>
+          </div>
+
+          {/* Row 2: Date Filters + Count */}
+          <div className="flex items-center justify-between gap-1.5 w-full">
+            {/* Date Range filters */}
+            <div className="flex items-center gap-1.5 flex-1 min-w-0 flex-wrap">
+              <div className="flex items-center gap-0.5">
+                <span className="text-[14px] font-black text-slate-500 uppercase tracking-wider shrink-0">From:</span>
+                <input 
+                  type="date" 
+                  value={startDateStr}
+                  onChange={e => setStartDateStr(e.target.value)}
+                  className="px-1.5 py-0.5 bg-slate-50 hover:bg-slate-100 border border-slate-350 rounded-lg text-[14px] font-bold outline-none text-slate-700 cursor-pointer transition-colors"
+                />
+              </div>
+              
+              <div className="flex items-center gap-0.5">
+                <span className="text-[14px] font-black text-slate-500 uppercase tracking-wider shrink-0">To:</span>
+                <input 
+                  type="date" 
+                  value={endDateStr}
+                  onChange={e => setEndDateStr(e.target.value)}
+                  className="px-1.5 py-0.5 bg-slate-50 hover:bg-slate-100 border border-slate-350 rounded-lg text-[14px] font-bold outline-none text-slate-700 cursor-pointer transition-colors"
+                  title="End Date (inclusive)"
+                />
+              </div>
+
+              {(startDateStr || endDateStr) && (
+                <button 
+                  onClick={() => { setStartDateStr(''); setEndDateStr(''); }}
+                  className="text-[13px] text-slate-500 hover:text-slate-700 font-bold underline cursor-pointer ml-1 select-none"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* Count indicator */}
+            <div className="text-[14px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1 shrink-0 bg-slate-50 px-2 py-1 rounded-lg border border-slate-300">
+              <span>Count:</span>
+              <span className="text-[14px] font-black text-slate-900 tabular-nums">{filteredLogsBase.length}</span>
+              {filteredLogsBase.length > DISPLAY_LIMIT && (
+                <span className="text-[12px] font-black text-amber-700 bg-amber-50 px-1 py-0.5 rounded ml-1 tracking-normal border border-amber-300">
+                  (max {DISPLAY_LIMIT})
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-350 p-2.5 shadow-sm shrink-0 flex flex-wrap items-center gap-3 justify-between">
+          <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
+            {/* Search filter */}
+            <div className="relative w-full max-w-[210px] shrink-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+              <input 
+                type="text" 
+                placeholder="Filter logs by name..." 
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-350 rounded-lg text-[14px] font-bold outline-none focus:ring-1 focus:ring-blue-500/80 transition-all font-sans text-slate-850 placeholder-slate-450"
               />
             </div>
             
-            <div className="flex items-center gap-1">
-              <span className="text-[14px] font-black text-slate-500 uppercase tracking-wider shrink-0">To:</span>
-              <input 
-                type="date" 
-                value={endDateStr}
-                onChange={e => setEndDateStr(e.target.value)}
-                className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-350 rounded-lg text-[14px] font-bold outline-none text-slate-700 cursor-pointer transition-colors"
-                title="End Date (inclusive)"
-              />
+            {/* Date Range filters */}
+            <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+              <div className="flex items-center gap-1">
+                <span className="text-[14px] font-black text-slate-500 uppercase tracking-wider shrink-0">From:</span>
+                <input 
+                  type="date" 
+                  value={startDateStr}
+                  onChange={e => setStartDateStr(e.target.value)}
+                  className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-350 rounded-lg text-[14px] font-bold outline-none text-slate-700 cursor-pointer transition-colors"
+                />
+              </div>
+              
+              <div className="flex items-center gap-1">
+                <span className="text-[14px] font-black text-slate-500 uppercase tracking-wider shrink-0">To:</span>
+                <input 
+                  type="date" 
+                  value={endDateStr}
+                  onChange={e => setEndDateStr(e.target.value)}
+                  className="px-2 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-350 rounded-lg text-[14px] font-bold outline-none text-slate-700 cursor-pointer transition-colors"
+                  title="End Date (inclusive)"
+                />
+              </div>
+
+              {(startDateStr || endDateStr) && (
+                <button 
+                  onClick={() => { setStartDateStr(''); setEndDateStr(''); }}
+                  className="text-[13px] text-slate-500 hover:text-slate-700 font-bold underline cursor-pointer ml-1 select-none"
+                >
+                  Clear Dates
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Count and Exports bundle */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {/* Count and limit indicators */}
+            <div className="text-[14px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1 shrink-0 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-300">
+              <span>Count:</span>
+              <span className="text-[14px] font-black text-slate-900 tabular-nums">{filteredLogsBase.length}</span>
+              {filteredLogsBase.length > DISPLAY_LIMIT && (
+                <span className="text-[13px] font-black text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded ml-1 tracking-normal border border-amber-300">
+                  (limited to {DISPLAY_LIMIT} items)
+                </span>
+              )}
             </div>
 
-            {(startDateStr || endDateStr) && (
-              <button 
-                onClick={() => { setStartDateStr(''); setEndDateStr(''); }}
-                className="text-[13px] text-slate-500 hover:text-slate-700 font-bold underline cursor-pointer ml-1 select-none"
+            {/* Export buttons */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={handleExportCSV}
+                className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-350 rounded-lg text-[14px] font-bold text-blue-700 transition-colors flex items-center gap-1 cursor-pointer"
+                title="Export filtered logs as CSV"
               >
-                Clear Dates
+                <Download className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                CSV
               </button>
-            )}
+              <button
+                onClick={handleExportXLSX}
+                className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-350 rounded-lg text-[14px] font-bold text-emerald-700 transition-colors flex items-center gap-1 cursor-pointer"
+                title="Export filtered logs as Excel"
+              >
+                <Download className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                XLSX
+              </button>
+            </div>
           </div>
         </div>
-
-        {/* Count and Exports bundle */}
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {/* Count and limit indicators */}
-          <div className="text-[14px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1 shrink-0 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-300">
-            <span>Count:</span>
-            <span className="text-[14px] font-black text-slate-900 tabular-nums">{filteredLogsBase.length}</span>
-            {filteredLogsBase.length > DISPLAY_LIMIT && (
-              <span className="text-[13px] font-black text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded ml-1 tracking-normal border border-amber-300">
-                (limited to {DISPLAY_LIMIT} items)
-              </span>
-            )}
-          </div>
-
-          {/* Export buttons */}
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={handleExportCSV}
-              className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-350 rounded-lg text-[14px] font-bold text-blue-700 transition-colors flex items-center gap-1 cursor-pointer"
-              title="Export filtered logs as CSV"
-            >
-              <Download className="w-3.5 h-3.5 shrink-0 text-blue-600" />
-              CSV
-            </button>
-            <button
-              onClick={handleExportXLSX}
-              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-350 rounded-lg text-[14px] font-bold text-emerald-700 transition-colors flex items-center gap-1 cursor-pointer"
-              title="Export filtered logs as Excel"
-            >
-              <Download className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
-              XLSX
-            </button>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Logs Table */}
       <div className="flex-1 overflow-y-auto min-h-0 bg-white rounded-xl border border-grid-active shadow-sm overflow-hidden flex flex-col">
@@ -481,7 +583,9 @@ export default function LogTab({ logs }: LogTabProps) {
                 key={`${log.scheduleId}-${log.timestamp}-${i}`}
                 className={cn(
                   "flex items-stretch border-b border-grid-active hover:bg-slate-50 transition-colors last:border-0 grow min-h-[52px]",
-                  i % 2 === 0 ? "bg-white" : "bg-slate-205"
+                  i % 2 === 0 ? "bg-white" : "bg-slate-205",
+                  getLogAssetType(log) === 'script' && "border-l-4 border-l-blue-500",
+                  getLogAssetType(log) === 'audio' && "border-l-4 border-l-purple-500"
                 )}
               >
                 {/* Timestamp cell mapped to Schedule/Actual */}
