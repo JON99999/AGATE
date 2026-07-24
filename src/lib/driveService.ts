@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
-import { Schedule, LogEntry } from '../types';
+import { Interstitial, LogEntry, Show } from '../types';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App & Auth
@@ -21,7 +21,7 @@ export interface LocationSettings {
   mode: 'Local' | 'Drive' | 'Demo';
   localPathMP3s: string;
   localPathLogs: string;
-  localPathSchedules: string;
+  localPathCalendar: string;
   driveFolderLogs: string;
   driveFolderMP3s: string;
   driveFolderPreferences: string;
@@ -31,7 +31,7 @@ export const DEFAULT_SETTINGS: LocationSettings = {
   mode: 'Demo',
   localPathMP3s: '',
   localPathLogs: '',
-  localPathSchedules: '',
+  localPathCalendar: '',
   driveFolderLogs: '',
   driveFolderMP3s: '',
   driveFolderPreferences: '',
@@ -343,6 +343,31 @@ async function findFileInFolder(name: string, folderId: string): Promise<string 
 }
 
 /**
+ * Lists all active files/folders inside a parent folder in Google Drive
+ */
+async function listFilesInFolder(folderId: string): Promise<Array<{ id: string; name: string; mimeType: string }>> {
+  const query = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+  const res = await driveFetch(`drive/v3/files?q=${query}&fields=files(id,name,mimeType)&pageSize=1000`);
+  const data = await res.json();
+  return data.files || [];
+}
+
+/**
+ * Searches for a file/folder case-insensitively inside a specific folder
+ */
+async function findFileInFolderCaseInsensitive(name: string, folderId: string): Promise<string | null> {
+  try {
+    const files = await listFilesInFolder(folderId);
+    const target = name.toLowerCase();
+    const found = files.find(f => f.name.toLowerCase() === target);
+    return found ? found.id : null;
+  } catch (err) {
+    console.error('Error finding file case-insensitively:', err);
+    return null;
+  }
+}
+
+/**
  * Creates a file with metadata and empty body in a parent folder
  */
 async function createFileInFolder(name: string, folderId: string, mimeType: string = 'application/json'): Promise<string> {
@@ -379,13 +404,13 @@ async function uploadFileContent(fileId: string, content: string, mimeType: stri
 /**
  * Load schedules from Drive schedules.json in folder
  */
-export const loadSchedulesFromDrive = async (): Promise<Schedule[]> => {
+export const loadCalendarFromDrive = async (): Promise<Interstitial[]> => {
   try {
-    let fileId = await findFileInFolder('schedules.json', DRIVE_FOLDERS.preferences);
+    let fileId = await findFileInFolder('interstitials.json', DRIVE_FOLDERS.preferences);
     if (!fileId) {
-      // Create empty schedules.json if not found
-      fileId = await createFileInFolder('schedules.json', DRIVE_FOLDERS.preferences);
-      await uploadFileContent(fileId, JSON.stringify({ ScheduleBackupCounter: 0, data: [] }));
+      // Create empty interstitials.json if not found
+      fileId = await createFileInFolder('interstitials.json', DRIVE_FOLDERS.preferences);
+      await uploadFileContent(fileId, JSON.stringify({ InterstitialsBackupCounter: 0, data: [] }));
       return [];
     }
     const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
@@ -404,11 +429,11 @@ export const loadSchedulesFromDrive = async (): Promise<Schedule[]> => {
 /**
  * Save schedules to Drive schedules.json
  */
-export const saveSchedulesToDrive = async (schedules: Schedule[]): Promise<void> => {
+export const saveCalendarToDrive = async (schedules: Interstitial[]): Promise<void> => {
   try {
-    let fileId = await findFileInFolder('schedules.json', DRIVE_FOLDERS.preferences);
+    let fileId = await findFileInFolder('interstitials.json', DRIVE_FOLDERS.preferences);
     if (!fileId) {
-      fileId = await createFileInFolder('schedules.json', DRIVE_FOLDERS.preferences);
+      fileId = await createFileInFolder('interstitials.json', DRIVE_FOLDERS.preferences);
     }
     let counter = 0;
     try {
@@ -416,12 +441,156 @@ export const saveSchedulesToDrive = async (schedules: Schedule[]): Promise<void>
       const jsonStr = await res.text();
       const parsed = JSON.parse(jsonStr || '{}');
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        counter = parsed.ScheduleBackupCounter || 0;
+        counter = parsed.InterstitialsBackupCounter || 0;
       }
     } catch (e) {}
-    await uploadFileContent(fileId, JSON.stringify({ ScheduleBackupCounter: counter, data: schedules }, null, 2));
+    await uploadFileContent(fileId, JSON.stringify({ InterstitialsBackupCounter: counter, data: schedules }, null, 2));
   } catch (err) {
     console.error('Error saving schedules to Google Drive:', err);
+    throw err;
+  }
+};
+
+const DEFAULT_SHOWS: Show[] = [
+  {
+    "id": "1",
+    "day": "Sunday",
+    "startHour": 10,
+    "startMinute": 0,
+    "durationHours": 2,
+    "durationMinutes": 0,
+    "name": "Soul Sunday & Eclectic Beats",
+    "nameShort": "Soul_Sunday_Ecle",
+    "host": "DJ Skeet",
+    "description": "Deep cuts of St. Louis soul, vintage jazz, and eclectic instrumental beats to smooth out your Sunday.",
+    "active": true
+  },
+  {
+    "id": "2",
+    "day": "Monday",
+    "startHour": 12,
+    "startMinute": 0,
+    "durationHours": 1,
+    "durationMinutes": 30,
+    "name": "indie/STL Showcase",
+    "nameShort": "indie_STL_Showca",
+    "host": "Alek",
+    "description": "Highlighting local St. Louis indie rock, post-punk, and alternative artists.",
+    "active": true
+  },
+  {
+    "id": "3",
+    "day": "Tuesday",
+    "startHour": 14,
+    "startMinute": 0,
+    "durationHours": 2,
+    "durationMinutes": 0,
+    "name": "Electronic Exploration",
+    "nameShort": "Electronic_Explo",
+    "host": "Sarah G.",
+    "description": "Ambient soundscapes, techno, and experimental electronic music from across the Midwest.",
+    "active": true
+  },
+  {
+    "id": "4",
+    "day": "Wednesday",
+    "startHour": 16,
+    "startMinute": 0,
+    "durationHours": 2,
+    "durationMinutes": 0,
+    "name": "Dub-Plate Special",
+    "nameShort": "Dub_Plate_Specia",
+    "host": "Dubman",
+    "description": "Classic Jamaican reggae, modern dubwise, and deep low-frequency bass selections.",
+    "active": true
+  },
+  {
+    "id": "5",
+    "day": "Thursday",
+    "startHour": 9,
+    "startMinute": 0,
+    "durationHours": 1,
+    "durationMinutes": 30,
+    "name": "Morning Coffee Jazz",
+    "nameShort": "Morning_Coffee_J",
+    "host": "Jazzcat",
+    "description": "Cool jazz, classic bop, and warm conversation to kickstart your Thursday morning.",
+    "active": true
+  },
+  {
+    "id": "6",
+    "day": "Friday",
+    "startHour": 20,
+    "startMinute": 0,
+    "durationHours": 2,
+    "durationMinutes": 0,
+    "name": "Friday Night Fever",
+    "nameShort": "Friday_Night_Fev",
+    "host": "DJ Fever",
+    "description": "High-energy disco, house, and classic dance grooves to kick off the weekend.",
+    "active": true
+  },
+  {
+    "id": "7",
+    "day": "Saturday",
+    "startHour": 18,
+    "startMinute": 0,
+    "durationHours": 3,
+    "durationMinutes": 0,
+    "name": "The STL Soundclash",
+    "nameShort": "The_STL_Soundcla",
+    "host": "Resident DJs",
+    "description": "A collaborative showcase of St. Louis hip-hop, experimental beats, and electronic mixes clashing live.",
+    "active": true
+  }
+];
+
+/**
+ * Load shows from Drive shows.json
+ */
+export const loadShowsFromDrive = async (): Promise<Show[]> => {
+  try {
+    let fileId = await findFileInFolder('shows.json', DRIVE_FOLDERS.preferences);
+    if (!fileId) {
+      fileId = await createFileInFolder('shows.json', DRIVE_FOLDERS.preferences);
+      await uploadFileContent(fileId, JSON.stringify({ ShowsBackupCounter: 0, data: DEFAULT_SHOWS }, null, 2));
+      return DEFAULT_SHOWS;
+    }
+    const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
+    const jsonStr = await res.text();
+    const parsed = JSON.parse(jsonStr || '[]');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Array.isArray(parsed.data) ? parsed.data : [];
+    }
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error('Error loading shows from Google Drive:', err);
+    throw err;
+  }
+};
+
+/**
+ * Save shows to Drive shows.json
+ */
+export const saveShowsToDrive = async (shows: Show[]): Promise<void> => {
+  try {
+    let fileId = await findFileInFolder('shows.json', DRIVE_FOLDERS.preferences);
+    if (!fileId) {
+      fileId = await createFileInFolder('shows.json', DRIVE_FOLDERS.preferences);
+    }
+    let counter = 0;
+    try {
+      const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
+      const jsonStr = await res.text();
+      const parsed = JSON.parse(jsonStr || '{}');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        counter = parsed.ShowsBackupCounter || 0;
+      }
+    } catch (e) {}
+    counter += 1;
+    await uploadFileContent(fileId, JSON.stringify({ ShowsBackupCounter: counter, data: shows }, null, 2));
+  } catch (err) {
+    console.error('Error saving shows to Google Drive:', err);
     throw err;
   }
 };
@@ -528,10 +697,10 @@ export const triggerDriveBackup = async (): Promise<void> => {
   try {
     const prefsFolder = DRIVE_FOLDERS.preferences;
     if (prefsFolder) {
-      let fileId = await findFileInFolder('schedules.json', prefsFolder);
+      let fileId = await findFileInFolder('interstitials.json', prefsFolder);
       if (!fileId) {
-        fileId = await createFileInFolder('schedules.json', prefsFolder);
-        await uploadFileContent(fileId, JSON.stringify({ ScheduleBackupCounter: 0, data: [] }));
+        fileId = await createFileInFolder('interstitials.json', prefsFolder);
+        await uploadFileContent(fileId, JSON.stringify({ InterstitialsBackupCounter: 0, data: [] }));
       }
       if (fileId) {
         let parsed: any;
@@ -544,10 +713,10 @@ export const triggerDriveBackup = async (): Promise<void> => {
         }
 
         let arrayData = Array.isArray(parsed) ? parsed : (parsed.data || []);
-        let currentCounter = Array.isArray(parsed) ? 1 : ((parsed.ScheduleBackupCounter || 0) + 1);
+        let currentCounter = Array.isArray(parsed) ? 1 : ((parsed.InterstitialsBackupCounter || 0) + 1);
 
         const updatedObj = {
-          ScheduleBackupCounter: currentCounter,
+          InterstitialsBackupCounter: currentCounter,
           data: arrayData
         };
 
@@ -560,7 +729,7 @@ export const triggerDriveBackup = async (): Promise<void> => {
         const dd = String(now.getDate()).padStart(2, '0');
         const formattedDate = `${yyyy}_${mm}_${dd}`;
         const padCounter = String(currentCounter).padStart(8, '0');
-        const backupName = `schedules_Backup_${formattedDate}_${padCounter}.json`;
+        const backupName = `interstitials_Backup_${formattedDate}_${padCounter}.json`;
 
         const backupsFolderId = await getOrCreateBackupsFolder(prefsFolder);
         let backupFileId = await findFileInFolder(backupName, backupsFolderId);
@@ -623,6 +792,57 @@ export const triggerDriveBackup = async (): Promise<void> => {
     }
   } catch (err) {
     console.error('Failed to backup logs in Drive:', err);
+    throw err;
+  }
+
+  // 3. Backup shows
+  try {
+    const prefsFolder = DRIVE_FOLDERS.preferences;
+    if (prefsFolder) {
+      let fileId = await findFileInFolder('shows.json', prefsFolder);
+      if (!fileId) {
+        fileId = await createFileInFolder('shows.json', prefsFolder);
+        await uploadFileContent(fileId, JSON.stringify({ ShowsBackupCounter: 0, data: DEFAULT_SHOWS }, null, 2));
+      }
+      if (fileId) {
+        let parsed: any;
+        try {
+          const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
+          const jsonStr = await res.text();
+          parsed = JSON.parse(jsonStr || '[]');
+        } catch {
+          parsed = [];
+        }
+
+        let arrayData = Array.isArray(parsed) ? parsed : (parsed.data || []);
+        let currentCounter = Array.isArray(parsed) ? 1 : ((parsed.ShowsBackupCounter || 0) + 1);
+
+        const updatedObj = {
+          ShowsBackupCounter: currentCounter,
+          data: arrayData
+        };
+
+        const updatedStr = JSON.stringify(updatedObj, null, 2);
+        await uploadFileContent(fileId, updatedStr);
+
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const formattedDate = `${yyyy}_${mm}_${dd}`;
+        const padCounter = String(currentCounter).padStart(8, '0');
+        const backupName = `shows_Backup_${formattedDate}_${padCounter}.json`;
+
+        const backupsFolderId = await getOrCreateBackupsFolder(prefsFolder);
+        let backupFileId = await findFileInFolder(backupName, backupsFolderId);
+        if (!backupFileId) {
+          backupFileId = await createFileInFolder(backupName, backupsFolderId);
+        }
+        await uploadFileContent(backupFileId, updatedStr);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to backup shows in Drive:', err);
     throw err;
   }
 };
@@ -762,3 +982,117 @@ export const validateGoogleDriveAccess = async (): Promise<boolean> => {
     return false;
   }
 };
+
+export const getOrCreateDriveEvergreensFolder = async (): Promise<string> => {
+  const mp3sFolder = DRIVE_FOLDERS.mp3s;
+  if (!mp3sFolder) {
+    throw new Error('Google Drive Media & Scripts folder is not configured. Please set it in Settings.');
+  }
+  let evergreensId = await findFileInFolderCaseInsensitive('Evergreens', mp3sFolder);
+  if (!evergreensId) {
+    evergreensId = await createFileInFolder('Evergreens', mp3sFolder, 'application/vnd.google-apps.folder');
+  }
+  return evergreensId;
+};
+
+export const checkEvergreenFolderOnDrive = async (
+  oldNameShort: string | undefined,
+  newNameShort: string | undefined
+): Promise<{ success: boolean; oldExists: boolean; newExists: boolean }> => {
+  try {
+    const evergreensId = await getOrCreateDriveEvergreensFolder();
+    const oldExists = oldNameShort ? (await findFileInFolderCaseInsensitive(oldNameShort, evergreensId) !== null) : false;
+    const newExists = newNameShort ? (await findFileInFolderCaseInsensitive(newNameShort, evergreensId) !== null) : false;
+    return { success: true, oldExists, newExists };
+  } catch (err: any) {
+    console.error('Error checking evergreen folder on Drive:', err);
+    throw err;
+  }
+};
+
+export const applyEvergreenChangeOnDrive = async (
+  action: 'create' | 'update',
+  nameShort: string,
+  oldNameShort?: string,
+  renameFolder?: boolean
+): Promise<{ success: boolean; folderCreated: boolean; folderRenamed: boolean }> => {
+  try {
+    const evergreensId = await getOrCreateDriveEvergreensFolder();
+    const newFolderPathId = await findFileInFolderCaseInsensitive(nameShort, evergreensId);
+    let folderCreated = false;
+    let folderRenamed = false;
+
+    if (action === 'update' && oldNameShort && oldNameShort !== nameShort) {
+      const oldFolderPathId = await findFileInFolderCaseInsensitive(oldNameShort, evergreensId);
+      if (oldFolderPathId && renameFolder) {
+        if (!newFolderPathId || newFolderPathId === oldFolderPathId) {
+          // Rename the folder
+          const token = getAccessToken();
+          if (!token) throw new Error('Not authenticated with Google');
+          await driveFetch(`drive/v3/files/${oldFolderPathId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ name: nameShort })
+          });
+          folderRenamed = true;
+        }
+      } else {
+        if (!newFolderPathId) {
+          await createFileInFolder(nameShort, evergreensId, 'application/vnd.google-apps.folder');
+          folderCreated = true;
+        }
+      }
+    } else {
+      if (!newFolderPathId) {
+        await createFileInFolder(nameShort, evergreensId, 'application/vnd.google-apps.folder');
+        folderCreated = true;
+      }
+    }
+
+    return { success: true, folderCreated, folderRenamed };
+  } catch (err: any) {
+    console.error('Error applying evergreen change on Drive:', err);
+    throw err;
+  }
+};
+
+export const verifyEvergreensOnDrive = async (shows: Show[]): Promise<{
+  success: boolean;
+  evergreensFolderCreated: boolean;
+  evergreensPath: string;
+  createdFolders: string[];
+}> => {
+  try {
+    const mp3sFolder = DRIVE_FOLDERS.mp3s;
+    if (!mp3sFolder) {
+      throw new Error('Google Drive Media & Scripts folder is not configured. Please set it in Settings.');
+    }
+    let evergreensFolderCreated = false;
+    let evergreensId = await findFileInFolderCaseInsensitive('Evergreens', mp3sFolder);
+    if (!evergreensId) {
+      evergreensId = await createFileInFolder('Evergreens', mp3sFolder, 'application/vnd.google-apps.folder');
+      evergreensFolderCreated = true;
+    }
+
+    const createdFolders: string[] = [];
+    for (const show of shows) {
+      if (show.nameShort) {
+        const showFolderId = await findFileInFolderCaseInsensitive(show.nameShort, evergreensId);
+        if (!showFolderId) {
+          await createFileInFolder(show.nameShort, evergreensId, 'application/vnd.google-apps.folder');
+          createdFolders.push(show.nameShort);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      evergreensFolderCreated,
+      evergreensPath: 'Google Drive: /medialibrary/Evergreens',
+      createdFolders
+    };
+  } catch (err: any) {
+    console.error('Error in verifyEvergreensOnDrive:', err);
+    throw err;
+  }
+};
+

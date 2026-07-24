@@ -147,6 +147,46 @@ interface SimpleShow {
   name: string;
 }
 
+export interface BaseShow {
+  id: string;
+  day: 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday';
+  startHour: number;
+  startMinute: number;
+  durationHours: number;
+  durationMinutes: number;
+  name: string;
+}
+
+export function getSortedShows(showsList: BaseShow[]): BaseShow[] {
+  const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return [...showsList].sort((a, b) => {
+    const aMin = daysOrder.indexOf(a.day) * 1440 + a.startHour * 60 + a.startMinute;
+    const bMin = daysOrder.indexOf(b.day) * 1440 + b.startHour * 60 + b.startMinute;
+    return aMin - bMin;
+  });
+}
+
+export function getShowShade(show: BaseShow, sortedShows: BaseShow[]): { bg: string; border: string; title: string } {
+  const index = sortedShows && sortedShows.length > 0 
+    ? sortedShows.findIndex(s => s.id === show.id) 
+    : -1;
+  
+  // Use index-based alternating colors supporting light and dark theme CSS variables
+  if (index !== -1 && index % 2 !== 0) {
+    return {
+      bg: 'var(--show-shade-odd-bg, #FFE385)',
+      border: 'var(--show-shade-odd-border, #D1B443)',
+      title: `Active during show: ${show.name}`
+    };
+  }
+
+  return {
+    bg: 'var(--show-shade-even-bg, #FFF6BC)',
+    border: 'var(--show-shade-even-border, #EADA76)',
+    title: `Active during show: ${show.name}`
+  };
+}
+
 export function isTimeInShow(
   show: SimpleShow,
   dayName: 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday' | 'Thursday' | 'Friday' | 'Saturday',

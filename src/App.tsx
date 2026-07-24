@@ -11,6 +11,7 @@ import {
   Settings,
   Plus,
   Play,
+  Check,
   CheckCircle,
   AlertCircle,
   RefreshCw,
@@ -31,7 +32,9 @@ import {
   Download,
   FolderOpen,
   HelpCircle,
+  Sun,
   Moon,
+  Laptop,
   RadioTower,
   CassetteTape,
   ListOrdered,
@@ -55,22 +58,25 @@ import {
   startOfDay,
   endOfDay,
 } from "date-fns";
-import { Schedule, ScheduleType, LogEntry, Show } from "./types";
+import { Interstitial, InterstitialType, LogEntry, Show } from "./types";
 import PlayerTab from "./components/PlayerTab";
-import SchedulerTab from "./components/SchedulerTab";
+import CalendarTab from "./components/CalendarTab";
 import LogTab from "./components/LogTab";
 import LiveReadPopout from "./components/LiveReadPopout";
 import GoogleAuthSection from "./components/GoogleAuthSection";
 import LocalHelpModal from "./components/LocalHelpModal";
-import { cn, extractFolderId } from "./lib/utils";
+import { getInitialTheme, applyTheme, ThemeId } from "./lib/theme";
+import { cn, extractFolderId, getSortedShows, getShowShade } from "./lib/utils";
 import {
   initAuth,
   googleSignIn,
   handleLogout,
   getAccessToken,
   setOverrideAccessToken,
-  loadSchedulesFromDrive,
-  saveSchedulesToDrive,
+  loadCalendarFromDrive,
+  saveCalendarToDrive,
+  loadShowsFromDrive,
+  saveShowsToDrive,
   loadLogsFromDrive,
   appendLogToDrive,
   listMP3sFromDrive,
@@ -87,6 +93,30 @@ import {
   availableFilesCache,
   triggerDriveBackup,
 } from "./lib/driveService";
+
+const getFutureDatesForShow = (showDay: string): Date[] => {
+  const daysOfWeek = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday"
+  ];
+  const targetDayIndex = daysOfWeek.indexOf(showDay);
+  if (targetDayIndex === -1) return [];
+
+  const occurrences: Date[] = [];
+  const start = new Date();
+  for (let i = 0; i < 62; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+    if (d.getDay() === targetDayIndex) {
+      occurrences.push(d);
+    }
+  }
+  return occurrences;
+};
 
 export default function App() {
   const isPopout = typeof window !== "undefined" && window.location.search.includes("popout=true");
@@ -110,7 +140,7 @@ export default function App() {
     return window.fetch(url, init);
   };
 
-  const [activeTab, setActiveTab] = useState<"player" | "scheduler" | "log">(
+  const [activeTab, setActiveTab] = useState<"player" | "calendar" | "log">(
     "player",
   );
   const [durationUpdates, setDurationUpdates] = useState(0);
@@ -123,9 +153,9 @@ export default function App() {
     if (!folderId) return "Not Configured";
     let defaultName = "";
     if (folderId === "1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED")
-      defaultName = "scheduledata";
+      defaultName = "calendar";
     else if (folderId === "11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch")
-      defaultName = "mp3library";
+      defaultName = "medialibrary";
     else if (folderId === "1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx")
       defaultName = "logs";
 
@@ -182,7 +212,7 @@ export default function App() {
       } else if (mode === "Drive" || mode === "Demo") {
         await triggerDriveBackup();
       }
-      console.log("Archiving of schedules and logs completed successfully");
+      console.log("Archiving of interstitials and logs completed successfully");
       hasBackedUpThisSessionRef.current = true;
     } catch (err: any) {
       console.error("Archiving sequence failed: ", err);
@@ -290,12 +320,27 @@ export default function App() {
       window.removeEventListener("blur", handleBlur);
     };
   }, []);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [interstitials, setInterstitials] = useState<Interstitial[]>([]);
   const [shows, setShows] = useState<Show[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadShows = async () => {
+    const settings = getSavedSettings();
+    if (settings.mode === "Drive") {
+      try {
+        const currentToken = getAccessToken() || token;
+        if (!currentToken) {
+          throw new Error("Not connected to Google Drive.");
+        }
+        const driveShows = await loadShowsFromDrive();
+        setShows(driveShows || []);
+      } catch (e) {
+        console.error("Failed to load shows from Drive:", e);
+      }
+      return;
+    }
+
     try {
       const res = await fetch("/api/shows");
       if (res.ok) {
@@ -308,6 +353,21 @@ export default function App() {
   };
 
   const saveShows = async (newShows: Show[]) => {
+    const settings = getSavedSettings();
+    if (settings.mode === "Drive") {
+      try {
+        const currentToken = getAccessToken() || token;
+        if (!currentToken) {
+          throw new Error("Not connected to Google Drive. Saving is disabled.");
+        }
+        await saveShowsToDrive(newShows);
+        setShows(newShows);
+      } catch (error) {
+        console.error("Failed to save shows to Drive:", error);
+      }
+      return;
+    }
+
     try {
       await fetch("/api/shows", {
         method: "POST",
@@ -339,6 +399,10 @@ export default function App() {
   const [prerecordMinutesInput, setPrerecordMinutesInput] = useState("0");
   const [prerecordLengthMinutes, setPrerecordLengthMinutes] = useState(120);
   const [prerecordError, setPrerecordError] = useState<string | null>(null);
+  const [prerecordSelectorMode, setPrerecordSelectorMode] = useState<"show-list" | "manual">("show-list");
+  const [selectedPrerecordShowId, setSelectedPrerecordShowId] = useState<string>("");
+  const [showFilterText, setShowFilterText] = useState("");
+  const dateSelectRef = useRef<HTMLSelectElement>(null);
 
   const isPre = playMode === "Prerecord";
 
@@ -383,7 +447,7 @@ export default function App() {
   };
   const [localPathMP3s, setLocalPathMP3s] = useState("");
   const [localPathLogs, setLocalPathLogs] = useState("");
-  const [localPathSchedules, setLocalPathSchedules] = useState("");
+  const [localPathCalendar, setLocalPathCalendar] = useState("");
 
   const [driveFolderLogs, setDriveFolderLogs] = useState("");
   const [driveFolderMP3s, setDriveFolderMP3s] = useState("");
@@ -392,7 +456,7 @@ export default function App() {
   // Draft States for Folder Configuration Form inputs
   const [draftLocalPathMP3s, setDraftLocalPathMP3s] = useState("");
   const [draftLocalPathLogs, setDraftLocalPathLogs] = useState("");
-  const [draftLocalPathSchedules, setDraftLocalPathSchedules] = useState("");
+  const [draftLocalPathCalendar, setDraftLocalPathCalendar] = useState("");
 
   const [draftDriveFolderLogs, setDraftDriveFolderLogs] = useState("");
   const [draftDriveFolderMP3s, setDraftDriveFolderMP3s] = useState("");
@@ -443,8 +507,8 @@ export default function App() {
   const [driveFolderDescMap, setDriveFolderDescMap] = useState<
     Record<string, string>
   >({
-    "1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED": "scheduledata",
-    "11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch": "mp3library",
+    "1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED": "calendar",
+    "11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch": "medialibrary",
     "1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx": "logs",
   });
   const [editingDriveField, setEditingDriveField] = useState<
@@ -531,6 +595,18 @@ export default function App() {
     draftDriveFolderLogs,
   ]);
 
+  // Application Theme State
+  const [currentTheme, setCurrentTheme] = useState<ThemeId>(() => getInitialTheme());
+
+  useEffect(() => {
+    applyTheme(currentTheme);
+  }, [currentTheme]);
+
+  const handleThemeChange = (newTheme: ThemeId) => {
+    setCurrentTheme(newTheme);
+    applyTheme(newTheme);
+  };
+
   // Fancy Browser folder modal states
   const [showFancyBrowser, setShowFancyBrowser] = useState(false);
   const [windowSize, setWindowSize] = useState({
@@ -557,7 +633,7 @@ export default function App() {
     null,
   );
   const [fancyBrowserTargetField, setFancyBrowserTargetField] = useState<
-    "schedules" | "mp3s" | "logs" | null
+    "interstitials" | "mp3s" | "logs" | null
   >(null);
 
   // Saving state for Folders Modal to prevent button flickering
@@ -566,7 +642,7 @@ export default function App() {
   const checkLocalPathsSafely = async (
     mp3s: string,
     logs: string,
-    schedules: string,
+    calendar: string,
   ): Promise<boolean> => {
     try {
       const res = await fetch("/api/check-local-paths", {
@@ -575,7 +651,7 @@ export default function App() {
         body: JSON.stringify({
           localPathMP3s: mp3s,
           localPathLogs: logs,
-          localPathSchedules: schedules,
+          localPathCalendar: calendar,
         }),
       });
       const data = await res.json();
@@ -590,7 +666,7 @@ export default function App() {
     if (showLocationsModal) {
       setDraftLocalPathMP3s(localPathMP3s || "");
       setDraftLocalPathLogs(localPathLogs || "");
-      setDraftLocalPathSchedules(localPathSchedules || "");
+      setDraftLocalPathCalendar(localPathCalendar || "");
       setDraftDriveFolderLogs(driveFolderLogs || "");
       setDraftDriveFolderMP3s(driveFolderMP3s || "");
       setDraftDriveFolderPreferences(driveFolderPreferences || "");
@@ -599,7 +675,7 @@ export default function App() {
     showLocationsModal,
     localPathMP3s,
     localPathLogs,
-    localPathSchedules,
+    localPathCalendar,
     driveFolderLogs,
     driveFolderMP3s,
     driveFolderPreferences,
@@ -632,7 +708,7 @@ export default function App() {
     setLocationMode(settings.mode);
     setLocalPathMP3s(settings.localPathMP3s || "");
     setLocalPathLogs(settings.localPathLogs || "");
-    setLocalPathSchedules(settings.localPathSchedules || "");
+    setLocalPathCalendar(settings.localPathCalendar || "");
     setDriveFolderLogs(settings.driveFolderLogs || "");
     setDriveFolderMP3s(settings.driveFolderMP3s || "");
     setDriveFolderPreferences(settings.driveFolderPreferences || "");
@@ -648,7 +724,7 @@ export default function App() {
       checkLocalPathsSafely(
         settings.localPathMP3s || "",
         settings.localPathLogs || "",
-        settings.localPathSchedules || "",
+        settings.localPathCalendar || "",
       )
         .then((exists) => {
           setIsDriveActive(true);
@@ -746,9 +822,9 @@ export default function App() {
     try {
       if (settings.mode === "Local") {
         try {
-          const [localSchedules, localLogs, localMP3s] = await Promise.all([
-            fetch("/api/schedules").then((r) => {
-              if (!r.ok) throw new Error("Local schedules failed");
+          const [localInterstitials, localLogs, localMP3s] = await Promise.all([
+            fetch("/api/interstitials").then((r) => {
+              if (!r.ok) throw new Error("Local interstitials failed");
               return r.json();
             }),
             fetch("/api/logs").then((r) => {
@@ -760,7 +836,7 @@ export default function App() {
               return r.json();
             }),
           ]);
-          setSchedules(localSchedules || []);
+          setInterstitials(localInterstitials || []);
           setLogs(localLogs || []);
 
           availableFilesCache.clear();
@@ -824,7 +900,7 @@ export default function App() {
         const hasLogsFolder = !!DRIVE_FOLDERS.logs;
         const hasMP3Folder = !!DRIVE_FOLDERS.mp3s;
 
-        let driveSchedules: Schedule[] | null = null;
+        let driveInterstitials: Interstitial[] | null = null;
         let driveLogsStr: LogEntry[] | null = null;
         let mp3Files: any[] | null = null;
 
@@ -832,9 +908,9 @@ export default function App() {
 
         if (hasPreferencesFolder) {
           try {
-            driveSchedules = await loadSchedulesFromDrive();
+            driveInterstitials = await loadCalendarFromDrive();
           } catch (e) {
-            console.warn("Schedules Folder not set or inaccessible.", e);
+            console.warn("Interstitials Folder not set or inaccessible.", e);
             hasFetchError = true;
           }
         }
@@ -863,8 +939,8 @@ export default function App() {
           setConnectionError(null);
         }
 
-        if (driveSchedules !== null) {
-          setSchedules(driveSchedules || []);
+        if (driveInterstitials !== null) {
+          setInterstitials(driveInterstitials || []);
         }
         if (driveLogsStr !== null) {
           setLogs(driveLogsStr || []);
@@ -1063,8 +1139,8 @@ export default function App() {
   // Background Cache Synchronization Logic (Pre-loading Audio into memory)
   useEffect(() => {
     const syncCache = async () => {
-      // Find all MP3 files used in active schedules
-      const activeUrls = schedules
+      // Find all MP3 files used in active interstitials
+      const activeUrls = interstitials
         .filter((s) => s.enabled && s.mp3Url)
         .map((s) => s.mp3Url);
 
@@ -1077,10 +1153,10 @@ export default function App() {
       }
     };
 
-    if (schedules.length > 0) {
+    if (interstitials.length > 0) {
       syncCache();
     }
-  }, [schedules, token]);
+  }, [interstitials, token]);
 
   const formatCountdown = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -1088,18 +1164,18 @@ export default function App() {
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
-  const saveSchedules = async (newSchedules: Schedule[]) => {
+  const saveInterstitials = async (newInterstitials: Interstitial[]) => {
     const settings = getSavedSettings();
     if (settings.mode === "Local") {
       try {
-        await fetch("/api/schedules", {
+        await fetch("/api/interstitials", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(newSchedules),
+          body: JSON.stringify(newInterstitials),
         });
-        setSchedules(newSchedules);
+        setInterstitials(newInterstitials);
       } catch (error) {
-        console.error("Failed to save schedules locally:", error);
+        console.error("Failed to save interstitials locally:", error);
       }
       return;
     }
@@ -1109,10 +1185,10 @@ export default function App() {
       if (!currentToken) {
         throw new Error("Not connected to Google Drive. Saving is disabled.");
       }
-      await saveSchedulesToDrive(newSchedules);
-      setSchedules(newSchedules);
+      await saveCalendarToDrive(newInterstitials);
+      setInterstitials(newInterstitials);
     } catch (error) {
-      console.error("Failed to save schedules:", error);
+      console.error("Failed to save interstitials:", error);
     }
   };
 
@@ -1122,7 +1198,7 @@ export default function App() {
       ...entry,
       playMode: entry.playMode === "Export" ? "Export" : playMode,
       logTimeStamp: entry.logTimeStamp || new Date().toISOString(),
-      timestamp: entry.scheduledTime || entry.timestamp || new Date().toISOString(),
+      timestamp: entry.interstitialTime || entry.timestamp || new Date().toISOString(),
       assetType: entry.assetType || "audio",
     };
 
@@ -1173,14 +1249,54 @@ export default function App() {
     }
   }, []);
 
+  const handleSelectPrerecordShow = (showId: string) => {
+    const show = shows.find((s) => s.id === showId);
+    setSelectedPrerecordShowId(showId);
+    if (show) {
+      const dates = getFutureDatesForShow(show.day);
+      if (dates.length > 0) {
+        setPrerecordDateInput(format(dates[0], "yyyy-MM-dd"));
+      } else {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        setPrerecordDateInput(format(tomorrow, "yyyy-MM-dd"));
+      }
+      setPrerecordTimeInput(
+        `${show.startHour.toString().padStart(2, "0")}:${show.startMinute.toString().padStart(2, "0")}`
+      );
+      setPrerecordHoursInput(show.durationHours.toString());
+      setPrerecordMinutesInput(show.durationMinutes.toString());
+    }
+    setTimeout(() => {
+      if (dateSelectRef.current) {
+        dateSelectRef.current.focus();
+        if ('showPicker' in HTMLSelectElement.prototype) {
+          try {
+            (dateSelectRef.current as any).showPicker();
+          } catch (e) {
+            // ignore if browser blocks auto-picker
+          }
+        }
+      }
+    }, 50);
+  };
+
   const handleToggleMode = () => {
     if (playMode === "Live") {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      setPrerecordDateInput(format(tomorrow, "yyyy-MM-dd"));
-      setPrerecordTimeInput("12:00");
-      setPrerecordHoursInput("2");
-      setPrerecordMinutesInput("0");
+      const activeShows = shows.filter((s) => s.active);
+      setSelectedPrerecordShowId("");
+      setShowFilterText("");
+      if (activeShows.length > 0) {
+        setPrerecordSelectorMode("show-list");
+      } else {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        setPrerecordDateInput(format(tomorrow, "yyyy-MM-dd"));
+        setPrerecordTimeInput("12:00");
+        setPrerecordHoursInput("2");
+        setPrerecordMinutesInput("0");
+        setPrerecordSelectorMode("manual");
+      }
       setPrerecordError(null);
       setShowPrerecordConfirmStep(false);
       setPrerecordConfirmDetails(null);
@@ -1195,28 +1311,11 @@ export default function App() {
 
   const handleOpenTimeframeModal = (target: "Prerecord" | "Export") => {
     setPrerecordModalTarget(target);
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    setPrerecordDateInput(format(tomorrow, "yyyy-MM-dd"));
-    setPrerecordTimeInput("12:00");
-    setPrerecordHoursInput("2");
-    setPrerecordMinutesInput("0");
-    setPrerecordError(null);
-    setShowPrerecordConfirmStep(false);
-    setPrerecordConfirmDetails(null);
-    setShowPrerecordModal(true);
-  };
-
-  const handleEditTimeframeModal = () => {
-    const target = playMode === "Export" ? "Export" : "Prerecord";
-    setPrerecordModalTarget(target);
-    if (prerecordDate) {
-      setPrerecordDateInput(format(prerecordDate, "yyyy-MM-dd"));
-      setPrerecordTimeInput(format(prerecordDate, "HH:mm"));
-      const hours = Math.floor(prerecordLengthMinutes / 60);
-      const mins = prerecordLengthMinutes % 60;
-      setPrerecordHoursInput(hours.toString());
-      setPrerecordMinutesInput(mins.toString());
+    const activeShows = shows.filter((s) => s.active);
+    setSelectedPrerecordShowId("");
+    setShowFilterText("");
+    if (activeShows.length > 0) {
+      setPrerecordSelectorMode("show-list");
     } else {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -1224,11 +1323,16 @@ export default function App() {
       setPrerecordTimeInput("12:00");
       setPrerecordHoursInput("2");
       setPrerecordMinutesInput("0");
+      setPrerecordSelectorMode("manual");
     }
     setPrerecordError(null);
     setShowPrerecordConfirmStep(false);
     setPrerecordConfirmDetails(null);
     setShowPrerecordModal(true);
+  };
+
+  const handleEditTimeframeModal = () => {
+    handleOpenTimeframeModal(playMode === "Export" ? "Export" : "Prerecord");
   };
 
   const getPrerecord12HrDisplay = (timeStr: string) => {
@@ -1313,11 +1417,13 @@ export default function App() {
       }
 
       const totalMinutes = hours * 60 + mins;
-      setPrerecordConfirmDetails({
-        startDate: parsedDate,
-        totalMinutes,
-      });
-      setShowPrerecordConfirmStep(true);
+      setPrerecordLengthMinutes(totalMinutes);
+      setPrerecordDate(parsedDate);
+      setPlayMode(prerecordModalTarget);
+      setShowPrerecordConfirmStep(false);
+      setShowPrerecordModal(false);
+      setPrerecordConfirmDetails(null);
+      handleRefresh();
     } catch (err: any) {
       setPrerecordError(
         err.message || "Error occurred while validating date and time.",
@@ -1371,7 +1477,7 @@ export default function App() {
     const textFilename = `${tPrefix} - Plan - ${dateStr} at ${timeStr} - ${durationStr}.txt`;
     const playlistFilename = `${pPrefix} - Playlist - ${dateStr} at ${timeStr} - ${durationStr}.m3u`;
 
-    const activeSpecials = schedules.filter(s => s.enabled);
+    const activeSpecials = interstitials.filter(s => s.enabled);
     const firstScheduleName = activeSpecials.length > 0 ? activeSpecials[0].name : "Hourly Interstitial";
     const safeScheduleName = firstScheduleName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
     const safeSlotTime = "12-00";
@@ -1444,7 +1550,7 @@ export default function App() {
         current = new Date(current.getTime() + 60 * 1000);
       }
 
-      // 2. Filter & map slot matching schedules
+      // 2. Filter & map slot matching interstitials
       const itemsToExport: any[] = [];
       slots.forEach((slot) => {
         const day = slot.getDay();
@@ -1452,15 +1558,15 @@ export default function App() {
         const minute = slot.getMinutes();
         const dateStr = format(slot, "yyyy-MM-dd");
 
-        const activeSchedules = schedules.filter((s) => {
+        const activeInterstitials = interstitials.filter((s) => {
           if (!s.enabled) return false;
-          if (s.type === ScheduleType.ONE_TIME) {
+          if (s.type === InterstitialType.ONE_TIME) {
             const hourStr = format(slot, "HH");
             return (
               s.date === dateStr && s.minute === minute && s.time === hourStr
             );
           }
-          if (s.type === ScheduleType.BASIC_HOURLY) {
+          if (s.type === InterstitialType.BASIC_HOURLY) {
             const afterStart = s.startDate
               ? !isBefore(slot, parseISO(s.startDate))
               : true;
@@ -1469,7 +1575,7 @@ export default function App() {
               : true;
             return s.minute === minute && afterStart && beforeEnd;
           }
-          if (s.type === ScheduleType.ADVANCED) {
+          if (s.type === InterstitialType.ADVANCED) {
             const afterStart = s.startDate
               ? !isBefore(slot, parseISO(s.startDate))
               : true;
@@ -1491,12 +1597,12 @@ export default function App() {
           return false;
         });
 
-        activeSchedules.forEach((s) => {
+        activeInterstitials.forEach((s) => {
           itemsToExport.push({
             slotTime: format(slot, "HH:mm"),
             fileName: s.mp3Url,
-            scheduleName: s.name,
-            scheduleId: s.id,
+            interstitialName: s.name,
+            interstitialId: s.id,
             minute: s.minute,
           });
         });
@@ -1571,13 +1677,13 @@ export default function App() {
   };
 
   const handleBrowseNative = async (
-    targetField: "schedules" | "mp3s" | "logs",
+    targetField: "calendar" | "mp3s" | "logs",
   ) => {
     try {
       const res = await fetch("/api/browse-folder", { method: "POST" });
       const data = await res.json();
       if (data.success && data.path) {
-        if (targetField === "schedules") setDraftLocalPathSchedules(data.path);
+        if (targetField === "calendar") setDraftLocalPathCalendar(data.path);
         else if (targetField === "mp3s") setDraftLocalPathMP3s(data.path);
         else if (targetField === "logs") setDraftLocalPathLogs(data.path);
       } else if (data.error) {
@@ -1797,7 +1903,7 @@ export default function App() {
       setIsDriveActive(false);
       setIsDriveValidated(false);
       setDriveValidationError(null);
-      setSchedules([]);
+      setInterstitials([]);
       setLogs([]);
       setDriveMP3s([]);
     } catch (e) {
@@ -1821,7 +1927,7 @@ export default function App() {
           ...updatedSettings,
           localPathMP3s: draftLocalPathMP3s,
           localPathLogs: draftLocalPathLogs,
-          localPathSchedules: draftLocalPathSchedules,
+          localPathCalendar: draftLocalPathCalendar,
         };
       } else if (locationMode === "Drive") {
         updatedSettings = {
@@ -1834,9 +1940,9 @@ export default function App() {
 
       // Detect mode or log/schedule folder mapping changes to reset backup flag
       const modeChanged = current.mode !== updatedSettings.mode;
-      const schedulesChanged =
+      const interstitialsChanged =
         updatedSettings.mode === "Local"
-          ? current.localPathSchedules !== updatedSettings.localPathSchedules
+          ? current.localPathCalendar !== updatedSettings.localPathCalendar
           : updatedSettings.mode === "Drive"
             ? current.driveFolderPreferences !==
               updatedSettings.driveFolderPreferences
@@ -1848,7 +1954,7 @@ export default function App() {
             ? current.driveFolderLogs !== updatedSettings.driveFolderLogs
             : false;
 
-      if (modeChanged || schedulesChanged || logsChanged) {
+      if (modeChanged || interstitialsChanged || logsChanged) {
         console.log(
           "Resetting backup flag due to updated folder mode or mapping",
         );
@@ -1862,7 +1968,7 @@ export default function App() {
       if (locationMode === "Local") {
         setLocalPathMP3s(draftLocalPathMP3s);
         setLocalPathLogs(draftLocalPathLogs);
-        setLocalPathSchedules(draftLocalPathSchedules);
+        setLocalPathCalendar(draftLocalPathCalendar);
       } else if (locationMode === "Drive") {
         setDriveFolderLogs(draftDriveFolderLogs);
         setDriveFolderMP3s(draftDriveFolderMP3s);
@@ -1881,7 +1987,7 @@ export default function App() {
         const exists = await checkLocalPathsSafely(
           draftLocalPathMP3s,
           draftLocalPathLogs,
-          draftLocalPathSchedules,
+          draftLocalPathCalendar,
         );
 
         setLocalPathsUnavailable(!exists);
@@ -1977,7 +2083,7 @@ export default function App() {
         const exists = await checkLocalPathsSafely(
           updatedSettings.localPathMP3s || "",
           updatedSettings.localPathLogs || "",
-          updatedSettings.localPathSchedules || "",
+          updatedSettings.localPathCalendar || "",
         );
 
         setIsDriveActive(true);
@@ -2015,7 +2121,7 @@ export default function App() {
             isPre ? "text-purple-600" : "text-blue-500",
           )}
         />
-        <p className="text-[14px] font-bold text-slate-500 tracking-wider animate-pulse select-none">
+        <p className="text-xs font-bold text-slate-500 tracking-wider animate-pulse select-none">
           Connecting to Google Drive (Check for pop-up window)
         </p>
       </div>
@@ -2075,16 +2181,16 @@ export default function App() {
               )}
             >
               <Play className="w-3.5 h-3.5" />
-              <span className="text-[12px] font-bold uppercase tracking-tighter hide-player-name">
+              <span className="text-xs font-bold uppercase tracking-tighter hide-player-name">
                 Player
               </span>
             </button>
             {!isPlayerMode && (
               <button
-                onClick={() => setActiveTab("scheduler")}
+                onClick={() => setActiveTab("calendar")}
                 className={cn(
                   "flex items-center gap-1.5 px-2 py-1 rounded transition-colors cursor-pointer",
-                  activeTab === "scheduler"
+                  activeTab === "calendar"
                     ? isPre
                       ? "bg-purple-600 text-white"
                       : "bg-blue-600 text-white"
@@ -2092,8 +2198,8 @@ export default function App() {
                 )}
               >
                 <Calendar className="w-3.5 h-3.5" />
-                <span className="text-[12px] font-bold uppercase tracking-tighter hide-scheduler-name">
-                  Scheduler
+                <span className="text-xs font-bold uppercase tracking-tighter hide-calendar-name">
+                  Calendar
                 </span>
               </button>
             )}
@@ -2109,7 +2215,7 @@ export default function App() {
               )}
             >
               <History className="w-3.5 h-3.5" />
-              <span className="text-[12px] font-bold uppercase tracking-tighter hide-log-name">
+              <span className="text-xs font-bold uppercase tracking-tighter hide-log-name">
                 Log
               </span>
             </button>
@@ -2124,7 +2230,7 @@ export default function App() {
           <div className="max-w-[400px] mx-auto flex items-center justify-between gap-4">
             {playMode === "Export" ? (
               <div className="flex flex-col py-0.5">
-                <p className="text-[12px] uppercase text-emerald-600 font-black tracking-widest leading-none flex items-center gap-1.5">
+                <p className="text-xs uppercase text-emerald-600 font-black tracking-widest leading-none flex items-center gap-1.5">
                   <ListOrdered className="w-3.5 h-3.5" />
                   Playlist Export
                 </p>
@@ -2139,7 +2245,7 @@ export default function App() {
               </div>
             ) : isPre ? (
               <div className="flex flex-col py-0.5">
-                <p className="text-[12px] uppercase text-purple-600 font-black tracking-widest leading-none flex items-center gap-1.5">
+                <p className="text-xs uppercase text-purple-600 font-black tracking-widest leading-none flex items-center gap-1.5">
                   <CassetteTape className="w-3.5 h-3.5" />
                   Prerecord time and date
                 </p>
@@ -2154,15 +2260,15 @@ export default function App() {
               </div>
             ) : (
               <div className="flex flex-col py-0.5">
-                <p className="text-[12px] uppercase text-blue-600 font-black tracking-widest leading-none flex items-center gap-1.5 mb-1">
+                <p className="text-xs uppercase text-blue-600 font-black tracking-widest leading-none flex items-center gap-1.5 mb-1">
                   <RadioTower className="w-3.5 h-3.5 animate-pulse" />
                   Live Broadcast
                 </p>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <p className="text-[11px] uppercase text-slate-400 font-black tracking-tighter leading-none">
+                  <p className="text-xs uppercase text-slate-400 font-black tracking-tighter leading-none">
                     Time
                   </p>
-                  <p className="text-[12px] font-mono font-black text-slate-900 tabular-nums leading-none">
+                  <p className="text-xs font-mono font-black text-slate-900 tabular-nums leading-none">
                     {format(now, "HH:mm:ss")}
                   </p>
                 </div>
@@ -2173,7 +2279,7 @@ export default function App() {
 
               {playMode === "Live" && (
                 <>
-                  <p className="text-[12px] uppercase text-blue-600 font-black tracking-tight leading-none whitespace-nowrap">
+                  <p className="text-xs uppercase text-blue-600 font-black tracking-tight leading-none whitespace-nowrap">
                     Refresh: {formatCountdown(countdown)}
                   </p>
                   <button
@@ -2182,7 +2288,7 @@ export default function App() {
                     title="Reload Status"
                   >
                     <RefreshCw className="w-3 h-3 font-bold transition-transform duration-500 group-hover:rotate-180" />
-                    <span className="text-[12px] font-black uppercase tracking-tighter">
+                    <span className="text-xs font-black uppercase tracking-tighter">
                       Now
                     </span>
                   </button>
@@ -2196,7 +2302,7 @@ export default function App() {
                   title="Edit Air Date and timeframe settings"
                 >
                   <NotebookPen className="w-3 h-3 font-bold shrink-0 text-slate-500" />
-                  <span className="text-[12px] font-black uppercase tracking-tighter">
+                  <span className="text-xs font-black uppercase tracking-tighter">
                     Edit
                   </span>
                 </button>
@@ -2224,24 +2330,24 @@ export default function App() {
             )}
           >
             <div className="bg-red-950/40 border border-red-500/30 text-red-950 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
-              <div className="flex items-center gap-1.5 text-[12px] font-black uppercase tracking-wider text-red-950">
+              <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-red-950">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 Connection Warning
               </div>
-              <p className="text-[12px] font-bold leading-relaxed text-slate-950">
+              <p className="text-xs font-bold leading-relaxed text-slate-950">
                 Can't access folders. Please retry.
               </p>
               <div className="mt-1 flex gap-2">
                 <button
                   onClick={() => setShowLocationsModal(true)}
-                  className="flex items-center gap-1.5 py-1 px-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-[12px] uppercase tracking-wider rounded border border-red-500 transition cursor-pointer active:translate-y-px"
+                  className="flex items-center gap-1.5 py-1 px-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs uppercase tracking-wider rounded border border-red-500 transition cursor-pointer active:translate-y-px"
                 >
                   <Folder className="w-3 h-3 shrink-0" />
                   <span>Configure folders</span>
                 </button>
                 <button
                   onClick={handleRefresh}
-                  className="flex items-center gap-1.5 py-1 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-100 font-black text-[12px] uppercase tracking-wider rounded border border-slate-700 transition cursor-pointer active:translate-y-px shadow-sm"
+                  className="flex items-center gap-1.5 py-1 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-100 font-black text-xs uppercase tracking-wider rounded border border-slate-700 transition cursor-pointer active:translate-y-px shadow-sm"
                 >
                   <RefreshCw className="w-3 h-3 shrink-0 text-slate-100" />
                   <span>Retry Sync</span>
@@ -2255,13 +2361,13 @@ export default function App() {
         {(() => {
           if (connectionError) return null;
 
-          const isMissingSchedules = schedules.length === 0;
+          const isMissingInterstitials = interstitials.length === 0;
           const isMissingMP3s = driveMP3s.length === 0;
           const isMissingLogs = logs.length === 0;
 
-          if (isMissingSchedules || isMissingMP3s || isMissingLogs) {
+          if (isMissingInterstitials || isMissingMP3s || isMissingLogs) {
             const missingItems: string[] = [];
-            if (isMissingSchedules) missingItems.push("Schedules.json");
+            if (isMissingInterstitials) missingItems.push("Interstitials.json");
             if (isMissingMP3s) missingItems.push("mp3's");
             if (isMissingLogs) missingItems.push("Logs.json");
 
@@ -2269,11 +2375,11 @@ export default function App() {
             if (missingItems.length === 1) {
               missingText = `Can't find ${missingItems[0]}.`;
             } else if (missingItems.length === 2) {
-              const item1 = missingItems[0] === "Schedules.json" ? "schedules.json" : missingItems[0];
-              const item2 = missingItems[1] === "Schedules.json" ? "schedules.json" : missingItems[1];
+              const item1 = missingItems[0] === "Interstitials.json" ? "interstitials.json" : missingItems[0];
+              const item2 = missingItems[1] === "Interstitials.json" ? "interstitials.json" : missingItems[1];
               missingText = `Can't find ${item1} or ${item2}.`;
             } else {
-              missingText = "Can't find schedules.json, mp3's, or Logs.json.";
+              missingText = "Can't find interstitials.json, mp3's, or Logs.json.";
             }
 
             missingText += " (May not exist on first run.)";
@@ -2288,17 +2394,17 @@ export default function App() {
                 )}
               >
                 <div className="bg-amber-950/40 border border-amber-500/30 text-amber-950 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
-                  <div className="flex items-center gap-1.5 text-[12px] font-black uppercase tracking-wider text-amber-950">
+                  <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-amber-950">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0 text-[#D97706]" />
                     Resource Warning
                   </div>
-                  <p className="text-[12px] font-bold leading-relaxed text-slate-950">
+                  <p className="text-xs font-bold leading-relaxed text-slate-950">
                     {missingText}
                   </p>
                   <div className="mt-1">
                     <button
                       onClick={() => setShowLocationsModal(true)}
-                      className="flex items-center gap-1.5 py-1 px-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-[12px] uppercase tracking-wider rounded border border-amber-400 transition cursor-pointer active:translate-y-px"
+                      className="flex items-center gap-1.5 py-1 px-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs uppercase tracking-wider rounded border border-amber-400 transition cursor-pointer active:translate-y-px"
                     >
                       <Folder className="w-3 h-3 shrink-0" />
                       <span>Configure folders</span>
@@ -2329,7 +2435,7 @@ export default function App() {
                 className="h-full"
               >
                 <PlayerTab
-                  schedules={schedules}
+                  interstitials={interstitials}
                   logs={logs}
                   onLog={addLog}
                   now={now}
@@ -2347,17 +2453,17 @@ export default function App() {
                   shows={shows}
                 />
               </motion.div>
-            ) : activeTab === "scheduler" ? (
+            ) : activeTab === "calendar" ? (
               <motion.div
-                key="scheduler"
+                key="calendar"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 className="h-full flex flex-col min-h-0 flex-1"
               >
-                <SchedulerTab
-                  schedules={schedules}
-                  onSave={saveSchedules}
+                <CalendarTab
+                  interstitials={interstitials}
+                  onSave={saveInterstitials}
                   shows={shows}
                   onSaveShows={saveShows}
                   isAdmin={isAdmin}
@@ -2396,15 +2502,107 @@ export default function App() {
           <div className="flex items-center shrink-0 gap-2">
             <button
               onClick={() => setShowLocationsModal(true)}
-              className="flex items-center gap-1.5 px-2 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 transition-all cursor-pointer shadow-sm text-[12px] font-black uppercase tracking-wider"
+              className="flex items-center gap-1.5 px-2 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 transition-all cursor-pointer shadow-sm text-xs font-black uppercase tracking-wider"
             >
               <Folder className="w-3.5 h-3.5 shrink-0" />
               <span className="hide-folders-text">Folders</span>
             </button>
 
+            {/* Light/Dark/System Theme Selector Pill Group next to standard Folders icon */}
+            <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => handleThemeChange("light")}
+                title="Light Mode"
+                aria-label="Light Mode"
+                className={cn(
+                  "px-2 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center justify-center relative",
+                  currentTheme === "light"
+                    ? "bg-slate-800 border-slate-700 text-white shadow-sm"
+                    : "bg-slate-950/40 border-slate-900/40 text-slate-500 hover:text-slate-300 hover:bg-slate-900/60"
+                )}
+              >
+                <Sun className="w-3.5 h-3.5 shrink-0" />
+                <span
+                  className={cn(
+                    "w-1.5 h-1.5 rounded-full transition-all duration-300 absolute -top-0.5 -right-0.5",
+                    currentTheme === "light"
+                      ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                      : "bg-slate-800 opacity-0"
+                  )}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleThemeChange("dark")}
+                title="Dark Mode"
+                aria-label="Dark Mode"
+                className={cn(
+                  "px-2 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center justify-center relative",
+                  currentTheme === "dark"
+                    ? "bg-slate-800 border-slate-700 text-white shadow-sm"
+                    : "bg-slate-950/40 border-slate-900/40 text-slate-500 hover:text-slate-300 hover:bg-slate-900/60"
+                )}
+              >
+                <Moon className="w-3.5 h-3.5 shrink-0" />
+                <span
+                  className={cn(
+                    "w-1.5 h-1.5 rounded-full transition-all duration-300 absolute -top-0.5 -right-0.5",
+                    currentTheme === "dark"
+                      ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                      : "bg-slate-800 opacity-0"
+                  )}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleThemeChange("system")}
+                title="System Theme"
+                aria-label="System Theme"
+                className={cn(
+                  "px-2 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center justify-center relative",
+                  currentTheme === "system"
+                    ? "bg-slate-800 border-slate-700 text-white shadow-sm"
+                    : "bg-slate-950/40 border-slate-900/40 text-slate-500 hover:text-slate-300 hover:bg-slate-900/60"
+                )}
+              >
+                <Laptop className="w-3.5 h-3.5 shrink-0" />
+                <span
+                  className={cn(
+                    "w-1.5 h-1.5 rounded-full transition-all duration-300 absolute -top-0.5 -right-0.5",
+                    currentTheme === "system"
+                      ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                      : "bg-slate-800 opacity-0"
+                  )}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleThemeChange("dark-test")}
+                title="Dark Test Theme"
+                aria-label="Dark Test Theme"
+                className={cn(
+                  "px-2 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center justify-center relative",
+                  currentTheme === "dark-test"
+                    ? "bg-slate-800 border-slate-700 text-amber-400 shadow-sm"
+                    : "bg-slate-950/40 border-slate-900/40 text-slate-500 hover:text-slate-300 hover:bg-slate-900/60"
+                )}
+              >
+                <HelpCircle className="w-3.5 h-3.5 shrink-0" />
+                <span
+                  className={cn(
+                    "w-1.5 h-1.5 rounded-full transition-all duration-300 absolute -top-0.5 -right-0.5",
+                    currentTheme === "dark-test"
+                      ? "bg-amber-500 shadow-[0_0_8px_#F59E0B,0_0_3px_#F59E0B]"
+                      : "bg-slate-800 opacity-0"
+                  )}
+                />
+              </button>
+            </div>
+
             {/* DEMO Indicator displayed only in Demo storage Mode - aligned next to the Folders button */}
             {locationMode === "Demo" && (
-              <span className="text-[12px] font-black tracking-widest text-[#F59E0B] animate-pulse bg-amber-950/40 px-2.5 py-1 rounded border border-amber-500/20 leading-none">
+              <span className="text-xs font-black tracking-widest text-[#F59E0B] animate-pulse bg-amber-950/40 px-2.5 py-1 rounded border border-amber-500/20 leading-none">
                 DEMO
               </span>
             )}
@@ -2423,7 +2621,7 @@ export default function App() {
                     }
                   }}
                   className={cn(
-                    "px-2 px-2.5 py-1 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
+                    "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                     playMode === "Live"
                       ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]"
                       : "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
@@ -2446,7 +2644,7 @@ export default function App() {
                     }
                   }}
                   className={cn(
-                    "px-2 px-2.5 py-1 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
+                    "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                     playMode === "Prerecord"
                       ? "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
                       : "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
@@ -2469,7 +2667,7 @@ export default function App() {
                     }
                   }}
                   className={cn(
-                    "px-2 px-2.5 py-1 text-[12px] font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
+                    "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                     playMode === "Export"
                       ? "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
                       : "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
@@ -2498,60 +2696,61 @@ export default function App() {
             const isExportTarget = prerecordModalTarget === "Export";
             const colors = {
               accentText: isExportTarget
-                ? "text-emerald-400"
-                : "text-purple-400",
+                ? "text-emerald-700"
+                : "text-purple-700",
               focusRing: isExportTarget
                 ? "focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
                 : "focus:ring-1 focus:ring-purple-500 focus:border-purple-500",
               buttonBg: isExportTarget
-                ? "bg-emerald-600 hover:bg-emerald-505 shadow-emerald-950/20"
-                : "bg-purple-600 hover:bg-purple-505 shadow-purple-950/20",
+                ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                : "bg-purple-600 hover:bg-purple-700 text-white shadow-sm",
               border: isExportTarget
-                ? "border-emerald-500/40 shadow-emerald-950/10"
-                : "border-purple-500/40 shadow-purple-950/10",
+                ? "border-emerald-300"
+                : "border-purple-300",
             };
             const ModeIcon = isExportTarget ? ListOrdered : CassetteTape;
 
             return (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-2 bg-slate-900/40 backdrop-blur-xs">
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.95 }}
                   className={cn(
-                    "bg-slate-900 border rounded-xl shadow-2xl max-w-sm w-full overflow-hidden text-slate-100 flex flex-col font-sans",
+                    "bg-white border rounded-xl shadow-2xl w-[255px] max-w-[95vw] text-slate-800 flex flex-col font-sans min-h-0",
+                    prerecordSelectorMode === "show-list" && !showPrerecordConfirmStep ? "h-[80vh] max-h-[80vh]" : "max-h-[80vh]",
                     colors.border,
                   )}
                 >
                   {showPrerecordConfirmStep && prerecordConfirmDetails ? (
-                    <div className="flex flex-col">
+                    <div className="flex flex-col flex-1 min-h-0">
                       {/* Confirmation Header */}
-                      <div className="px-5 py-4 border-b border-slate-800 flex items-center bg-slate-950/40">
+                      <div className="px-3.5 py-2.5 border-b border-slate-200 flex items-center bg-slate-50 shrink-0">
                         <div className="flex items-center gap-2">
                           <span className={colors.accentText}>
-                            <ModeIcon className="w-5 h-5 shrink-0" />
+                            <ModeIcon className="w-4 h-4 shrink-0" />
                           </span>
-                          <h3 className="text-xs font-black uppercase tracking-widest text-white">
+                          <h3 className={cn("text-xs font-black uppercase tracking-wider", colors.accentText)}>
                             Verify Air Date
                           </h3>
                         </div>
                       </div>
 
                       {/* Confirmation Content */}
-                      <div className="p-5 space-y-4">
-                        <p className="text-[12px] leading-relaxed text-slate-300">
+                      <div className="p-3 space-y-3 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                        <p className="text-xs leading-relaxed text-slate-600 font-medium">
                           Is this ok?
                         </p>
 
-                        <div className="space-y-3.5">
+                        <div className="space-y-2.5">
                           {/* Air Date */}
-                          <div className="flex items-center">
-                            <label className="w-[110px] text-right text-[12px] font-black uppercase tracking-wider text-slate-400 pr-3 shrink-0 select-none">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-black uppercase tracking-wider text-slate-500 pr-2 shrink-0 select-none">
                               Air Date
                             </label>
                             <span
                               className={cn(
-                                "w-[150px] px-3 py-1 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 text-left select-none cursor-default",
+                                "w-[150px] px-2.5 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono font-bold text-slate-800 text-left select-none cursor-default",
                               )}
                             >
                               {formatVerifyAirDate(prerecordDateInput)}
@@ -2559,14 +2758,14 @@ export default function App() {
                           </div>
 
                           {/* Start Time */}
-                          <div className="flex items-center">
-                            <label className="w-[110px] text-right text-[12px] font-black uppercase tracking-wider text-slate-400 pr-3 shrink-0 select-none">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-black uppercase tracking-wider text-slate-500 pr-2 shrink-0 select-none">
                               Start Time
                             </label>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 w-[150px]">
                               <span
                                 className={cn(
-                                  "w-[55px] px-1.5 py-1 bg-transparent border border-transparent rounded text-xs font-mono font-bold text-left select-none cursor-default",
+                                  "px-1 py-0.5 bg-transparent rounded text-xs font-mono font-bold text-left select-none cursor-default",
                                   colors.accentText,
                                 )}
                               >
@@ -2579,14 +2778,14 @@ export default function App() {
                           </div>
 
                           {/* Start (12HR) */}
-                          <div className="flex items-center">
-                            <label className="w-[110px] text-right text-[12px] font-black uppercase text-slate-500/75 pr-3 shrink-0 select-none italic">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-black uppercase text-slate-500 pr-2 shrink-0 select-none italic">
                               Start (12HR)
                             </label>
-                            <div className="flex items-center gap-1.5 border border-transparent px-1.5 py-0.5 h-6 shrink-0">
+                            <div className="flex items-center gap-1.5 border border-transparent px-1 py-0.5 h-6 shrink-0 w-[150px]">
                               <span
                                 className={cn(
-                                  "text-xs font-black font-mono italic opacity-75",
+                                  "text-xs font-black font-mono italic opacity-90",
                                   colors.accentText,
                                 )}
                               >
@@ -2596,15 +2795,15 @@ export default function App() {
                           </div>
 
                           {/* Length */}
-                          <div className="flex items-center">
-                            <label className="w-[110px] text-right text-[12px] font-black uppercase tracking-wider text-slate-400 pr-3 shrink-0 select-none">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-black uppercase tracking-wider text-slate-500 pr-2 shrink-0 select-none">
                               Length
                             </label>
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2 w-[150px]">
                               <div className="flex items-center gap-1">
                                 <span
                                   className={cn(
-                                    "w-[55px] px-1.5 py-1 bg-transparent border border-transparent rounded text-xs font-mono font-bold text-left select-none cursor-default",
+                                    "px-1 py-0.5 bg-transparent rounded text-xs font-mono font-bold text-left select-none cursor-default",
                                     colors.accentText,
                                   )}
                                 >
@@ -2617,7 +2816,7 @@ export default function App() {
                               <div className="flex items-center gap-1">
                                 <span
                                   className={cn(
-                                    "w-[55px] px-1.5 py-1 bg-transparent border border-transparent rounded text-xs font-mono font-bold text-left select-none cursor-default",
+                                    "px-1 py-0.5 bg-transparent rounded text-xs font-mono font-bold text-left select-none cursor-default",
                                     colors.accentText,
                                   )}
                                 >
@@ -2633,17 +2832,17 @@ export default function App() {
                       </div>
 
                       {/* Confirmation Actions */}
-                      <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/20 flex gap-2 justify-end">
+                      <div className="px-3 py-2.5 border-t border-slate-200 bg-slate-50 flex gap-2 justify-end rounded-b-xl">
                         <button
                           type="button"
                           onClick={() => {
                             setShowPrerecordConfirmStep(false);
                             setPrerecordConfirmDetails(null);
                           }}
-                          className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase tracking-wider rounded border border-slate-700 transition cursor-pointer active:translate-y-px flex items-center gap-1.5"
+                          className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold uppercase tracking-wider rounded border border-slate-300 transition cursor-pointer active:translate-y-px flex items-center gap-1.5"
                         >
-                          <NotebookPen className="w-3 h-3 font-bold shrink-0 text-slate-400" />
-                          <span className="text-[12px] font-black uppercase tracking-tighter">
+                          <NotebookPen className="w-3 h-3 font-bold shrink-0 text-slate-500" />
+                          <span className="text-xs font-black uppercase tracking-tighter">
                             Edit
                           </span>
                         </button>
@@ -2651,7 +2850,7 @@ export default function App() {
                           type="button"
                           onClick={handleFinalConfirmPrerecord}
                           className={cn(
-                            "px-4 py-1.5 text-white text-[12px] font-black uppercase tracking-wider rounded shadow-md transition cursor-pointer active:translate-y-px flex items-center gap-1.5",
+                            "px-3.5 py-1.5 text-white text-xs font-black uppercase tracking-wider rounded shadow-md transition cursor-pointer active:translate-y-px flex items-center gap-1.5",
                             colors.buttonBg,
                           )}
                         >
@@ -2663,140 +2862,314 @@ export default function App() {
                   ) : (
                     <form
                       onSubmit={handleActivatePrerecord}
-                      className="flex flex-col"
+                      className="flex flex-col flex-1 min-h-0"
                     >
                       {/* Modal Header */}
-                      <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-                        <div className="flex items-center gap-2">
+                      <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between bg-slate-50 shrink-0">
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
                           <span className={colors.accentText}>
-                            <Clock className="w-5 h-5 shrink-0" />
+                            <ModeIcon className="w-4 h-4 shrink-0" />
                           </span>
-                          <h3 className="text-xs font-black uppercase tracking-widest text-white">
-                            Set Air Date
+                          <h3 className={cn("text-xs font-black uppercase tracking-wider truncate", colors.accentText)}>
+                            {prerecordSelectorMode === "show-list"
+                              ? (isExportTarget ? "Choose Show to export" : "Choose Show to prerecord")
+                              : "Set Air Date"}
                           </h3>
                         </div>
                       </div>
 
                       {/* Modal Content */}
-                      <div className="p-5 space-y-4">
-                        <p className="text-[12px] leading-relaxed text-slate-300">
-                          When will the show air?
-                        </p>
+                      <div className="p-2.5 space-y-2.5 flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar">
+                        {prerecordSelectorMode === "manual" && (
+                          <p className="text-xs leading-relaxed text-slate-600 font-medium shrink-0">
+                            When will the show air?
+                          </p>
+                        )}
 
-                        <div className="space-y-3.5">
-                          {/* Date picker */}
-                          <div className="flex items-center">
-                            <label className="w-[110px] text-right text-[12px] font-black uppercase tracking-wider text-slate-400 pr-3 shrink-0 select-none">
-                              Air Date
-                            </label>
-                            <input
-                              type="date"
-                              required
-                              style={{ colorScheme: "dark" }}
-                              value={prerecordDateInput}
-                              onChange={(e) =>
-                                setPrerecordDateInput(e.target.value)
-                              }
-                              className={cn(
-                                "w-[150px] px-3 py-1 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none transition-all cursor-pointer",
-                                colors.focusRing,
-                              )}
-                            />
-                          </div>
-
-                          {/* Time picker (24h input mask) */}
-                          <div className="flex items-center">
-                            <label className="w-[110px] text-right text-[12px] font-black uppercase tracking-wider text-slate-400 pr-3 shrink-0 select-none">
-                              Start Time
-                            </label>
-                            <div className="flex items-center gap-1.5">
+                        {prerecordSelectorMode === "show-list" ? (
+                          <div className="space-y-2 flex-1 flex flex-col min-h-0">
+                            {/* Filter Box Stacked Vertically */}
+                            <div className="relative w-full shrink-0">
                               <input
                                 type="text"
-                                required
-                                placeholder="HH:mm"
-                                maxLength={5}
-                                value={prerecordTimeInput}
-                                onChange={handleTimeInputChange}
+                                placeholder="Filter shows..."
+                                value={showFilterText}
+                                onChange={(e) => setShowFilterText(e.target.value)}
                                 className={cn(
-                                  "w-[55px] px-1.5 py-1 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none transition-all text-left cursor-pointer",
+                                  "w-full px-2 py-1 pr-6 bg-white border border-slate-300 rounded text-xs text-slate-800 placeholder-slate-400 outline-none font-sans shadow-xs",
                                   colors.focusRing,
                                 )}
                               />
-                              <span className="text-[10px] font-bold text-slate-500 select-none uppercase font-sans">
-                                HH:MM (24 hr)
-                              </span>
+                              {showFilterText && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowFilterText("")}
+                                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs px-0.5"
+                                >
+                                  ✕
+                                </button>
+                              )}
                             </div>
-                          </div>
 
-                          {/* Start (12HR) */}
-                          <div className="flex items-center">
-                            <label className="w-[110px] text-right text-[12px] font-black uppercase text-slate-500/75 pr-3 shrink-0 select-none italic">
-                              Start (12HR)
-                            </label>
-                            <div className="flex items-center gap-1.5 border border-transparent px-1.5 py-0.5 h-6 shrink-0">
-                              <span
-                                className={cn(
-                                  "text-xs font-black font-mono italic opacity-75",
-                                  colors.accentText,
-                                )}
+                            {/* Condensed Listbox of Shows - Dynamic vertical expansion with min height */}
+                            <div className="flex flex-col text-left flex-1 min-h-[68px]">
+                              <div className="h-full min-h-[68px] overflow-y-auto border border-slate-300 rounded-lg divide-y divide-slate-200/80 bg-white shadow-inner custom-scrollbar">
+                                {(() => {
+                                  const activeShows = getSortedShows(shows.filter((s) => s.active));
+                                  const filtered = activeShows.filter(
+                                    (s) =>
+                                      s.name.toLowerCase().includes(showFilterText.toLowerCase()) ||
+                                      s.day.toLowerCase().includes(showFilterText.toLowerCase()),
+                                  );
+
+                                  if (filtered.length === 0) {
+                                    return (
+                                      <div className="p-2.5 text-center text-xs text-slate-500 italic">
+                                        No matching active shows
+                                      </div>
+                                    );
+                                  }
+
+                                  return filtered.map((show) => {
+                                    const shade = getShowShade(show, getSortedShows(shows));
+                                    const isSelected = selectedPrerecordShowId === show.id;
+                                    return (
+                                      <div
+                                        key={show.id}
+                                        onClick={() => handleSelectPrerecordShow(show.id)}
+                                        style={{
+                                          backgroundColor: shade.bg,
+                                          borderLeft: `3px solid ${shade.border}`,
+                                        }}
+                                        className={cn(
+                                          "flex flex-col gap-0.5 px-2 py-1.5 cursor-pointer text-xs transition-all hover:brightness-95 select-none",
+                                          isSelected && cn("ring-2 ring-inset z-10 font-bold", isExportTarget ? "ring-emerald-600" : "ring-purple-600"),
+                                        )}
+                                      >
+                                        <div className="flex items-center justify-between gap-1 w-full min-w-0">
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <span className="px-1 py-0.2 bg-blue-100/90 text-blue-800 border border-blue-200 rounded text-[9px] font-black uppercase tracking-tight shrink-0">
+                                              {show.day}
+                                            </span>
+                                            <span className="text-[10px] font-mono font-bold text-slate-700 truncate">
+                                              {show.startHour.toString().padStart(2, "0")}:{show.startMinute.toString().padStart(2, "0")} ({show.durationHours}h{show.durationMinutes ? `${show.durationMinutes}m` : ""})
+                                            </span>
+                                          </div>
+                                          {isSelected && (
+                                            <Check className={cn("w-3.5 h-3.5 font-bold shrink-0 ml-auto", isExportTarget ? "text-emerald-700" : "text-purple-700")} />
+                                          )}
+                                        </div>
+                                        <div className="font-bold text-slate-900 truncate w-full text-[11px] leading-tight">
+                                          {show.name}
+                                        </div>
+                                      </div>
+                                    );
+                                  });
+                                })()}
+                              </div>
+                            </div>
+
+                            {/* Future Dates Dropdown - always rendered so layout space is static */}
+                            {selectedPrerecordShowId ? (
+                              (() => {
+                                const show = shows.find((s) => s.id === selectedPrerecordShowId);
+                                if (!show) return null;
+                                const occurrences = getFutureDatesForShow(show.day);
+                                return (
+                                  <div className="flex flex-col space-y-1 text-left pt-0.5 shrink-0">
+                                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 select-none">
+                                      Choose Air Date
+                                    </label>
+                                    <select
+                                      ref={dateSelectRef}
+                                      value={prerecordDateInput}
+                                      onChange={(e) => setPrerecordDateInput(e.target.value)}
+                                      className={cn(
+                                        "w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs font-mono font-bold text-slate-800 outline-none transition-all cursor-pointer shadow-xs",
+                                        colors.focusRing,
+                                      )}
+                                    >
+                                      {occurrences.map((date, index) => {
+                                        const dateStr = format(date, "yyyy-MM-dd");
+                                        const friendlyStr = format(date, "EEEE, MMM d, yyyy");
+                                        const isNextDate = index === 0;
+                                        return (
+                                          <option
+                                            key={dateStr}
+                                            value={dateStr}
+                                            className={cn(
+                                              isNextDate
+                                                ? "font-bold text-slate-900 bg-white"
+                                                : "font-normal text-slate-400 bg-slate-50",
+                                            )}
+                                          >
+                                            {friendlyStr}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  </div>
+                                );
+                              })()
+                            ) : (
+                              <div className="flex flex-col space-y-1 text-left pt-0.5 shrink-0">
+                                <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 select-none">
+                                  Choose Air Date
+                                </label>
+                                <select
+                                  disabled
+                                  className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-mono font-medium text-slate-400 outline-none cursor-not-allowed opacity-60"
+                                >
+                                  <option value="">Select a show above...</option>
+                                </select>
+                              </div>
+                            )}
+
+                            {/* Select Manually option */}
+                            <div className="flex justify-start pt-0.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setPrerecordSelectorMode("manual")}
+                                className="text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-0 outline-none"
                               >
-                                {getPrerecord12HrDisplay(prerecordTimeInput)}
-                              </span>
+                                <NotebookPen className="w-3 h-3 shrink-0 text-slate-500" />
+                                Set manually
+                              </button>
                             </div>
                           </div>
+                        ) : (
+                          <div className="space-y-2.5">
+                            {/* Date picker */}
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-black uppercase tracking-wider text-slate-600 pr-2 shrink-0 select-none">
+                                Air Date
+                              </label>
+                              <input
+                                type="date"
+                                required
+                                value={prerecordDateInput}
+                                onChange={(e) =>
+                                  setPrerecordDateInput(e.target.value)
+                                }
+                                className={cn(
+                                  "w-[140px] px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-800 outline-none transition-all cursor-pointer shadow-xs",
+                                  colors.focusRing,
+                                )}
+                              />
+                            </div>
 
-                          {/* Show Length pickers */}
-                          <div className="flex items-center">
-                            <label className="w-[110px] text-right text-[12px] font-black uppercase tracking-wider text-slate-400 pr-3 shrink-0 select-none">
-                              Length
-                            </label>
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center gap-1">
+                            {/* Time picker (24h input mask) */}
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-black uppercase tracking-wider text-slate-600 pr-2 shrink-0 select-none">
+                                Start Time
+                              </label>
+                              <div className="flex items-center gap-1.5 w-[140px]">
                                 <input
-                                  type="number"
+                                  type="text"
                                   required
-                                  min={0}
-                                  max={999}
-                                  value={prerecordHoursInput}
-                                  onChange={(e) =>
-                                    setPrerecordHoursInput(e.target.value)
-                                  }
+                                  placeholder="HH:mm"
+                                  maxLength={5}
+                                  value={prerecordTimeInput}
+                                  onChange={handleTimeInputChange}
                                   className={cn(
-                                    "w-[55px] px-1.5 py-1 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none transition-all",
+                                    "w-[50px] px-1 py-1 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-800 outline-none transition-all text-left cursor-pointer shadow-xs",
                                     colors.focusRing,
                                   )}
                                 />
-                                <span className="text-[10px] font-bold text-slate-500 select-none uppercase font-sans">
-                                  Hrs
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <input
-                                  type="number"
-                                  required
-                                  min={0}
-                                  max={59}
-                                  value={prerecordMinutesInput}
-                                  onChange={(e) =>
-                                    setPrerecordMinutesInput(e.target.value)
-                                  }
-                                  className={cn(
-                                    "w-[55px] px-1.5 py-1 bg-slate-950 border border-slate-800 rounded text-xs font-mono font-bold text-slate-200 outline-none transition-all",
-                                    colors.focusRing,
-                                  )}
-                                />
-                                <span className="text-[10px] font-bold text-slate-500 select-none uppercase font-sans">
-                                  Min
+                                <span className="text-[9px] font-bold text-slate-500 select-none uppercase font-sans">
+                                  HH:MM (24h)
                                 </span>
                               </div>
                             </div>
+
+                            {/* Start (12HR) */}
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-black uppercase text-slate-500 pr-2 shrink-0 select-none italic">
+                                Start (12HR)
+                              </label>
+                              <div className="flex items-center gap-1.5 border border-transparent px-1 py-0.5 h-6 shrink-0 w-[140px]">
+                                <span
+                                  className={cn(
+                                    "text-xs font-black font-mono italic opacity-90",
+                                    colors.accentText,
+                                  )}
+                                >
+                                  {getPrerecord12HrDisplay(prerecordTimeInput)}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Show Length pickers */}
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-black uppercase tracking-wider text-slate-600 pr-2 shrink-0 select-none">
+                                Length
+                              </label>
+                              <div className="flex items-center gap-2 w-[140px]">
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    required
+                                    min={0}
+                                    max={999}
+                                    value={prerecordHoursInput}
+                                    onChange={(e) =>
+                                      setPrerecordHoursInput(e.target.value)
+                                    }
+                                    className={cn(
+                                      "w-[45px] px-1 py-1 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-800 outline-none transition-all shadow-xs",
+                                      colors.focusRing,
+                                    )}
+                                  />
+                                  <span className="text-[9px] font-bold text-slate-500 select-none uppercase font-sans">
+                                    Hrs
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="number"
+                                    required
+                                    min={0}
+                                    max={59}
+                                    value={prerecordMinutesInput}
+                                    onChange={(e) =>
+                                      setPrerecordMinutesInput(e.target.value)
+                                    }
+                                    className={cn(
+                                      "w-[45px] px-1 py-1 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-800 outline-none transition-all shadow-xs",
+                                      colors.focusRing,
+                                    )}
+                                  />
+                                  <span className="text-[9px] font-bold text-slate-500 select-none uppercase font-sans">
+                                    Min
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Select from schedule option if there are active shows */}
+                            {shows.some((s) => s.active) && (
+                              <div className="flex justify-start pt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedPrerecordShowId("");
+                                    setShowFilterText("");
+                                    setPrerecordSelectorMode("show-list");
+                                  }}
+                                  className="text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-0 outline-none"
+                                >
+                                  <List className="w-3 h-3 shrink-0 text-slate-500" />
+                                  Select from schedule
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        </div>
+                        )}
 
                         {prerecordError && (
-                          <div className="bg-red-500/10 border border-red-500/20 rounded p-2.5 flex items-start gap-2 text-red-400">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <span className="text-[12px] leading-tight font-medium">
+                          <div className="bg-red-50 border border-red-200 rounded p-2 flex items-start gap-1.5 text-red-700">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-600" />
+                            <span className="text-[11px] leading-tight font-medium">
                               {prerecordError}
                             </span>
                           </div>
@@ -2804,24 +3177,26 @@ export default function App() {
                       </div>
 
                       {/* Modal Actions */}
-                      <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/20 flex gap-2 justify-end">
+                      <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex gap-1.5 justify-end rounded-b-xl shrink-0">
                         <button
                           type="button"
                           onClick={() => setShowPrerecordModal(false)}
-                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase tracking-wider rounded border border-slate-700 transition"
+                          className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold uppercase tracking-wider rounded border border-slate-300 transition cursor-pointer"
                         >
                           Cancel
                         </button>
-                        <button
-                          type="submit"
-                          className={cn(
-                            "px-4 py-1.5 text-white text-[12px] font-black uppercase tracking-wider rounded shadow-md transition flex items-center gap-1.5 cursor-pointer",
-                            colors.buttonBg,
-                          )}
-                        >
-                          <Clock className="w-3.5 h-3.5 shrink-0" />
-                          <span>Review</span>
-                        </button>
+                        {(prerecordSelectorMode === "manual" || selectedPrerecordShowId) && (
+                          <button
+                            type="submit"
+                            className={cn(
+                              "px-3.5 py-1 text-white text-xs font-black uppercase tracking-wider rounded shadow-md transition flex items-center gap-1.5 cursor-pointer",
+                              colors.buttonBg,
+                            )}
+                          >
+                            <ModeIcon className="w-3.5 h-3.5 shrink-0" />
+                            <span>{isExportTarget ? "Export" : "Prerecord"}</span>
+                          </button>
+                        )}
                       </div>
                     </form>
                   )}
@@ -2832,18 +3207,18 @@ export default function App() {
       </AnimatePresence>
       <AnimatePresence>
         {showLocationsModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-slate-100 flex flex-col max-h-[90vh]"
+              className="bg-white border border-slate-200 rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-slate-900 flex flex-col max-h-[90vh]"
             >
               {/* Modal Header */}
-              <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-                <div className="flex items-center gap-2 text-blue-400">
+              <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+                <div className="flex items-center gap-2 text-blue-600">
                   <Folder className="w-5 h-5" />
-                  <h3 className="text-xs font-black uppercase tracking-widest text-white">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">
                     Storage Folders
                   </h3>
                 </div>
@@ -2858,26 +3233,26 @@ export default function App() {
                 <div className="p-3.5 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
                   {/* Mode Selector Row */}
                   <div className="space-y-1.5">
-                    <p className="text-[12px] font-black uppercase text-slate-400 tracking-widest leading-none">
+                    <p className="text-xs font-black uppercase text-slate-600 tracking-widest leading-none">
                       Select Mode
                     </p>
-                    <div className="p-1 bg-slate-950 border border-slate-900 rounded-lg flex gap-1 items-center shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)]">
+                    <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg flex gap-1 items-center shadow-inner">
                       <button
                         type="button"
                         onClick={() => setLocationMode("Demo")}
                         className={cn(
-                          "flex-1 py-1 text-[12px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
+                          "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
                           locationMode === "Demo"
-                            ? "bg-gradient-to-b from-amber-500 to-amber-600 border-[#F59E0B] border-t-amber-400 border-b-amber-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] font-black"
-                            : "bg-amber-950/10 border-amber-900/15 text-amber-500/50 hover:text-amber-400 hover:bg-amber-950/20",
+                            ? "bg-gradient-to-b from-amber-500 to-amber-600 border-[#F59E0B] text-white font-black shadow-sm"
+                            : "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100",
                         )}
                       >
                         <span
                           className={cn(
                             "w-1.5 h-1.5 rounded-full transition-all duration-300",
                             locationMode === "Demo"
-                              ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
-                              : "bg-slate-800",
+                              ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
+                              : "bg-slate-300",
                           )}
                         />
                         Demo
@@ -2886,18 +3261,18 @@ export default function App() {
                         type="button"
                         onClick={() => setLocationMode("Drive")}
                         className={cn(
-                          "flex-1 py-1 text-[12px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
+                          "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
                           locationMode === "Drive"
-                            ? "bg-gradient-to-b from-blue-500 to-blue-600 border-[#3B82F6] border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] font-black"
-                            : "bg-blue-950/10 border-blue-900/15 text-blue-500/50 hover:text-blue-400 hover:bg-blue-950/20",
+                            ? "bg-gradient-to-b from-blue-500 to-blue-600 border-[#3B82F6] text-white font-black shadow-sm"
+                            : "bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100",
                         )}
                       >
                         <span
                           className={cn(
                             "w-1.5 h-1.5 rounded-full transition-all duration-300",
                             locationMode === "Drive"
-                              ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
-                              : "bg-slate-800",
+                              ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
+                              : "bg-slate-300",
                           )}
                         />
                         Google Drive
@@ -2906,18 +3281,18 @@ export default function App() {
                         type="button"
                         onClick={() => setLocationMode("Local")}
                         className={cn(
-                          "flex-1 py-1 text-[12px] font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
+                          "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
                           locationMode === "Local"
-                            ? "bg-gradient-to-b from-purple-500 to-purple-600 border-[#8B5CF6] border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] font-black"
-                            : "bg-purple-950/10 border-purple-900/15 text-purple-500/50 hover:text-purple-400 hover:bg-purple-950/20",
+                            ? "bg-gradient-to-b from-purple-500 to-purple-600 border-[#8B5CF6] text-white font-black shadow-sm"
+                            : "bg-purple-50 border-purple-200 text-purple-800 hover:bg-purple-100",
                         )}
                       >
                         <span
                           className={cn(
                             "w-1.5 h-1.5 rounded-full transition-all duration-300",
                             locationMode === "Local"
-                              ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
-                              : "bg-slate-800",
+                              ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
+                              : "bg-slate-300",
                           )}
                         />
                         Local Folder
@@ -2930,65 +3305,65 @@ export default function App() {
                     <div className="space-y-3">
                       <div>
                         <div className="flex justify-between items-center mb-1">
-                          <label className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
-                            Local Schedules Path
+                          <label className="text-xs font-black uppercase text-blue-600 tracking-wider">
+                            Local Calendar Path
                           </label>
-                          {!draftLocalPathSchedules ? (
-                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">
+                          {!draftLocalPathCalendar ? (
+                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold uppercase">
                               To be set
                             </span>
                           ) : (
-                            <span className="text-[12px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">
+                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-bold uppercase">
                               Configured
                             </span>
                           )}
                         </div>
                         <input
                           type="text"
-                          placeholder="e.g. /Users/name/data/schedules"
-                          value={draftLocalPathSchedules}
+                          placeholder="e.g. /Users/name/data/calendar"
+                          value={draftLocalPathCalendar}
                           onChange={(e) =>
-                            setDraftLocalPathSchedules(e.target.value)
+                            setDraftLocalPathCalendar(e.target.value)
                           }
-                          className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-mono text-slate-900 outline-none focus:ring-1 focus:ring-blue-500"
                         />
                         <div className="flex gap-2 mt-1">
                           <button
                             type="button"
-                            onClick={() => handleBrowseNative("schedules")}
-                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            onClick={() => handleBrowseNative("calendar")}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                           >
                             Edit
                           </button>
-                          {draftLocalPathSchedules && (
+                          {draftLocalPathCalendar && (
                             <button
                               type="button"
                               onClick={() =>
-                                handleOpenLocalPath(draftLocalPathSchedules)
+                                handleOpenLocalPath(draftLocalPathCalendar)
                               }
-                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                              className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                             >
                               Open
                             </button>
                           )}
                         </div>
-                        <p className="text-[12px] text-slate-500 mt-0.5">
-                          Directory where Interstitial-er saves the schedules
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Directory where Interstitial-er saves the interstitials
                           configuration.
                         </p>
                       </div>
 
                       <div>
                         <div className="flex justify-between items-center mb-1">
-                          <label className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
+                          <label className="text-xs font-black uppercase text-blue-600 tracking-wider">
                             Local Media & Script Directory Path
                           </label>
                           {!draftLocalPathMP3s ? (
-                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">
+                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold uppercase">
                               To be set
                             </span>
                           ) : (
-                            <span className="text-[12px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">
+                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-bold uppercase">
                               Configured
                             </span>
                           )}
@@ -3000,13 +3375,13 @@ export default function App() {
                           onChange={(e) =>
                             setDraftLocalPathMP3s(e.target.value)
                           }
-                          className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-mono text-slate-900 outline-none focus:ring-1 focus:ring-blue-500"
                         />
                         <div className="flex gap-2 mt-1">
                           <button
                             type="button"
                             onClick={() => handleBrowseNative("mp3s")}
-                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                           >
                             Edit
                           </button>
@@ -3016,28 +3391,28 @@ export default function App() {
                               onClick={() =>
                                 handleOpenLocalPath(draftLocalPathMP3s)
                               }
-                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                              className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                             >
                               Open
                             </button>
                           )}
                         </div>
-                        <p className="text-[12px] text-slate-500 mt-0.5">
+                        <p className="text-xs text-slate-500 mt-0.5">
                           Absolute path containing your secondary .mp3 playback audio, script, and image files.
                         </p>
                       </div>
 
                       <div>
                         <div className="flex justify-between items-center mb-1">
-                          <label className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
+                          <label className="text-xs font-black uppercase text-blue-600 tracking-wider">
                             Local Play Log Records Path
                           </label>
                           {!draftLocalPathLogs ? (
-                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-800/40 px-1.5 py-0.5 rounded font-bold uppercase">
+                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold uppercase">
                               To be set
                             </span>
                           ) : (
-                            <span className="text-[12px] bg-emerald-950 text-emerald-500 border border-emerald-900/40 px-1.5 py-0.5 rounded font-bold uppercase">
+                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-bold uppercase">
                               Configured
                             </span>
                           )}
@@ -3049,13 +3424,13 @@ export default function App() {
                           onChange={(e) =>
                             setDraftLocalPathLogs(e.target.value)
                           }
-                          className="w-full px-3 py-1.5 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-200 outline-none focus:ring-1 focus:ring-blue-500"
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-mono text-slate-900 outline-none focus:ring-1 focus:ring-blue-500"
                         />
                         <div className="flex gap-2 mt-1">
                           <button
                             type="button"
                             onClick={() => handleBrowseNative("logs")}
-                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-750 text-slate-100 border border-slate-700 hover:border-slate-650 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                           >
                             Edit
                           </button>
@@ -3065,19 +3440,19 @@ export default function App() {
                               onClick={() =>
                                 handleOpenLocalPath(draftLocalPathLogs)
                               }
-                              className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/30 text-purple-400 border border-purple-500/25 rounded text-[12px] font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
+                              className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                             >
                               Open
                             </button>
                           )}
                         </div>
-                        <p className="text-[12px] text-slate-500 mt-0.5">
+                        <p className="text-xs text-slate-500 mt-0.5">
                           Directory location where logs are stored sequentially.
                         </p>
                       </div>
 
                       {localPathsUnavailable && (
-                        <div className="p-3 bg-amber-950/20 border border-amber-900/40 text-amber-400 rounded text-[12px] leading-relaxed">
+                        <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded text-xs leading-relaxed font-medium">
                           ⚠️ One or more specified local directories are missing
                           or inaccessible. Please verify paths are correct and
                           physically exist on host desktop folders.
@@ -3088,23 +3463,23 @@ export default function App() {
 
                   {locationMode === "Drive" && (
                     <div className="space-y-3">
-                      {/* Preferences/Schedules Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
+                      {/* Preferences/Interstitials Container */}
+                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
-                            Schedule
+                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
+                            Interstitial
                           </span>
                           {draftDriveFolderPreferences ? (
-                            <span className="text-[12px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                               Configured
                             </span>
                           ) : (
-                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-950/45 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                               To be set
                             </span>
                           )}
                         </div>
-                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
                           {driveFolderDescMap[draftDriveFolderPreferences] ||
                             "No directory folder configured yet"}
                         </p>
@@ -3115,7 +3490,7 @@ export default function App() {
                               setEditingDriveField("preferences");
                               setTempPasteLink(draftDriveFolderPreferences);
                             }}
-                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Edit
                           </button>
@@ -3127,7 +3502,7 @@ export default function App() {
                                   draftDriveFolderPreferences,
                                 )
                               }
-                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                             >
                               Open
                             </button>
@@ -3136,22 +3511,22 @@ export default function App() {
                       </div>
 
                       {/* MP3s Folder Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
+                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
+                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
                             media & scripts
                           </span>
                           {draftDriveFolderMP3s ? (
-                            <span className="text-[12px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                               Configured
                             </span>
                           ) : (
-                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-950/45 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                               To be set
                             </span>
                           )}
                         </div>
-                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
                           {driveFolderDescMap[draftDriveFolderMP3s] ||
                             "No directory folder configured yet"}
                         </p>
@@ -3162,7 +3537,7 @@ export default function App() {
                               setEditingDriveField("mp3s");
                               setTempPasteLink(draftDriveFolderMP3s);
                             }}
-                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Edit
                           </button>
@@ -3172,7 +3547,7 @@ export default function App() {
                               onClick={() =>
                                 handleOpenDriveFolder(draftDriveFolderMP3s)
                               }
-                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                             >
                               Open
                             </button>
@@ -3181,22 +3556,22 @@ export default function App() {
                       </div>
 
                       {/* Logs Folder Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
+                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
+                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
                             Play Logs
                           </span>
                           {draftDriveFolderLogs ? (
-                            <span className="text-[12px] bg-emerald-950 text-emerald-400 border border-emerald-950/40 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                               Configured
                             </span>
                           ) : (
-                            <span className="text-[12px] bg-amber-950 text-amber-500 border border-amber-955 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                               To be set
                             </span>
                           )}
                         </div>
-                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
                           {driveFolderDescMap[draftDriveFolderLogs] ||
                             "No directory folder configured yet"}
                         </p>
@@ -3207,7 +3582,7 @@ export default function App() {
                               setEditingDriveField("logs");
                               setTempPasteLink(draftDriveFolderLogs);
                             }}
-                            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-705 hover:border-slate-650 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Edit
                           </button>
@@ -3217,7 +3592,7 @@ export default function App() {
                               onClick={() =>
                                 handleOpenDriveFolder(draftDriveFolderLogs)
                               }
-                              className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                             >
                               Open
                             </button>
@@ -3249,25 +3624,25 @@ export default function App() {
 
                   {locationMode === "Demo" && (
                     <div className="space-y-3">
-                      <div className="p-3 bg-amber-950/15 border border-amber-900/35 rounded-lg whitespace-pre-line text-[12px] leading-relaxed text-amber-500">
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg whitespace-pre-line text-xs leading-relaxed text-amber-800 font-medium">
                         Demo for crstl.fm testing/learning. The data is shared,
                         but not for production. Change, modify, etc everything.
                       </div>
 
-                      {/* Demo Schedules Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
+                      {/* Demo Interstitials Container */}
+                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
-                            Demo Schedule
+                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
+                            Demo Interstitial
                           </span>
-                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                          <span className="text-xs bg-slate-100 border border-slate-300 text-slate-600 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                             Demo
                           </span>
                         </div>
-                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
                           {driveFolderDescMap[
                             "1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED"
-                          ] || "scheduledata"}
+                          ] || "calendar"}
                         </p>
                         <div className="flex items-center gap-1.5 pt-0.5">
                           <button
@@ -3277,7 +3652,7 @@ export default function App() {
                                 "1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED",
                               )
                             }
-                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Open
                           </button>
@@ -3285,19 +3660,19 @@ export default function App() {
                       </div>
 
                       {/* Demo MP3s Folder Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
+                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
+                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
                             Demo media & scripts
                           </span>
-                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                          <span className="text-xs bg-slate-100 border border-slate-300 text-slate-600 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                             Demo
                           </span>
                         </div>
-                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
                           {driveFolderDescMap[
                             "11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch"
-                          ] || "mp3library"}
+                          ] || "medialibrary"}
                         </p>
                         <div className="flex items-center gap-1.5 pt-0.5">
                           <button
@@ -3307,7 +3682,7 @@ export default function App() {
                                 "11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch",
                               )
                             }
-                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Open
                           </button>
@@ -3315,16 +3690,16 @@ export default function App() {
                       </div>
 
                       {/* Demo Logs Folder Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-950/45 border border-slate-850 space-y-1">
+                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
                         <div className="flex justify-between items-center">
-                          <span className="text-[12px] font-black uppercase text-blue-400 tracking-wider">
+                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
                             Demo Play Logs
                           </span>
-                          <span className="text-[12px] bg-slate-900 border border-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
+                          <span className="text-xs bg-slate-100 border border-slate-300 text-slate-600 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
                             Demo
                           </span>
                         </div>
-                        <p className="text-[12px] font-sans text-slate-200 select-all truncate leading-relaxed">
+                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
                           {driveFolderDescMap[
                             "1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx"
                           ] || "logs"}
@@ -3337,7 +3712,7 @@ export default function App() {
                                 "1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx",
                               )
                             }
-                            className="px-2 py-1 bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/25 rounded text-[12px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Open
                           </button>
@@ -3368,18 +3743,18 @@ export default function App() {
 
                   {/* Feedback Status */}
                   {locationsError && (
-                    <div className="bg-red-500/10 border border-red-500/20 rounded p-2.5 flex items-start gap-2 text-red-400">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <span className="text-[12px] leading-normal font-bold">
+                    <div className="bg-red-50 border border-red-200 rounded p-2.5 flex items-start gap-2 text-red-700">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-600" />
+                      <span className="text-xs leading-normal font-bold">
                         {locationsError}
                       </span>
                     </div>
                   )}
 
                   {locationsSuccess && (
-                    <div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-2.5 flex items-start gap-2 text-emerald-400">
-                      <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <span className="text-[12px] leading-normal font-bold">
+                    <div className="bg-emerald-50 border border-emerald-200 rounded p-2.5 flex items-start gap-2 text-emerald-800">
+                      <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-600" />
+                      <span className="text-xs leading-normal font-bold">
                         {locationsSuccess}
                       </span>
                     </div>
@@ -3387,13 +3762,13 @@ export default function App() {
                 </div>
 
                 {/* Submit Actions */}
-                <div className="px-4 py-2.5 border-t border-slate-800 bg-slate-950/20 flex gap-2 justify-end items-center font-sans">
+                <div className="px-4 py-2.5 border-t border-slate-200 bg-slate-50 flex gap-2 justify-end items-center font-sans">
                   <button
                     type="button"
                     onClick={() => setShowLocalHelp(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold uppercase rounded border border-slate-300 transition cursor-pointer"
                   >
-                    <HelpCircle className="w-3.5 h-3.5 text-purple-400" />
+                    <HelpCircle className="w-3.5 h-3.5 text-purple-600" />
                     <span>Help</span>
                   </button>
                   {/* === DEBUG ANIMATION SWITCH START === */}
@@ -3404,28 +3779,28 @@ export default function App() {
                     className={cn(
                       "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer mr-auto border border-transparent",
                       animationsDisabled
-                        ? "bg-red-950/40 text-red-400 border-red-500/30 hover:bg-red-900/40 shadow-[0_0_10px_rgba(239,68,68,0.1)]"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800"
+                        ? "bg-red-100 text-red-700 border-red-300 hover:bg-red-200"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
                     )}
                   >
                     {animationsDisabled ? (
-                      <ZapOff className="w-3.5 h-3.5" />
+                      <ZapOff className="w-3.5 h-3.5 text-red-600" />
                     ) : (
-                      <Zap className="w-3.5 h-3.5 text-yellow-400" />
+                      <Zap className="w-3.5 h-3.5 text-amber-500" />
                     )}
                   </button>
                   {/* === DEBUG ANIMATION SWITCH END === */}
                   <button
                     type="button"
                     onClick={() => setShowLocationsModal(false)}
-                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold uppercase rounded border border-slate-300 transition cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isSyncing || isValidatingDrive}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-black uppercase rounded shadow transition disabled:opacity-50 cursor-pointer"
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase rounded shadow transition disabled:opacity-50 cursor-pointer"
                   >
                     {isSyncing || isValidatingDrive
                       ? "Verifying..."
@@ -3439,17 +3814,17 @@ export default function App() {
       </AnimatePresence>
       <AnimatePresence>
         {editingDriveField && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-slate-800 rounded-xl max-w-sm w-full overflow-hidden text-slate-100 flex flex-col shadow-2xl p-5 space-y-4"
+              className="bg-white border border-slate-200 rounded-xl max-w-sm w-full overflow-hidden text-slate-900 flex flex-col shadow-2xl p-5 space-y-4"
             >
-              <div className="flex justify-between items-center pb-2 border-b border-slate-800/60">
-                <h3 className="text-xs font-black uppercase text-blue-400 tracking-wider">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                <h3 className="text-xs font-black uppercase text-blue-600 tracking-wider">
                   {editingDriveField === "preferences"
-                    ? "Schedules & Preferences folder"
+                    ? "Interstitials & Preferences folder"
                     : editingDriveField === "mp3s"
                       ? "MP3s Audio folder"
                       : "Logs folder"}
@@ -3460,14 +3835,14 @@ export default function App() {
                     setEditingDriveField(null);
                     setTempPasteLink("");
                   }}
-                  className="text-slate-500 hover:text-slate-350 font-bold text-xs"
+                  className="text-slate-500 hover:text-slate-900 font-bold text-xs cursor-pointer"
                 >
                   ✕
                 </button>
               </div>
 
               <div className="space-y-2">
-                <span className="text-[12px] font-black uppercase tracking-wider text-slate-400 block">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-600 block">
                   Paste Google Drive Share Link or ID
                 </span>
                 <textarea
@@ -3475,22 +3850,22 @@ export default function App() {
                   value={tempPasteLink}
                   onChange={(e) => setTempPasteLink(e.target.value)}
                   placeholder="Paste folders/ browser URL (e.g. https://drive.google.com/drive/folders/...) or raw folder ID here..."
-                  className="w-full px-2.5 py-2 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-300 outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-700 resize-none"
+                  className="w-full px-2.5 py-2 bg-white border border-slate-300 rounded text-xs font-mono text-slate-900 outline-none focus:ring-1 focus:ring-blue-500 placeholder-slate-400 resize-none"
                 />
-                <p className="text-[12px] leading-normal text-slate-500">
+                <p className="text-xs leading-normal text-slate-500">
                   Simply paste the raw share URL or standard folder ID. It will
                   extract the ID key automatically.
                 </p>
               </div>
 
-              <div className="flex gap-2 justify-end pt-1 border-t border-slate-800/40">
+              <div className="flex gap-2 justify-end pt-1 border-t border-slate-200">
                 <button
                   type="button"
                   onClick={() => {
                     setEditingDriveField(null);
                     setTempPasteLink("");
                   }}
-                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold uppercase rounded border border-slate-300 transition cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -3521,7 +3896,7 @@ export default function App() {
                       } catch (err) {}
                     }
                   }}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-black uppercase rounded shadow cursor-pointer active:translate-y-px"
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase rounded shadow cursor-pointer active:translate-y-px"
                 >
                   Apply
                 </button>
@@ -3547,14 +3922,14 @@ export default function App() {
               <div className="flex justify-between items-center pb-2 border-b border-slate-800/60 shrink-0">
                 <div className="flex items-center gap-2 text-emerald-400">
                   <Download className="w-5 h-5" />
-                  <h3 className="text-[16px] font-black uppercase tracking-widest text-white leading-none">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-white leading-none">
                     Playlist Export
                   </h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowExportModal(false)}
-                  className="text-slate-550 hover:text-slate-350 font-bold text-[16px]"
+                  className="text-slate-550 hover:text-slate-350 font-bold text-sm"
                 >
                   ✕
                 </button>
@@ -3592,7 +3967,7 @@ export default function App() {
                       <div className="space-y-3.5 text-left">
                         {/* i. move the Path label and browse button to be on a row above the Path data field */}
                         <div className="flex flex-col space-y-1.5">
-                          <div className="flex justify-between items-center text-[14px]">
+                          <div className="flex justify-between items-center text-xs">
                             {showPathLabel ? (
                               <label className="font-black uppercase tracking-wider text-slate-400 select-none">
                                 path
@@ -3614,14 +3989,14 @@ export default function App() {
                             value={exportDestinationInput}
                             onChange={(e) => setExportDestinationInput(e.target.value)}
                             placeholder="Select export folder pathway..."
-                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-202 focus:outline-none focus:border-emerald-600 font-mono resize-none leading-normal"
+                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-202 focus:outline-none focus:border-emerald-600 font-mono resize-none leading-normal"
                           />
                         </div>
 
                         {/* iii. Move the Name data field to below the Name label */}
                         <div className="flex flex-col space-y-1.5">
                           {showNameLabel && (
-                            <label className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                            <label className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                               name
                             </label>
                           )}
@@ -3635,7 +4010,7 @@ export default function App() {
                               setExportPlaylistPrefixInput(val);
                             }}
                             placeholder="Show"
-                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
+                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
                           />
                         </div>
 
@@ -3643,10 +4018,10 @@ export default function App() {
                         <div className="space-y-2 border-t border-slate-800/40 pt-3 flex flex-col items-start">
                           {showFolderRow && (
                             <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                                 Folder:
                               </span>
-                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
                                 {reduceFolderText ? truncateMiddle(getDynamicNames().folderName, 22) : getDynamicNames().folderName}
                               </span>
                             </div>
@@ -3654,10 +4029,10 @@ export default function App() {
 
                           {showPlanRow && (
                             <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                                 Plan:
                               </span>
-                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
                                 {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().textFilename, 22) : getDynamicNames().textFilename}
                               </span>
                             </div>
@@ -3665,10 +4040,10 @@ export default function App() {
 
                           {showPlaylistRow && (
                             <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                                 Playlist:
                               </span>
-                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
                                 {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().playlistFilename, 22) : getDynamicNames().playlistFilename}
                               </span>
                             </div>
@@ -3676,10 +4051,10 @@ export default function App() {
 
                           {showMp3ExampleRow && (
                             <div className="flex items-baseline gap-2 flex-wrap border-t border-slate-800/20 pt-1.5 w-full">
-                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                                 mp3 Name example:
                               </span>
-                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
                                 {getDynamicNames().firstTrackFilename}
                               </span>
                             </div>
@@ -3691,7 +4066,7 @@ export default function App() {
                         {/* Path Row */}
                         {showPathLabel ? (
                           <div className="grid grid-cols-[60px_1fr] items-center gap-3">
-                            <label className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                            <label className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                               path
                             </label>
                             <div className="flex gap-2">
@@ -3700,12 +4075,12 @@ export default function App() {
                                 value={exportDestinationInput}
                                 onChange={(e) => setExportDestinationInput(e.target.value)}
                                 placeholder="Select export folder pathway..."
-                                className="flex-1 bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-202 focus:outline-none focus:border-emerald-600 font-mono"
+                                className="flex-1 bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-202 focus:outline-none focus:border-emerald-600 font-mono"
                               />
                               <button
                                 type="button"
                                 onClick={handleBrowseExportDestination}
-                                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[14px] font-black uppercase rounded cursor-pointer whitespace-nowrap active:translate-y-px animate-none duration-100 ease-in-out shadow-sm"
+                                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-black uppercase rounded cursor-pointer whitespace-nowrap active:translate-y-px animate-none duration-100 ease-in-out shadow-sm"
                               >
                                 Browse
                               </button>
@@ -3718,12 +4093,12 @@ export default function App() {
                               value={exportDestinationInput}
                               onChange={(e) => setExportDestinationInput(e.target.value)}
                               placeholder="Select export folder pathway..."
-                              className="flex-1 bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-202 focus:outline-none focus:border-emerald-600 font-mono"
+                              className="flex-1 bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-202 focus:outline-none focus:border-emerald-600 font-mono"
                             />
                             <button
                               type="button"
                               onClick={handleBrowseExportDestination}
-                              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[14px] font-black uppercase rounded cursor-pointer whitespace-nowrap active:translate-y-px animate-none duration-100 ease-in-out shadow-sm"
+                              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-black uppercase rounded cursor-pointer whitespace-nowrap active:translate-y-px animate-none duration-100 ease-in-out shadow-sm"
                             >
                               Browse
                             </button>
@@ -3733,7 +4108,7 @@ export default function App() {
                         {/* Name Row */}
                         {showNameLabel ? (
                           <div className="grid grid-cols-[60px_1fr] items-center gap-3">
-                            <label className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                            <label className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                               name
                             </label>
                             <input
@@ -3746,7 +4121,7 @@ export default function App() {
                                 setExportPlaylistPrefixInput(val);
                               }}
                               placeholder="Show"
-                              className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
+                              className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
                             />
                           </div>
                         ) : (
@@ -3760,7 +4135,7 @@ export default function App() {
                               setExportPlaylistPrefixInput(val);
                             }}
                             placeholder="Show"
-                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-[14px] text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
+                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
                           />
                         )}
 
@@ -3768,10 +4143,10 @@ export default function App() {
                         <div className="space-y-2 border-t border-slate-800/40 pt-3.5 flex flex-col items-start w-full">
                           {showFolderRow && (
                             <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                                 Folder:
                               </span>
-                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
                                 {reduceFolderText ? truncateMiddle(getDynamicNames().folderName, 22) : getDynamicNames().folderName}
                               </span>
                             </div>
@@ -3779,10 +4154,10 @@ export default function App() {
 
                           {showPlanRow && (
                             <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                                 Plan:
                               </span>
-                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
                                 {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().textFilename, 22) : getDynamicNames().textFilename}
                               </span>
                             </div>
@@ -3790,10 +4165,10 @@ export default function App() {
 
                           {showPlaylistRow && (
                             <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                                 Playlist:
                               </span>
-                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
                                 {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().playlistFilename, 22) : getDynamicNames().playlistFilename}
                               </span>
                             </div>
@@ -3801,10 +4176,10 @@ export default function App() {
 
                           {showMp3ExampleRow && (
                             <div className="flex items-baseline gap-2 flex-wrap border-t border-slate-800/20 pt-1.5 w-full">
-                              <span className="text-[14px] font-black uppercase tracking-wider text-slate-400 select-none">
+                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
                                 mp3 Name example:
                               </span>
-                              <span className="text-[13px] font-mono select-all break-all text-emerald-400 font-bold leading-normal">
+                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
                                 {getDynamicNames().firstTrackFilename}
                               </span>
                             </div>
@@ -3824,7 +4199,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={runExportPrerecord}
-                              className="flex items-center justify-center gap-1.5 p-[2px] bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow w-full"
+                              className="flex items-center justify-center gap-1.5 p-[2px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow w-full"
                             >
                               <Download className="w-4 h-4 shrink-0" />
                               <span>Export</span>
@@ -3832,7 +4207,7 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => setShowExportModal(false)}
-                              className="w-full p-[2px] bg-slate-800 hover:bg-slate-700 text-slate-300 text-[13px] font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer text-center"
+                              className="w-full p-[2px] bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer text-center"
                             >
                               Cancel
                             </button>
@@ -3846,14 +4221,14 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => setShowExportModal(false)}
-                              className="flex-1 px-[2px] py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[13px] font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer text-center"
+                              className="flex-1 px-[2px] py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer text-center"
                             >
                               Cancel
                             </button>
                             <button
                               type="button"
                               onClick={runExportPrerecord}
-                              className="flex-1 flex items-center justify-center gap-1 px-[2px] py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow"
+                              className="flex-1 flex items-center justify-center gap-1 px-[2px] py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow"
                             >
                               <Download className="w-3.5 h-3.5 shrink-0" />
                               <span>Export</span>
@@ -3867,14 +4242,14 @@ export default function App() {
                           <button
                             type="button"
                             onClick={() => setShowExportModal(false)}
-                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[13px] font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer"
+                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer"
                           >
                             Cancel
                           </button>
                           <button
                             type="button"
                             onClick={runExportPrerecord}
-                            className="flex items-center gap-1.5 px-4.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-[13px] font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow"
+                            className="flex items-center gap-1.5 px-4.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow"
                           >
                             <Download className="w-4 h-4 shrink-0" />
                             <span>Export</span>
@@ -3889,10 +4264,10 @@ export default function App() {
               {exportState === "exporting" && (
                 <div className="py-8 flex flex-col items-center justify-center space-y-4">
                   <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
-                  <p className="text-[16px] font-bold text-slate-300">
+                  <p className="text-sm font-bold text-slate-300">
                     Assembling playlist and copying MP3s...
                   </p>
-                  <p className="text-[14px] text-slate-500">
+                  <p className="text-xs text-slate-500">
                     Please do not close this window
                   </p>
                 </div>
@@ -3903,8 +4278,8 @@ export default function App() {
                   <div className="bg-red-500/10 border border-red-500/20 rounded p-3.5 flex items-start gap-2.5 text-red-500">
                     <AlertCircle className="w-5 h-5 shrink-0" />
                     <div className="flex-1">
-                      <p className="text-[16px] font-bold">Export Failed</p>
-                      <p className="text-[14px] leading-relaxed mt-1 text-red-400">
+                      <p className="text-sm font-bold">Export Failed</p>
+                      <p className="text-xs leading-relaxed mt-1 text-red-400">
                         {exportError}
                       </p>
                     </div>
@@ -3913,14 +4288,14 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setShowExportModal(false)}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
+                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
                     >
                       Close
                     </button>
                     <button
                       type="button"
                       onClick={runExportPrerecord}
-                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-black uppercase rounded shadow cursor-pointer shadow-emerald-950/20 active:translate-y-px"
+                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase rounded shadow cursor-pointer shadow-emerald-950/20 active:translate-y-px"
                     >
                       Retry
                     </button>
@@ -3933,13 +4308,13 @@ export default function App() {
                   <div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-3.5 flex items-start gap-2.5 text-emerald-500">
                     <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
                     <div className="flex-1">
-                      <p className="text-[16px] font-bold text-emerald-400">
+                      <p className="text-sm font-bold text-emerald-400">
                         Export Completed Successfully
                       </p>
-                      <p className="text-[14px] leading-relaxed mt-1 text-emerald-300">
+                      <p className="text-xs leading-relaxed mt-1 text-emerald-300">
                         Broadcasting package compiled into local folder:
                       </p>
-                      <p className="text-[14px] font-mono select-all bg-slate-950 p-2 rounded text-emerald-200 break-all mt-1.5 border border-emerald-900/30">
+                      <p className="text-xs font-mono select-all bg-slate-950 p-2 rounded text-emerald-200 break-all mt-1.5 border border-emerald-900/30">
                         {exportResult.exportFolder}
                       </p>
                     </div>
@@ -3947,53 +4322,53 @@ export default function App() {
 
                   <div className="grid grid-cols-3 gap-2">
                     <div className="p-2.5 bg-slate-950/40 rounded border border-slate-800 text-center">
-                      <span className="block text-[20px] font-black font-mono text-emerald-400">
+                      <span className="block text-base font-black font-mono text-emerald-400">
                         {exportResult.totalCount}
                       </span>
-                      <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">
+                      <span className="text-xs font-black uppercase text-slate-500 tracking-wider">
                         Scheduled
                       </span>
                     </div>
                     <div className="p-2.5 bg-slate-950/40 rounded border border-slate-800 text-center">
-                      <span className="block text-[20px] font-black font-mono text-emerald-400">
+                      <span className="block text-base font-black font-mono text-emerald-400">
                         {exportResult.copiedCount}
                       </span>
-                      <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">
+                      <span className="text-xs font-black uppercase text-slate-500 tracking-wider">
                         Copied
                       </span>
                     </div>
                     <div className="p-2.5 bg-slate-950/40 rounded border border-slate-800 text-center">
-                      <span className="block text-[20px] font-black font-mono text-amber-500">
+                      <span className="block text-base font-black font-mono text-amber-500">
                         {exportResult.missingCount}
                       </span>
-                      <span className="text-[12px] font-black uppercase text-slate-500 tracking-wider">
+                      <span className="text-xs font-black uppercase text-slate-500 tracking-wider">
                         Missing
                       </span>
                     </div>
                   </div>
 
                   <div className="space-y-1.5 bg-slate-950/30 p-2.5 rounded border border-slate-850 text-slate-300 font-sans">
-                    <p className="text-[14px] font-bold text-slate-200">
+                    <p className="text-xs font-bold text-slate-200">
                       Created Package Files:
                     </p>
-                    <ul className="text-[14px] font-mono space-y-1.5 pl-3 list-disc text-slate-400">
+                    <ul className="text-xs font-mono space-y-1.5 pl-3 list-disc text-slate-400">
                       <li>
                         {exportResult.txtFilename ||
                           `${exportResult.baseFilename}.txt`}{" "}
-                        <span className="text-[12px] text-slate-550 font-sans font-medium">
-                          (Summary Schedule)
+                        <span className="text-xs text-slate-550 font-sans font-medium">
+                          (Summary Interstitial)
                         </span>
                       </li>
                       <li>
                         {exportResult.m3uFilename ||
                           `${exportResult.baseFilename}.m3u`}{" "}
-                        <span className="text-[12px] text-slate-550 font-sans font-medium">
+                        <span className="text-xs text-slate-550 font-sans font-medium">
                           (M3U Playlist File)
                         </span>
                       </li>
                       <li>
                         MP3 Files{" "}
-                        <span className="text-[12px] text-slate-550 font-sans font-medium">
+                        <span className="text-xs text-slate-550 font-sans font-medium">
                           (Break 1, Break 2...)
                         </span>
                       </li>
@@ -4004,7 +4379,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setShowExportModal(false)}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-[12px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
+                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
                     >
                       Done
                     </button>
@@ -4013,7 +4388,7 @@ export default function App() {
                       onClick={() =>
                         handleOpenExportFolder(exportResult.exportFolder)
                       }
-                      className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-black uppercase rounded shadow-md transition cursor-pointer active:translate-y-px"
+                      className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase rounded shadow-md transition cursor-pointer active:translate-y-px"
                     >
                       <FolderOpen className="w-3.5 h-3.5" />
                       <span>Open Folder</span>
@@ -4040,7 +4415,7 @@ export default function App() {
               <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
                 <div className="flex items-center gap-2 text-yellow-400">
                   <Zap className="w-5 h-5 text-yellow-400" />
-                  <h3 className="text-[14px] font-black uppercase tracking-widest text-white">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-white">
                     Performance Overrides
                   </h3>
                 </div>
@@ -4048,13 +4423,13 @@ export default function App() {
 
               {/* Modal Content */}
               <div className="p-4 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
-                <p className="text-[15px] text-slate-300 leading-relaxed font-sans">
+                <p className="text-sm text-slate-300 leading-relaxed font-sans">
                   Choose which performance optimizations and CPU overrides to apply. 
                   These features are surgically designed for radio broadcast hardware to maintain low overhead.
                 </p>
 
                 <div className="space-y-2.5">
-                  <p className="text-[14px] font-black uppercase text-slate-400 tracking-widest leading-none">
+                  <p className="text-xs font-black uppercase text-slate-400 tracking-widest leading-none">
                     Select Optimizations to Turn Off/Disable:
                   </p>
 
@@ -4068,8 +4443,8 @@ export default function App() {
                         className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
                       />
                       <div className="flex-1">
-                        <p className="text-[14px] font-bold text-slate-200">Strict CSS Keyframes & Animations</p>
-                        <p className="text-[14px] text-slate-400">Stops continuous animate-pulse, animate-spin, and dynamic background animations.</p>
+                        <p className="text-xs font-bold text-slate-200">Strict CSS Keyframes & Animations</p>
+                        <p className="text-xs text-slate-400">Stops continuous animate-pulse, animate-spin, and dynamic background animations.</p>
                       </div>
                     </label>
 
@@ -4082,8 +4457,8 @@ export default function App() {
                         className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
                       />
                       <div className="flex-1">
-                        <p className="text-[14px] font-bold text-slate-200">Purge Hover Transitions</p>
-                        <p className="text-[14px] text-slate-400">Instantly applies colors and layouts upon hover instead of using heavy transition effects.</p>
+                        <p className="text-xs font-bold text-slate-200">Purge Hover Transitions</p>
+                        <p className="text-xs text-slate-400">Instantly applies colors and layouts upon hover instead of using heavy transition effects.</p>
                       </div>
                     </label>
 
@@ -4096,8 +4471,8 @@ export default function App() {
                         className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
                       />
                       <div className="flex-1">
-                        <p className="text-[14px] font-bold text-slate-200">Throttle Hover Transforms</p>
-                        <p className="text-[14px] text-slate-400">Suppresses scaling and moving on cursor roll-over to stop continuous layout recalculations.</p>
+                        <p className="text-xs font-bold text-slate-200">Throttle Hover Transforms</p>
+                        <p className="text-xs text-slate-400">Suppresses scaling and moving on cursor roll-over to stop continuous layout recalculations.</p>
                       </div>
                     </label>
 
@@ -4110,8 +4485,8 @@ export default function App() {
                         className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
                       />
                       <div className="flex-1">
-                        <p className="text-[14px] font-bold text-slate-200">Remove Hover Shadows & Filters</p>
-                        <p className="text-[14px] text-slate-400">Avoids expensive shadow casting and brightness/hue-rotation on list cards.</p>
+                        <p className="text-xs font-bold text-slate-200">Remove Hover Shadows & Filters</p>
+                        <p className="text-xs text-slate-400">Avoids expensive shadow casting and brightness/hue-rotation on list cards.</p>
                       </div>
                     </label>
 
@@ -4124,8 +4499,8 @@ export default function App() {
                         className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
                       />
                       <div className="flex-1">
-                        <p className="text-[14px] font-bold text-slate-200">Disable Backdrop Blurs</p>
-                        <p className="text-[14px] text-slate-400">Forces flat, opaque backgrounds on modals to avoid costly GPU pixel shader blurring.</p>
+                        <p className="text-xs font-bold text-slate-200">Disable Backdrop Blurs</p>
+                        <p className="text-xs text-slate-400">Forces flat, opaque backgrounds on modals to avoid costly GPU pixel shader blurring.</p>
                       </div>
                     </label>
 
@@ -4138,8 +4513,8 @@ export default function App() {
                         className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
                       />
                       <div className="flex-1">
-                        <p className="text-[14px] font-bold text-slate-200">Isolate Processing into Web Workers</p>
-                        <p className="text-[14px] text-slate-400">Offloads periodic clock ticks, date calculations, and scheduling timeouts to background threads.</p>
+                        <p className="text-xs font-bold text-slate-200">Isolate Processing into Web Workers</p>
+                        <p className="text-xs text-slate-400">Offloads periodic clock ticks, date calculations, and scheduling timeouts to background threads.</p>
                       </div>
                     </label>
 
@@ -4152,8 +4527,8 @@ export default function App() {
                         className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
                       />
                       <div className="flex-1">
-                        <p className="text-[14px] font-bold text-slate-200">Option A: Pointer Events Neutralization</p>
-                        <p className="text-[14px] text-slate-400">Neutralizes pointer-events on background areas to prevent heavy browser mouse movement hit-testing traversal.</p>
+                        <p className="text-xs font-bold text-slate-200">Option A: Pointer Events Neutralization</p>
+                        <p className="text-xs text-slate-400">Neutralizes pointer-events on background areas to prevent heavy browser mouse movement hit-testing traversal.</p>
                       </div>
                     </label>
 
@@ -4166,22 +4541,22 @@ export default function App() {
                         className="mt-1 rounded bg-slate-900 border-slate-700 text-blue-500 focus:ring-blue-500 cursor-pointer"
                       />
                       <div className="flex-1">
-                        <p className="text-[14px] font-bold text-slate-200">Option B: GPU Compositing Layering</p>
-                        <p className="text-[14px] text-slate-400">Forces separate GPU compositor layers for lists and buttons to completely isolate repaint boundaries.</p>
+                        <p className="text-xs font-bold text-slate-200">Option B: GPU Compositing Layering</p>
+                        <p className="text-xs text-slate-400">Forces separate GPU compositor layers for lists and buttons to completely isolate repaint boundaries.</p>
                       </div>
                     </label>
 
                     {/* Note about unutilized options */}
                     <div className="p-3 bg-slate-950/20 border border-dashed border-slate-800 rounded-lg text-slate-300 space-y-1.5">
-                      <p className="text-[14px] font-bold text-slate-200">⚠️ Note on CPU Optimizations (Options 1-3)</p>
-                      <p className="text-[14px] leading-relaxed text-slate-400">
-                        Intel Mac desktop optimizations (Option 1: Modern Electron runtime, Option 2: Disable Hardware Acceleration, and Option 3: Disable Window Shadows) exist as configurable definitions inside the Electron main process layer (<code className="text-blue-400 font-mono text-[12px]">electron-main.cjs</code>). They are currently not active. To experiment with or enable them, you must configure their active flags directly in the source file.
+                      <p className="text-xs font-bold text-slate-200">⚠️ Note on CPU Optimizations (Options 1-3)</p>
+                      <p className="text-xs leading-relaxed text-slate-400">
+                        Intel Mac desktop optimizations (Option 1: Modern Electron runtime, Option 2: Disable Hardware Acceleration, and Option 3: Disable Window Shadows) exist as configurable definitions inside the Electron main process layer (<code className="text-blue-400 font-mono text-xs">electron-main.cjs</code>). They are currently not active. To experiment with or enable them, you must configure their active flags directly in the source file.
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[13px] text-slate-400 font-mono">
+                <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 font-mono">
                   <span>Current State:</span>
                   <span className={cn(
                     "px-1.5 py-0.5 rounded font-bold uppercase",
@@ -4199,7 +4574,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setIsOptimizationConfigOpen(false)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[14px] font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
                 >
                   Cancel
                 </button>
@@ -4211,7 +4586,7 @@ export default function App() {
                       localStorage.setItem("debug_animations_disabled", "false");
                       setIsOptimizationConfigOpen(false);
                     }}
-                    className="px-3.5 py-1.5 bg-red-950/40 text-red-400 hover:bg-red-900/30 text-[14px] font-bold uppercase rounded border border-red-500/20 transition cursor-pointer active:translate-y-px"
+                    className="px-3.5 py-1.5 bg-red-950/40 text-red-400 hover:bg-red-900/30 text-xs font-bold uppercase rounded border border-red-500/20 transition cursor-pointer active:translate-y-px"
                   >
                     Restore Normal Playback
                   </button>
@@ -4225,7 +4600,7 @@ export default function App() {
                     localStorage.setItem("debug_animations_disabled", "true");
                     setIsOptimizationConfigOpen(false);
                   }}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[14px] font-black uppercase rounded shadow-md transition cursor-pointer active:translate-y-px"
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase rounded shadow-md transition cursor-pointer active:translate-y-px"
                 >
                   Apply Selected Overrides
                 </button>
@@ -4251,13 +4626,13 @@ export default function App() {
               <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-400">
                 <Moon className="w-6 h-6 animate-pulse" />
               </div>
-              <p className="text-[16px] text-slate-300 leading-relaxed font-sans font-medium">
+              <p className="text-sm text-slate-300 leading-relaxed font-sans font-medium">
                 Shhh... Interstitial-er is sleeping.
               </p>
               <button
                 type="button"
                 onClick={handleWakeUp}
-                className="w-full mt-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-[16px] uppercase tracking-wider rounded-xl border border-blue-500 shadow-md transition cursor-pointer flex items-center justify-center gap-2 "
+                className="w-full mt-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-sm uppercase tracking-wider rounded-xl border border-blue-500 shadow-md transition cursor-pointer flex items-center justify-center gap-2 "
               >
                 <AlarmClock className="w-4 h-4 shrink-0" />
                 <span>Wakey Wakey!</span>
@@ -4267,6 +4642,7 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
     </div>
   );
 }

@@ -32,11 +32,11 @@ This application is primarily a **Desktop Application** built with Electron and 
 - **Strict App Naming**: The name of the application is **Interstitial-er**. Under no circumstances should custom, editorialized, or alternative names (e.g., "Remote Broadcast Synchronizer", "Desktop Application Broadcast Synch Controller") be added to the interface without explicit permission.
 - **No Unsolicited Rebranding**: Avoid decorative tags, marketing slogans, or secondary descriptors. Only use straightforward, literal functional labels which align with the authentic **Interstitial-er** design.
 - **No Editorializing**: Respect the clean aesthetic of **Interstitial-er** and do not add any unsolicited titles, headings, or branding elements in the UI.
-- **Enforced Minimum Font Size & Readability Hierarchy**: 
-  - Enforce an absolute minimum font size of **12px** unless explicitly directed. Readability and usability are highly important for large screens with high resolution. While screen real estate in player is restricted, in general, assume that readability and usability is important for large screens with high resolution.
-  - Add **2 more px** to every font size style. If the pixel size is generally chosen based on a design hierarchy of size by type of usage of the text, update that hierarchy concept to reflect these new settings.
-  - If the pixel size is somehow non-standard when adding 2 (e.g. fractional, or uncommon numbers), slide it up to the next highest standard pixel size (e.g. 10.5px + 2px = 12.5px -> slide up to 13px or 14px as appropriate, ensuring minimum is always at least 12px).
-  - Update any underlying design hierarchies and component layout structures to reflect these new font size baselines. Let the structure adapt as necessary to handle the increased text sizes. Only adjust font pixel sizes or font sizing guidelines; let layouts fail or overlap. Do not adjust icons, spacing, layout, etc. unless explicitly asked.
+- **Tailwind Utility Class Sizing Strategy & Global Customization**:
+  - All text elements must use standard Tailwind Utility Classes (`text-xs`, `text-sm`, `text-base`, `text-lg`, `text-xl`, etc.) rather than explicit pixel values (like `text-[12px]` or `text-[14px]`).
+  - Explicit pixel sizing (e.g., `text-[10px]`) must ONLY be used when you need a specific font size that is not part of Tailwind's standard definition set. Font usages for indicators and graphical elements (such as clock faces, SVG labels, and arrows) are excluded from this standard rule and should maintain their explicit pixel values (e.g., `text-[9px]`, `text-[10px]`, `text-[11px]`, or `text-[17px]`).
+  - When asked to make an element or text larger or smaller, do not use custom pixel values; instead, slide up or down to the next standard Tailwind Utility Class (e.g., transitioning from `text-xs` to `text-sm`, or `text-base` to `text-lg`).
+  - If the user wishes to make "everything" or broad scopes of the application a bit larger globally, suggest modifying the standard Tailwind definitions under the `@theme` block in `src/index.css` (e.g., overriding `--font-size-xs`, `--font-size-sm`, etc.). This approach is clean, centralized, traceable, and avoids polluting individual HTML elements with permanent custom pixel-sizing overrides.
 
 
 ## Communication & Description Guidelines

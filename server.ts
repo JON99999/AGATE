@@ -2,16 +2,16 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { Schedule, LogEntry } from './src/types';
+import { Interstitial, LogEntry, Show } from './src/types';
 
 // Detect safe persistent directory for packaged desktop apps
 const BASE_DIR = process.env.APP_USER_DATA_PATH || process.cwd();
 const DATA_DIR = path.join(BASE_DIR, 'data');
-const LOG_DIR = path.join(BASE_DIR, 'Scheduler Logs');
-const SCHEDULE_FILE_DEFAULT = path.join(DATA_DIR, 'schedules.json');
+const LOG_DIR = path.join(BASE_DIR, 'Calendar Logs');
+const SCHEDULE_FILE_DEFAULT = path.join(DATA_DIR, 'interstitials.json');
 const LOG_FILE_DEFAULT = path.join(LOG_DIR, 'logs.json');
 const LOG_BACKUP_DEFAULT = path.join(LOG_DIR, 'logs_backup.json');
-const SCHEDULE_BACKUP_DEFAULT = path.join(DATA_DIR, 'schedules_backup.json');
+const SCHEDULE_BACKUP_DEFAULT = path.join(DATA_DIR, 'interstitials_backup.json');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 
 // Ensure base directories exist
@@ -31,7 +31,7 @@ let currentSettings = {
   mode: 'Demo',
   localPathMP3s: '',
   localPathLogs: '',
-  localPathSchedules: '',
+  localPathCalendar: '',
   driveFolderLogs: '',
   driveFolderMP3s: '',
   driveFolderPreferences: '',
@@ -49,14 +49,14 @@ try {
 }
 
 // Dynamic Path Resolutions
-function getScheduleFilePath() {
-  if (currentSettings.mode === 'Local' && currentSettings.localPathSchedules) {
-    if (!fs.existsSync(currentSettings.localPathSchedules)) {
+function getCalendarFilePath() {
+  if (currentSettings.mode === 'Local' && currentSettings.localPathCalendar) {
+    if (!fs.existsSync(currentSettings.localPathCalendar)) {
       try {
-        fs.mkdirSync(currentSettings.localPathSchedules, { recursive: true });
+        fs.mkdirSync(currentSettings.localPathCalendar, { recursive: true });
       } catch (e) {}
     }
-    return path.join(currentSettings.localPathSchedules, 'schedules.json');
+    return path.join(currentSettings.localPathCalendar, 'interstitials.json');
   }
   return SCHEDULE_FILE_DEFAULT;
 }
@@ -80,16 +80,21 @@ function getLogBackupPath() {
   return path.join(LOG_DIR, 'backups', 'logs_backup.json');
 }
 
-function getScheduleBackupPath() {
-  if (currentSettings.mode === 'Local' && currentSettings.localPathSchedules) {
-    return path.join(currentSettings.localPathSchedules, 'backups', 'schedules_backup.json');
+function getCalendarBackupPath() {
+  if (currentSettings.mode === 'Local' && currentSettings.localPathCalendar) {
+    return path.join(currentSettings.localPathCalendar, 'backups', 'interstitials_backup.json');
   }
-  return path.join(DATA_DIR, 'backups', 'schedules_backup.json');
+  return path.join(DATA_DIR, 'backups', 'interstitials_backup.json');
 }
 
 function getShowsFilePath() {
-  const schedulePath = getScheduleFilePath();
-  return path.join(path.dirname(schedulePath), 'shows.json');
+  const calendarPath = getCalendarFilePath();
+  return path.join(path.dirname(calendarPath), 'shows.json');
+}
+
+function getShowsBackupPath() {
+  const showsPath = getShowsFilePath();
+  return path.join(path.dirname(showsPath), 'backups', 'shows_backup.json');
 }
 
 // Try detecting Electron context-isolation open dialog options dynamically
@@ -371,11 +376,11 @@ async function startServer() {
   // API - Check if local computer directories exist safely on system
   app.post('/api/check-local-paths', (req, res) => {
     try {
-      const { localPathMP3s, localPathLogs, localPathSchedules } = req.body;
+      const { localPathMP3s, localPathLogs, localPathCalendar } = req.body;
       
       const mp3Exists = localPathMP3s ? fs.existsSync(localPathMP3s) : true;
       const logsExists = localPathLogs ? fs.existsSync(localPathLogs) : true;
-      const schedExists = localPathSchedules ? fs.existsSync(localPathSchedules) : true;
+      const schedExists = localPathCalendar ? fs.existsSync(localPathCalendar) : true;
 
       res.json({
         exists: mp3Exists && logsExists && schedExists,
@@ -391,10 +396,10 @@ async function startServer() {
   // API - Create local directories on request
   app.post('/api/create-local-paths', (req, res) => {
     try {
-      const { localPathMP3s, localPathLogs, localPathSchedules } = req.body;
+      const { localPathMP3s, localPathLogs, localPathCalendar } = req.body;
       let createdCount = 0;
 
-      [localPathMP3s, localPathLogs, localPathSchedules].forEach(dirPath => {
+      [localPathMP3s, localPathLogs, localPathCalendar].forEach(dirPath => {
         if (dirPath && !fs.existsSync(dirPath)) {
           fs.mkdirSync(dirPath, { recursive: true });
           createdCount++;
@@ -592,10 +597,10 @@ async function startServer() {
     }
   });
 
-  // API - Schedule
-  app.get('/api/schedules', (req, res) => {
+  // API - Interstitial
+  app.get('/api/interstitials', (req, res) => {
     try {
-      const filePath = getScheduleFilePath();
+      const filePath = getCalendarFilePath();
       if (!fs.existsSync(filePath)) {
         return res.json([]);
       }
@@ -611,32 +616,32 @@ async function startServer() {
     }
   });
 
-  app.post('/api/schedules', (req, res) => {
+  app.post('/api/interstitials', (req, res) => {
     try {
-      const filePath = getScheduleFilePath();
+      const filePath = getCalendarFilePath();
       const parentDir = path.dirname(filePath);
       if (!fs.existsSync(parentDir)) {
         fs.mkdirSync(parentDir, { recursive: true });
       }
       
-      const schedules: Schedule[] = req.body;
+      const schedules: Interstitial[] = req.body;
       let counter = 0;
       if (fs.existsSync(filePath)) {
         const data = fs.readFileSync(filePath, 'utf-8');
         try {
           const parsed = JSON.parse(data || '{}');
           if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            counter = parsed.ScheduleBackupCounter || 0;
+            counter = parsed.InterstitialsBackupCounter || 0;
           }
         } catch (pe) {}
       }
       counter += 1; // Increment on every backup / save operation
-      const updatedObj = { ScheduleBackupCounter: counter, data: schedules };
+      const updatedObj = { InterstitialsBackupCounter: counter, data: schedules };
       fs.writeFileSync(filePath, JSON.stringify(updatedObj, null, 2));
 
       // Simple backup mechanism for schedules to match conventions of logs
       try {
-        const backupPath = getScheduleBackupPath();
+        const backupPath = getCalendarBackupPath();
         if (backupPath) {
           const backupParent = path.dirname(backupPath);
           if (!fs.existsSync(backupParent)) {
@@ -757,11 +762,15 @@ async function startServer() {
         if (!fs.existsSync(parentDir)) {
           fs.mkdirSync(parentDir, { recursive: true });
         }
-        fs.writeFileSync(filePath, JSON.stringify(defaultShows, null, 2));
+        const wrappedObj = { ShowsBackupCounter: 0, data: defaultShows };
+        fs.writeFileSync(filePath, JSON.stringify(wrappedObj, null, 2));
         return res.json(defaultShows);
       }
       const data = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(data || '[]');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return res.json(Array.isArray(parsed.data) ? parsed.data : []);
+      }
       res.json(Array.isArray(parsed) ? parsed : []);
     } catch (e) {
       console.error('Failed to read shows:', e);
@@ -776,8 +785,35 @@ async function startServer() {
       if (!fs.existsSync(parentDir)) {
         fs.mkdirSync(parentDir, { recursive: true });
       }
-      const shows = req.body;
-      fs.writeFileSync(filePath, JSON.stringify(shows, null, 2));
+      const shows: Show[] = req.body;
+      let counter = 0;
+      if (fs.existsSync(filePath)) {
+        const data = fs.readFileSync(filePath, 'utf-8');
+        try {
+          const parsed = JSON.parse(data || '{}');
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            counter = parsed.ShowsBackupCounter || 0;
+          }
+        } catch (pe) {}
+      }
+      counter += 1;
+      const updatedObj = { ShowsBackupCounter: counter, data: shows };
+      fs.writeFileSync(filePath, JSON.stringify(updatedObj, null, 2));
+
+      // Simple backup mechanism for shows to match conventions of schedules/logs
+      try {
+        const backupPath = getShowsBackupPath();
+        if (backupPath) {
+          const backupParent = path.dirname(backupPath);
+          if (!fs.existsSync(backupParent)) {
+            fs.mkdirSync(backupParent, { recursive: true });
+          }
+          fs.writeFileSync(backupPath, JSON.stringify(updatedObj, null, 2));
+        }
+      } catch (e) {
+        console.error('Shows backup copy failed:', e);
+      }
+
       res.json({ success: true });
     } catch (e: any) {
       console.error('Failed to save shows:', e);
@@ -803,7 +839,16 @@ async function startServer() {
       let shows: any[] = [];
       if (fs.existsSync(showsFilePath)) {
         const data = fs.readFileSync(showsFilePath, 'utf-8');
-        shows = JSON.parse(data || '[]');
+        try {
+          const parsed = JSON.parse(data || '[]');
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            shows = Array.isArray(parsed.data) ? parsed.data : [];
+          } else {
+            shows = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (pe) {
+          shows = [];
+        }
       }
 
       const createdFolders: string[] = [];
@@ -995,20 +1040,20 @@ async function startServer() {
   // API - Trigger local schedules and logs archiving/backup
   app.post('/api/trigger-backup', (req, res) => {
     try {
-      const schedulePath = getScheduleFilePath();
+      const calendarPath = getCalendarFilePath();
       const logPath = getLogFilePath();
 
       // Backup schedules
-      if (!fs.existsSync(schedulePath)) {
-        const scheduleDir = path.dirname(schedulePath);
-        if (scheduleDir && !fs.existsSync(scheduleDir)) {
-          fs.mkdirSync(scheduleDir, { recursive: true });
+      if (!fs.existsSync(calendarPath)) {
+        const calendarDir = path.dirname(calendarPath);
+        if (calendarDir && !fs.existsSync(calendarDir)) {
+          fs.mkdirSync(calendarDir, { recursive: true });
         }
-        fs.writeFileSync(schedulePath, JSON.stringify({ ScheduleBackupCounter: 0, data: [] }, null, 2));
+        fs.writeFileSync(calendarPath, JSON.stringify({ InterstitialsBackupCounter: 0, data: [] }, null, 2));
       }
 
-      if (fs.existsSync(schedulePath)) {
-        const data = fs.readFileSync(schedulePath, 'utf-8');
+      if (fs.existsSync(calendarPath)) {
+        const data = fs.readFileSync(calendarPath, 'utf-8');
         let parsed;
         try {
           parsed = JSON.parse(data || '[]');
@@ -1017,15 +1062,15 @@ async function startServer() {
         }
 
         let arrayData = Array.isArray(parsed) ? parsed : (parsed.data || []);
-        let currentCounter = Array.isArray(parsed) ? 1 : ((parsed.ScheduleBackupCounter || 0) + 1);
+        let currentCounter = Array.isArray(parsed) ? 1 : ((parsed.InterstitialsBackupCounter || 0) + 1);
 
         const updatedObj = {
-          ScheduleBackupCounter: currentCounter,
+          InterstitialsBackupCounter: currentCounter,
           data: arrayData
         };
 
         const updatedStr = JSON.stringify(updatedObj, null, 2);
-        fs.writeFileSync(schedulePath, updatedStr);
+        fs.writeFileSync(calendarPath, updatedStr);
 
         const now = new Date();
         const yyyy = now.getFullYear();
@@ -1033,18 +1078,18 @@ async function startServer() {
         const dd = String(now.getDate()).padStart(2, '0');
         const formattedDate = `${yyyy}_${mm}_${dd}`;
         const padCounter = String(currentCounter).padStart(8, '0');
-        const backupFileName = `schedules_Backup_${formattedDate}_${padCounter}.json`;
+        const backupFileName = `interstitials_Backup_${formattedDate}_${padCounter}.json`;
 
-        const scheduleDir = path.dirname(schedulePath);
-        const scheduleBackupDir = path.join(scheduleDir, 'backups');
-        if (!fs.existsSync(scheduleBackupDir)) {
-          fs.mkdirSync(scheduleBackupDir, { recursive: true });
+        const calendarDir = path.dirname(calendarPath);
+        const calendarBackupDir = path.join(calendarDir, 'backups');
+        if (!fs.existsSync(calendarBackupDir)) {
+          fs.mkdirSync(calendarBackupDir, { recursive: true });
         }
-        fs.writeFileSync(path.join(scheduleBackupDir, backupFileName), updatedStr);
+        fs.writeFileSync(path.join(calendarBackupDir, backupFileName), updatedStr);
 
         // Also save to schedules_backup.json
         try {
-          const backupPath = getScheduleBackupPath();
+          const backupPath = getCalendarBackupPath();
           if (backupPath) {
             const backupParent = path.dirname(backupPath);
             if (!fs.existsSync(backupParent)) {
@@ -1113,6 +1158,66 @@ async function startServer() {
           }
         } catch (e) {
           console.error('Logs trigger backup failed to copy:', e);
+        }
+      }
+
+      // Backup shows
+      const showsPath = getShowsFilePath();
+      if (!fs.existsSync(showsPath)) {
+        const showsDir = path.dirname(showsPath);
+        if (showsDir && !fs.existsSync(showsDir)) {
+          fs.mkdirSync(showsDir, { recursive: true });
+        }
+        fs.writeFileSync(showsPath, JSON.stringify({ ShowsBackupCounter: 0, data: [] }, null, 2));
+      }
+
+      if (fs.existsSync(showsPath)) {
+        const data = fs.readFileSync(showsPath, 'utf-8');
+        let parsed;
+        try {
+          parsed = JSON.parse(data || '[]');
+        } catch (pe) {
+          parsed = [];
+        }
+
+        let arrayData = Array.isArray(parsed) ? parsed : (parsed.data || []);
+        let currentCounter = Array.isArray(parsed) ? 1 : ((parsed.ShowsBackupCounter || 0) + 1);
+
+        const updatedObj = {
+          ShowsBackupCounter: currentCounter,
+          data: arrayData
+        };
+
+        const updatedStr = JSON.stringify(updatedObj, null, 2);
+        fs.writeFileSync(showsPath, updatedStr);
+
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const formattedDate = `${yyyy}_${mm}_${dd}`;
+        const padCounter = String(currentCounter).padStart(8, '0');
+        const backupFileName = `shows_Backup_${formattedDate}_${padCounter}.json`;
+
+        const showsDir = path.dirname(showsPath);
+        const showsBackupDir = path.join(showsDir, 'backups');
+        if (!fs.existsSync(showsBackupDir)) {
+          fs.mkdirSync(showsBackupDir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(showsBackupDir, backupFileName), updatedStr);
+
+        // Also save to shows_backup.json
+        try {
+          const backupPath = getShowsBackupPath();
+          if (backupPath) {
+            const backupParent = path.dirname(backupPath);
+            if (!fs.existsSync(backupParent)) {
+              fs.mkdirSync(backupParent, { recursive: true });
+            }
+            fs.writeFileSync(backupPath, updatedStr);
+          }
+        } catch (e) {
+          console.error('Shows trigger backup failed to copy:', e);
         }
       }
 
@@ -1197,15 +1302,15 @@ async function startServer() {
         const safeSlotTime = typeof itemSlotTime === 'string' ? itemSlotTime.replace(/:/g, '-') : '00-00';
         
         // Remove prohibited file characters in scheduleName
-        const rawName = item.scheduleName || 'Unnamed Break';
-        const safeScheduleName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
+        const rawName = item.interstitialName || 'Unnamed Break';
+        const safeInterstitialName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
         
         const sourceFileName = item.fileName || '';
         const ext = path.extname(sourceFileName) || '.mp3';
         
         // Construct sequential file name as requested
         const paddedIdx = String(itemIdx).padStart(2, '0');
-        const targetFileName = `Break ${paddedIdx} at ${safeSlotTime} - ${safeScheduleName}${ext}`;
+        const targetFileName = `Break ${paddedIdx} at ${safeSlotTime} - ${safeInterstitialName}${ext}`;
         
         const sourceFilePath = path.join(sourceFolder, path.basename(sourceFileName));
         const destFilePath = path.join(exportFolderPath, targetFileName);
@@ -1228,7 +1333,7 @@ async function startServer() {
         fileReport.push({
           index: itemIdx,
           slotTime: itemSlotTime,
-          scheduleName: rawName,
+          interstitialName: rawName,
           originalFile: sourceFileName,
           exportedFile: targetFileName,
           status

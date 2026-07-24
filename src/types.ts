@@ -3,23 +3,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export enum ScheduleType {
+export enum InterstitialType {
   ONE_TIME = 'one-time',
   BASIC_HOURLY = 'basic-hourly',
   ADVANCED = 'advanced',
 }
 
-export interface ScheduleMetadata {
+export interface InterstitialMetadata {
   createdBy: string;
   createdDate: string;
   lastModifiedBy: string;
   lastModifiedDate: string;
 }
 
-export interface Schedule {
+export interface Interstitial {
   id: string;
   name: string;
-  type: ScheduleType;
+  type: InterstitialType;
   mp3Url: string;
   enabled: boolean;
   minute: number; // 0-59
@@ -33,17 +33,18 @@ export interface Schedule {
   // General restrictions
   startDate?: string;
   endDate?: string;
-  metadata: ScheduleMetadata;
+  metadata: InterstitialMetadata;
   duration?: string;
   assetType?: 'audio' | 'script';
+  approximateReadTime?: string;
 }
 
 export interface LogEntry {
   timestamp: string;
-  scheduledTime?: string;
+  interstitialTime?: string;
   mp3Name: string;
-  scheduleName: string;
-  scheduleId: string;
+  interstitialName: string;
+  interstitialId: string;
   status: 'played' | 'skipped' | 'failed';
   playMode?: 'Live' | 'Prerecord' | 'Export';
   logTimeStamp?: string;

@@ -45,12 +45,18 @@ try {
   console.log('Using default App Mode: Admin');
 }
 
-function getFreePort(startingPort = 3000) {
-  return new Promise((resolve) => {
+function getFreePort(startingPort = 3000, attempts = 0, maxAttempts = 100) {
+  return new Promise((resolve, reject) => {
+    if (attempts >= maxAttempts) {
+      reject(new Error(`Could not find a free port within ${maxAttempts} attempts starting from port 3000.`));
+      return;
+    }
     const server = net.createServer();
     server.unref();
     server.on('error', () => {
-      resolve(getFreePort(startingPort + 1));
+      getFreePort(startingPort + 1, attempts + 1, maxAttempts)
+        .then(resolve)
+        .catch(reject);
     });
     server.listen(startingPort, '127.0.0.1', () => {
       const { port } = server.address();
@@ -112,11 +118,11 @@ function createWindow() {
 
     try {
       const primaryDisplay = screen.getPrimaryDisplay();
-      const { height } = primaryDisplay.workAreaSize;
+      const { x, y, width, height } = primaryDisplay.workArea;
       windowOptions.width = 250;
       windowOptions.height = height;
-      windowOptions.x = 0;
-      windowOptions.y = 0;
+      windowOptions.x = x + width - 250;
+      windowOptions.y = y;
       windowOptions.minWidth = 250;
       windowOptions.maxWidth = 250;
     } catch (e) {
