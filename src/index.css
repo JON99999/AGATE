@@ -76,19 +76,21 @@
   --show-shade-odd-border: #685315;
   --show-shade-even-bg: #1f1a08;
   --show-shade-even-border: #524011;
+  --show-shade-none-bg: #1e293b;
+  --show-shade-none-border: #475569;
 
   color-scheme: dark;
 }
 
 [data-theme="dark-test"] {
-  /* Proposed Dark Mode Improvements (Dark Test) */
+  /* Font / Text Colors */
   --fg-primary: #f8fafc;      /* slate-50 */
   --fg-secondary: #cbd5e1;    /* slate-300 */
   --fg-muted: #94a3b8;        /* slate-400 */
   --fg-dim: #64748b;          /* slate-500 */
   --fg-inverse: #0f172a;      /* slate-900 */
 
-  /* Higher-contrast background structure */
+  /* Background Colors */
   --bg-app: #020617;          /* slate-950 deep canvas background */
   --bg-surface: #0f172a;      /* slate-900 card surface */
   --bg-surface-elevated: #1e293b; /* slate-800 elevated modals/popups */
@@ -96,15 +98,18 @@
   --bg-header: #020617;       /* slate-950 */
   --bg-hover: #1e293b;        /* slate-800 */
 
-  /* Crisp slate borders for panel separation */
+  /* Border Colors */
   --border-main: #334155;     /* slate-700 crisp card borders */
   --border-subtle: #1e293b;   /* slate-800 subtle dividers */
   --border-strong: #475569;   /* slate-600 prominent borders */
 
-  --show-shade-odd-bg: #28200a;
-  --show-shade-odd-border: #685315;
-  --show-shade-even-bg: #1f1a08;
-  --show-shade-even-border: #524011;
+  /* Show Shade Colors - Colorhunt guide inspired standard dark mode scheme (#2f3032 / #383a56 with #b0a565 / #ede68a) */
+  --show-shade-odd-bg: #383a56;
+  --show-shade-odd-border: #b0a565;
+  --show-shade-even-bg: #2f3032;
+  --show-shade-even-border: #ede68a;
+  --show-shade-none-bg: #1e293b;
+  --show-shade-none-border: #475569;
 
   color-scheme: dark;
 }
@@ -478,9 +483,26 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 /* === SPECIFIC DARK & DARK TEST THEME OVERRIDES === */
-/* Targeted multi-layer adjustments for Player Cards, Calendar Grid, Interstitial & Shows Views, and Shared Components */
 
-/* 1. Multi-Layer Player Cards Construction (Live, Prerecord, Export) */
+/* 1. Player Card Lower Portion Background Corrections in Dark & Dark Test (Requirement 2 & 1) */
+[data-theme="dark"] .bg-\[\#fffbeb\],
+.dark .bg-\[\#fffbeb\],
+[data-theme="dark-test"] .bg-\[\#fffbeb\],
+[data-theme="dark"] .bg-\[\#f0f9ff\],
+.dark .bg-\[\#f0f9ff\],
+[data-theme="dark-test"] .bg-\[\#f0f9ff\],
+[data-theme="dark"] .bg-\[\#faf5ff\],
+.dark .bg-\[\#faf5ff\],
+[data-theme="dark-test"] .bg-\[\#faf5ff\],
+[data-theme="dark"] .bg-\[\#f0fdf4\],
+.dark .bg-\[\#f0fdf4\],
+[data-theme="dark-test"] .bg-\[\#f0fdf4\],
+[data-theme="dark"] .bg-\[\#fef2f2\],
+.dark .bg-\[\#fef2f2\],
+[data-theme="dark-test"] .bg-\[\#fef2f2\] {
+  background-color: #0f172a !important;
+}
+
 [data-theme="dark"] .rounded-t.bg-slate-100,
 .dark .rounded-t.bg-slate-100,
 [data-theme="dark-test"] .rounded-t.bg-slate-100,
@@ -490,29 +512,31 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 [data-theme="dark"] .rounded-t.bg-slate-100\/90,
 .dark .rounded-t.bg-slate-100\/90,
 [data-theme="dark-test"] .rounded-t.bg-slate-100\/90 {
-  background-color: #1e293b !important; /* Elevated slate-800 header strip */
-  border-bottom: 1px solid #334155 !important; /* Clean slate-700 separator */
+  background-color: #1e293b !important;
+  border-bottom: 1px solid #334155 !important;
 }
 
-/* Crisp Slate borders on card containers */
+/* Preserving top, right, and bottom border while allowing border-left-color highlight (Requirement 5) */
 [data-theme="dark"] .rounded.border.shadow-sm,
 .dark .rounded.border.shadow-sm,
 [data-theme="dark-test"] .rounded.border.shadow-sm {
-  border-color: #334155;
+  border-top-color: #334155;
+  border-right-color: #334155;
+  border-bottom-color: #334155;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
-/* Enhanced contrast for player card date/time text */
+/* High contrast text inside player card titles & headers */
 [data-theme="dark"] .text-slate-600,
 .dark .text-slate-600,
 [data-theme="dark-test"] .text-slate-600,
 [data-theme="dark"] .text-slate-500,
 .dark .text-slate-500,
 [data-theme="dark-test"] .text-slate-500 {
-  color: #94a3b8 !important; /* High contrast slate-400 */
+  color: #94a3b8 !important;
 }
 
-/* High-contrast status badges and amber warning banners in Dark & Dark Test */
+/* High-contrast status badges in Dark & Dark Test */
 [data-theme="dark"] .bg-amber-50,
 .dark .bg-amber-50,
 [data-theme="dark-test"] .bg-amber-50,
@@ -532,6 +556,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 [data-theme="dark-test"] [class*="bg-amber-50"] .text-amber-900 {
   color: #fef08a !important;
 }
+
 [data-theme="dark"] .bg-emerald-50,
 .dark .bg-emerald-50,
 [data-theme="dark-test"] .bg-emerald-50 {
@@ -539,6 +564,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: #34d399 !important;
   border-color: #059669 !important;
 }
+
 [data-theme="dark"] .bg-green-50,
 .dark .bg-green-50,
 [data-theme="dark-test"] .bg-green-50 {
@@ -546,6 +572,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: #34d399 !important;
   border-color: #059669 !important;
 }
+
 [data-theme="dark"] .bg-red-50,
 .dark .bg-red-50,
 [data-theme="dark-test"] .bg-red-50 {
@@ -554,8 +581,109 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-color: #dc2626 !important;
 }
 
-/* 2. Calendar Page Grid & Layout Enhancements (Calendar, Interstitials, Shows Views) */
-/* Calendar grid & editor container frames */
+/* 2. Show Highlighting Light Text in Dark Mode */
+[data-theme="dark"] .text-black,
+.dark .text-black {
+  color: #fff6bc !important;
+}
+
+[data-theme="dark"] [style*="background-color: rgb(255, 246, 188)"],
+.dark [style*="background-color: rgb(255, 246, 188)"],
+[data-theme="dark"] [style*="background-color: #FFF6BC"],
+.dark [style*="background-color: #FFF6BC"],
+[data-theme="dark"] [style*="background-color: #FFE385"],
+.dark [style*="background-color: #FFE385"],
+[data-theme="dark"] [style*="background-color: #FEF08A"],
+.dark [style*="background-color: #FEF08A"],
+[data-theme="dark"] [style*="background-color: #FEF9C3"],
+.dark [style*="background-color: #FEF9C3"],
+[data-theme="dark"] [style*="background-color: #FEF3C7"],
+.dark [style*="background-color: #FEF3C7"] {
+  background-color: #28200a !important;
+  border-color: #685315 !important;
+  color: #fff6bc !important;
+}
+
+[data-theme="dark"] [style*="background-color: rgb(255, 246, 188)"] *,
+.dark [style*="background-color: rgb(255, 246, 188)"] *,
+[data-theme="dark"] [style*="background-color: #FFF6BC"] *,
+.dark [style*="background-color: #FFF6BC"] *,
+[data-theme="dark"] [style*="background-color: #FFE385"] *,
+.dark [style*="background-color: #FFE385"] * {
+  color: #fff6bc !important;
+}
+
+/* 3. Calendar Admin Challenge Button in Dark & Dark Test (Requirement 4) */
+[data-theme="dark"] .admin-challenge-btn,
+.dark .admin-challenge-btn,
+[data-theme="dark-test"] .admin-challenge-btn {
+  background-color: #f59e0b !important;
+  color: #020617 !important;
+  font-weight: 900 !important;
+  border: 1px solid #fcd34d !important;
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.4) !important;
+}
+[data-theme="dark"] .admin-challenge-btn:hover,
+.dark .admin-challenge-btn:hover,
+[data-theme="dark-test"] .admin-challenge-btn:hover {
+  background-color: #fbbf24 !important;
+  color: #000000 !important;
+}
+
+/* 4. Log, Interstitial & Calendar Grid Lines & Dividers (Requirement 6) */
+[data-theme="dark"] .border-grid-active,
+.dark .border-grid-active,
+[data-theme="dark-test"] .border-grid-active,
+[data-theme="dark"] .border-grid-inactive,
+.dark .border-grid-inactive,
+[data-theme="dark-test"] .border-grid-inactive,
+[data-theme="dark"] .border-b.border-grid-active,
+.dark .border-b.border-grid-active,
+[data-theme="dark-test"] .border-b.border-grid-active,
+[data-theme="dark"] .divide-grid-active > *,
+.dark .divide-grid-active > *,
+[data-theme="dark-test"] .divide-grid-active > *,
+[data-theme="dark"] .divide-y > *,
+.dark .divide-y > *,
+[data-theme="dark-test"] .divide-y > * {
+  border-bottom-color: #1e293b !important;
+  border-top-color: #1e293b !important;
+  border-right-color: #1e293b !important;
+}
+
+[data-theme="dark"] .border-r.border-slate-200,
+.dark .border-r.border-slate-200,
+[data-theme="dark-test"] .border-r.border-slate-200,
+[data-theme="dark"] .border-b.border-slate-150,
+.dark .border-b.border-slate-150,
+[data-theme="dark-test"] .border-b.border-slate-150,
+[data-theme="dark"] .border-slate-200,
+.dark .border-slate-200,
+[data-theme="dark-test"] .border-slate-200,
+[data-theme="dark"] .border-slate-300,
+.dark .border-slate-300,
+[data-theme="dark-test"] .border-slate-300,
+[data-theme="dark"] .border-slate-350,
+.dark .border-slate-350,
+[data-theme="dark-test"] .border-slate-350 {
+  border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .bg-slate-200,
+.dark .bg-slate-200,
+[data-theme="dark-test"] .bg-slate-200,
+[data-theme="dark"] .bg-slate-300,
+.dark .bg-slate-300,
+[data-theme="dark-test"] .bg-slate-300 {
+  background-color: #1e293b !important;
+}
+
+[data-theme="dark"] .bg-slate-205,
+.dark .bg-slate-205,
+[data-theme="dark-test"] .bg-slate-205 {
+  background-color: #0b1120 !important;
+}
+
 [data-theme="dark"] .border.border-slate-200.rounded-xl,
 .dark .border.border-slate-200.rounded-xl,
 [data-theme="dark-test"] .border.border-slate-200.rounded-xl {
@@ -564,7 +692,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
-/* Calendar Header Row (Hour & Days) & Section Header Strips */
 [data-theme="dark"] .grid.bg-slate-100,
 .dark .grid.bg-slate-100,
 [data-theme="dark-test"] .grid.bg-slate-100,
@@ -575,7 +702,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-bottom: 1px solid #334155 !important;
 }
 
-/* Today's Column Highlight in Calendar Header */
 [data-theme="dark"] .bg-blue-500\/10,
 .dark .bg-blue-500\/10,
 [data-theme="dark-test"] .bg-blue-500\/10 {
@@ -583,17 +709,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: #38bdf8 !important;
 }
 
-/* Calendar Hour Column & Cell Grid Lines */
-[data-theme="dark"] .border-r.border-slate-200,
-.dark .border-r.border-slate-200,
-[data-theme="dark-test"] .border-r.border-slate-200,
-[data-theme="dark"] .border-b.border-slate-150,
-.dark .border-b.border-slate-150,
-[data-theme="dark-test"] .border-b.border-slate-150 {
-  border-color: #1e293b !important;
-}
-
-/* Hour column background */
 [data-theme="dark"] .bg-slate-50\/50,
 .dark .bg-slate-50\/50,
 [data-theme="dark-test"] .bg-slate-50\/50 {
@@ -601,18 +716,308 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: #94a3b8 !important;
 }
 
-/* 3. Shared Show Header Ribbon Banners (Player & Calendar Views) */
-[data-theme="dark"] [style*="background-color: rgb(255, 246, 188)"],
-.dark [style*="background-color: rgb(255, 246, 188)"],
-[data-theme="dark-test"] [style*="background-color: rgb(255, 246, 188)"],
-[data-theme="dark"] [style*="background-color: #FFF6BC"],
-.dark [style*="background-color: #FFF6BC"],
-[data-theme="dark-test"] [style*="background-color: #FFF6BC"],
-[data-theme="dark"] [style*="background-color: #FFE385"],
-.dark [style*="background-color: #FFE385"],
-[data-theme="dark-test"] [style*="background-color: #FFE385"] {
-  background-color: #28200a !important;
-  border-color: #685315 !important;
+/* Dark Test specific darkening for Areas 1, 2, 3 */
+
+/* Area 1: Top and bottom bars of the Sync folder & Setup guide popup (LocalHelpModal) applied to Dark and Dark Test */
+[data-theme="dark"] .bg-slate-50\/80,
+.dark .bg-slate-50\/80,
+[data-theme="dark-test"] .bg-slate-50\/80 {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+/* Area 3: Unselected week/day and unselected Full/compact toggle buttons applied to Dark and Dark Test */
+[data-theme="dark"] .inline-flex.bg-slate-200\/70,
+.dark .inline-flex.bg-slate-200\/70,
+[data-theme="dark-test"] .inline-flex.bg-slate-200\/70,
+[data-theme="dark"] .inline-flex.bg-slate-200,
+.dark .inline-flex.bg-slate-200,
+[data-theme="dark-test"] .inline-flex.bg-slate-200 {
+  background-color: #020617 !important;
+  border-color: #334155 !important;
+}
+[data-theme="dark"] .inline-flex.bg-slate-200\/70 button:not(.bg-white),
+.dark .inline-flex.bg-slate-200\/70 button:not(.bg-white),
+[data-theme="dark-test"] .inline-flex.bg-slate-200\/70 button:not(.bg-white),
+[data-theme="dark"] .inline-flex.bg-slate-200 button:not(.bg-white),
+.dark .inline-flex.bg-slate-200 button:not(.bg-white),
+[data-theme="dark-test"] .inline-flex.bg-slate-200 button:not(.bg-white) {
+  color: #94a3b8 !important;
+}
+[data-theme="dark"] .inline-flex.bg-slate-200\/70 button.bg-white,
+.dark .inline-flex.bg-slate-200\/70 button.bg-white,
+[data-theme="dark-test"] .inline-flex.bg-slate-200\/70 button.bg-white,
+[data-theme="dark"] .inline-flex.bg-slate-200 button.bg-white,
+.dark .inline-flex.bg-slate-200 button.bg-white,
+[data-theme="dark-test"] .inline-flex.bg-slate-200 button.bg-white {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+/* Area 6 / Task C: Left Border Highlights for Log, Player, and Grid Items in Dark & Dark Test */
+[data-theme="dark"] .border-l-4,
+.dark .border-l-4,
+[data-theme="dark-test"] .border-l-4,
+[data-theme="dark"] .border-l-\[4px\],
+.dark .border-l-\[4px\],
+[data-theme="dark-test"] .border-l-\[4px\] {
+  border-left-width: 4px !important;
+  border-left-style: solid !important;
+}
+
+[data-theme="dark"] .border-l-blue-500,
+.dark .border-l-blue-500,
+[data-theme="dark-test"] .border-l-blue-500,
+[data-theme="dark"] .border-l-blue-600,
+.dark .border-l-blue-600,
+[data-theme="dark-test"] .border-l-blue-600,
+[data-theme="dark"] [class*="border-l-blue"],
+.dark [class*="border-l-blue"],
+[data-theme="dark-test"] [class*="border-l-blue"] {
+  border-left-color: #3b82f6 !important;
+}
+
+[data-theme="dark"] .border-l-purple-500,
+.dark .border-l-purple-500,
+[data-theme="dark-test"] .border-l-purple-500,
+[data-theme="dark"] .border-l-purple-600,
+.dark .border-l-purple-600,
+[data-theme="dark-test"] .border-l-purple-600,
+[data-theme="dark"] [class*="border-l-purple"],
+.dark [class*="border-l-purple"],
+[data-theme="dark-test"] [class*="border-l-purple"] {
+  border-left-color: #a855f7 !important;
+}
+
+[data-theme="dark"] .border-l-emerald-500,
+.dark .border-l-emerald-500,
+[data-theme="dark-test"] .border-l-emerald-500,
+[data-theme="dark"] .border-l-emerald-600,
+.dark .border-l-emerald-600,
+[data-theme="dark-test"] .border-l-emerald-600,
+[data-theme="dark"] [class*="border-l-emerald"],
+.dark [class*="border-l-emerald"],
+[data-theme="dark-test"] [class*="border-l-emerald"] {
+  border-left-color: #10b981 !important;
+}
+
+/* ==========================================================================
+   DARK TEST & DARK MODE SPECIFIC OVERRIDES
+   ========================================================================== */
+
+/* Item 2: Show title font and horizontal rule styling in Dark Test mode */
+[data-theme="dark-test"] [style*="background-color: var(--show-shade-odd-bg)"],
+[data-theme="dark-test"] [style*="background-color: var(--show-shade-even-bg)"],
+[data-theme="dark-test"] [style*="background-color: #383a56"],
+[data-theme="dark-test"] [style*="background-color: #2f3032"] {
+  color: #ede68a !important;
+}
+
+[data-theme="dark-test"] [style*="background-color: var(--show-shade-odd-bg)"] .font-sans,
+[data-theme="dark-test"] [style*="background-color: var(--show-shade-even-bg)"] .font-sans,
+[data-theme="dark-test"] [style*="background-color: #383a56"] .font-sans,
+[data-theme="dark-test"] [style*="background-color: #2f3032"] .font-sans {
+  color: #ede68a !important;
+}
+
+/* Item 3: Calendar Cards in Dark Mode & Dark Test - Dark card background with distinct left-side border highlighting */
+[data-theme="dark"] .bg-purple-50,
+.dark .bg-purple-50,
+[data-theme="dark-test"] .bg-purple-50,
+[data-theme="dark"] .bg-purple-100,
+.dark .bg-purple-100,
+[data-theme="dark-test"] .bg-purple-100 {
+  background-color: rgba(147, 51, 234, 0.18) !important;
+  color: #e9d5ff !important;
+}
+[data-theme="dark"] .bg-purple-50 *,
+.dark .bg-purple-50 *,
+[data-theme="dark-test"] .bg-purple-50 *,
+[data-theme="dark"] .bg-purple-100 *,
+.dark .bg-purple-100 *,
+[data-theme="dark-test"] .bg-purple-100 * {
+  color: #e9d5ff !important;
+}
+
+[data-theme="dark"] .bg-blue-50,
+.dark .bg-blue-50,
+[data-theme="dark-test"] .bg-blue-50,
+[data-theme="dark"] .bg-blue-100,
+.dark .bg-blue-100,
+[data-theme="dark-test"] .bg-blue-100 {
+  background-color: rgba(37, 99, 235, 0.18) !important;
+  color: #bfdbfe !important;
+}
+[data-theme="dark"] .bg-blue-50 *,
+.dark .bg-blue-50 *,
+[data-theme="dark-test"] .bg-blue-50 *,
+[data-theme="dark"] .bg-blue-100 *,
+.dark .bg-blue-100 *,
+[data-theme="dark-test"] .bg-blue-100 * {
+  color: #bfdbfe !important;
+}
+
+[data-theme="dark"] .bg-orange-50,
+.dark .bg-orange-50,
+[data-theme="dark-test"] .bg-orange-50,
+[data-theme="dark"] .bg-orange-100,
+.dark .bg-orange-100,
+[data-theme="dark-test"] .bg-orange-100 {
+  background-color: rgba(234, 88, 12, 0.18) !important;
+  color: #fed7aa !important;
+}
+[data-theme="dark"] .bg-orange-50 *,
+.dark .bg-orange-50 *,
+[data-theme="dark-test"] .bg-orange-50 *,
+[data-theme="dark"] .bg-orange-100 *,
+.dark .bg-orange-100 *,
+[data-theme="dark-test"] .bg-orange-100 * {
+  color: #fed7aa !important;
+}
+
+/* Ensure left-side border accent highlights pop crisply on calendar cards in Dark and Dark Test */
+[data-theme="dark"] .border-l-purple-500,
+.dark .border-l-purple-500,
+[data-theme="dark-test"] .border-l-purple-500,
+[data-theme="dark"] .border-l-purple-600,
+.dark .border-l-purple-600,
+[data-theme="dark-test"] .border-l-purple-600,
+[data-theme="dark"] [class*="border-l-purple"],
+.dark [class*="border-l-purple"],
+[data-theme="dark-test"] [class*="border-l-purple"] {
+  border-left-color: #c084fc !important;
+}
+
+[data-theme="dark"] .border-l-blue-500,
+.dark .border-l-blue-500,
+[data-theme="dark-test"] .border-l-blue-500,
+[data-theme="dark"] .border-l-blue-600,
+.dark .border-l-blue-600,
+[data-theme="dark-test"] .border-l-blue-600,
+[data-theme="dark"] [class*="border-l-blue"],
+.dark [class*="border-l-blue"],
+[data-theme="dark-test"] [class*="border-l-blue"] {
+  border-left-color: #60a5fa !important;
+}
+
+[data-theme="dark"] .border-l-emerald-500,
+.dark .border-l-emerald-500,
+[data-theme="dark-test"] .border-l-emerald-500,
+[data-theme="dark"] .border-l-emerald-600,
+.dark .border-l-emerald-600,
+[data-theme="dark-test"] .border-l-emerald-600,
+[data-theme="dark"] [class*="border-l-emerald"],
+.dark [class*="border-l-emerald"],
+[data-theme="dark-test"] [class*="border-l-emerald"] {
+  border-left-color: #34d399 !important;
+}
+
+/* Item 4: Google Drive Status section in Storage Folders modal/tab (Dark & Dark Test) */
+[data-theme="dark"] .bg-emerald-50\/60,
+.dark .bg-emerald-50\/60,
+[data-theme="dark-test"] .bg-emerald-50\/60,
+[data-theme="dark"] .bg-amber-50\/60,
+.dark .bg-amber-50\/60,
+[data-theme="dark-test"] .bg-amber-50\/60,
+[data-theme="dark"] .bg-slate-50,
+.dark .bg-slate-50,
+[data-theme="dark-test"] .bg-slate-50,
+[data-theme="dark"] [class*="bg-emerald-50"],
+.dark [class*="bg-emerald-50"],
+[data-theme="dark-test"] [class*="bg-emerald-50"],
+[data-theme="dark"] [class*="bg-amber-50"],
+.dark [class*="bg-amber-50"],
+[data-theme="dark-test"] [class*="bg-amber-50"] {
+  background-color: #0f172a !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+[data-theme="dark"] .bg-emerald-50\/60 .text-slate-600,
+.dark .bg-emerald-50\/60 .text-slate-600,
+[data-theme="dark-test"] .bg-emerald-50\/60 .text-slate-600,
+[data-theme="dark"] .bg-emerald-50\/60 .text-slate-900,
+.dark .bg-emerald-50\/60 .text-slate-900,
+[data-theme="dark-test"] .bg-emerald-50\/60 .text-slate-900,
+[data-theme="dark"] .bg-amber-50\/60 .text-slate-600,
+.dark .bg-amber-50\/60 .text-slate-600,
+[data-theme="dark-test"] .bg-amber-50\/60 .text-slate-600,
+[data-theme="dark"] .bg-amber-50\/60 .text-slate-900,
+.dark .bg-amber-50\/60 .text-slate-900,
+[data-theme="dark-test"] .bg-amber-50\/60 .text-slate-900,
+[data-theme="dark"] .bg-slate-50 .text-slate-600,
+.dark .bg-slate-50 .text-slate-600,
+[data-theme="dark-test"] .bg-slate-50 .text-slate-600,
+[data-theme="dark"] .bg-slate-50 .text-slate-900,
+.dark .bg-slate-50 .text-slate-900,
+[data-theme="dark-test"] .bg-slate-50 .text-slate-900 {
+  color: #f8fafc !important;
+}
+
+[data-theme="dark"] .bg-emerald-50\/60 .text-slate-500,
+.dark .bg-emerald-50\/60 .text-slate-500,
+[data-theme="dark-test"] .bg-emerald-50\/60 .text-slate-500,
+[data-theme="dark"] .bg-amber-50\/60 .text-slate-500,
+.dark .bg-amber-50\/60 .text-slate-500,
+[data-theme="dark-test"] .bg-amber-50\/60 .text-slate-500,
+[data-theme="dark"] .bg-slate-50 .text-slate-500,
+.dark .bg-slate-50 .text-slate-500,
+[data-theme="dark-test"] .bg-slate-50 .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+/* Item 5: High contrast for Connection Warning and Resource Warning banners in Dark and Dark Test */
+[data-theme="dark"] .bg-red-950\/60,
+.dark .bg-red-950\/60,
+[data-theme="dark-test"] .bg-red-950\/60,
+[data-theme="dark"] .bg-red-950\/40,
+.dark .bg-red-950\/40,
+[data-theme="dark-test"] .bg-red-950\/40 {
+  background-color: rgba(69, 10, 10, 0.85) !important;
+  border-color: rgba(239, 68, 68, 0.6) !important;
+  color: #fecdd3 !important;
+}
+[data-theme="dark"] .bg-red-950\/60 *,
+.dark .bg-red-950\/60 *,
+[data-theme="dark-test"] .bg-red-950\/60 *,
+[data-theme="dark"] .bg-red-950\/40 *,
+.dark .bg-red-950\/40 *,
+[data-theme="dark-test"] .bg-red-950\/40 * {
+  color: #fecdd3 !important;
+}
+
+[data-theme="dark"] .bg-amber-950\/60,
+.dark .bg-amber-950\/60,
+[data-theme="dark-test"] .bg-amber-950\/60,
+[data-theme="dark"] .bg-amber-950\/40,
+.dark .bg-amber-950\/40,
+[data-theme="dark-test"] .bg-amber-950\/40 {
+  background-color: rgba(69, 26, 3, 0.85) !important;
+  border-color: rgba(245, 158, 11, 0.6) !important;
+  color: #fef08a !important;
+}
+[data-theme="dark"] .bg-amber-950\/60 *,
+.dark .bg-amber-950\/60 *,
+[data-theme="dark-test"] .bg-amber-950\/60 *,
+[data-theme="dark"] .bg-amber-950\/40 *,
+.dark .bg-amber-950\/40 *,
+[data-theme="dark-test"] .bg-amber-950\/40 * {
+  color: #fef08a !important;
+}
+
+/* Item 6: Disconnect and Retry badge & Show Slot Fallback Contrast in Dark & Dark Test */
+[data-theme="dark"] .bg-amber-100,
+.dark .bg-amber-100,
+[data-theme="dark-test"] .bg-amber-100 {
+  background-color: rgba(120, 53, 15, 0.9) !important;
+  border-color: #f59e0b !important;
+  color: #fef08a !important;
+}
+[data-theme="dark"] .bg-amber-100 *,
+.dark .bg-amber-100 *,
+[data-theme="dark-test"] .bg-amber-100 * {
   color: #fef08a !important;
 }
 

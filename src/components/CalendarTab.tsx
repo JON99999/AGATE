@@ -1260,7 +1260,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
         </p>
         <button 
           onClick={() => onAdminToggle(true)}
-          className="px-6 py-2.5 bg-slate-900 text-white rounded text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
+          className="admin-challenge-btn px-6 py-2.5 bg-slate-900 text-white rounded text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg active:scale-95"
         >
           Enter Admin Mode
         </button>

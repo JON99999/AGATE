@@ -261,7 +261,7 @@ export default function PlayerTab({
       if (persistentTitleRef.current && persistentLeftStripRef.current && persistentTextBoxRef.current) {
         const shade = currentActiveShow 
           ? getShowShade(currentActiveShow, getSortedShows(shows))
-          : { bg: '#f1f5f9', border: '#cbd5e1', title: 'No active show scheduled' };
+          : { bg: 'var(--show-shade-none-bg, #f1f5f9)', border: 'var(--show-shade-none-border, #cbd5e1)', title: 'No active show scheduled' };
         
         const newText = currentActiveShow ? currentActiveShow.name : "No Scheduled Show";
         if (persistentTitleRef.current.textContent !== newText) {
@@ -323,7 +323,7 @@ export default function PlayerTab({
         if (persistentTitleRef.current && persistentLeftStripRef.current && persistentTextBoxRef.current) {
           const shade = currentActiveShow 
             ? getShowShade(currentActiveShow, getSortedShows(shows))
-            : { bg: '#f1f5f9', border: '#cbd5e1', title: 'No active show scheduled' };
+            : { bg: 'var(--show-shade-none-bg, #f1f5f9)', border: 'var(--show-shade-none-border, #cbd5e1)', title: 'No active show scheduled' };
           
           const newText = currentActiveShow ? currentActiveShow.name : "No Scheduled Show";
           if (persistentTitleRef.current.textContent !== newText) {
@@ -836,12 +836,12 @@ export default function PlayerTab({
     if (!prerecordDate) {
       return (
         <div id="export-mode-unconfigured" className="flex flex-col items-center justify-center h-full text-slate-800 p-3 text-center space-y-3 bg-slate-50">
-          <div className="w-10 h-10 rounded-full bg-emerald-100 border border-emerald-300 flex items-center justify-center shrink-0">
-            <ListOrdered className="w-5 h-5 text-emerald-700" />
+          <div className="w-10 h-10 rounded-full bg-blue-100 border border-blue-300 flex items-center justify-center shrink-0">
+            <ListOrdered className="w-5 h-5 text-blue-700" />
           </div>
           <div className="space-y-1">
             <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center justify-center gap-1.5">
-              <ListOrdered className="w-4 h-4 text-emerald-700" />
+              <ListOrdered className="w-4 h-4 text-blue-700" />
               Export Setup
             </h3>
             <p className="text-xs text-slate-600 leading-normal">
@@ -851,7 +851,7 @@ export default function PlayerTab({
           <button
             id="btn-configure-export-timeframe"
             onClick={onConfigureTimeframe}
-            className="w-full h-10 flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 text-white rounded border-b-[4px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[4px] font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-sm"
+            className="w-full h-10 flex items-center justify-center bg-blue-600 hover:bg-blue-500 text-white rounded border-b-[4px] border-blue-800 hover:brightness-110 active:border-b-0 active:translate-y-[4px] font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-sm"
           >
             Configure
           </button>
@@ -870,7 +870,7 @@ export default function PlayerTab({
             <button
               id="bg-btn-execute-export"
               onClick={onExecuteExport}
-              className="w-full h-10 flex items-center justify-center gap-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded border-b-[4px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[4px] transition-all font-black uppercase text-sm tracking-wide font-sans cursor-pointer select-none shadow-sm"
+              className="w-full h-10 flex items-center justify-center gap-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded border-b-[4px] border-blue-800 hover:brightness-110 active:border-b-0 active:translate-y-[4px] transition-all font-black uppercase text-sm tracking-wide font-sans cursor-pointer select-none shadow-sm"
             >
               <Download className="w-5 h-5 shrink-0" />
               <span>Export</span>
@@ -883,7 +883,7 @@ export default function PlayerTab({
               className={cn(
                 "w-full h-10 flex items-center justify-center gap-2 px-3 rounded font-black uppercase text-xs tracking-wide font-sans select-none transition-all duration-75 shadow-sm",
                 hasUnlogged && !isLoggingExports
-                  ? "bg-emerald-800 hover:bg-emerald-700 text-white border-b-[4px] border-emerald-950 hover:brightness-110 active:border-b-0 active:translate-y-[4px] cursor-pointer"
+                  ? "bg-blue-800 hover:bg-blue-700 text-white border-b-[4px] border-blue-950 hover:brightness-110 active:border-b-0 active:translate-y-[4px] cursor-pointer"
                   : "bg-slate-200 text-slate-400 border-b-[4px] border-slate-300 cursor-not-allowed opacity-65"
               )}
             >
@@ -923,7 +923,7 @@ export default function PlayerTab({
             {/* Header indicator bar matching 'mp3's' */}
             <div 
               ref={activeItemRef}
-              className="bg-emerald-600 h-6 flex items-center justify-start px-3 rounded shadow-sm border border-emerald-500"
+              className="bg-blue-600 h-6 flex items-center justify-start px-3 rounded shadow-sm border border-blue-500"
               id="export-start-indicator"
             >
               <span className="text-xs font-black uppercase text-white tracking-widest font-sans flex items-center gap-1.5">
@@ -989,7 +989,7 @@ export default function PlayerTab({
                 const bgClass = !item.exists
                   ? "bg-red-50 border-red-300 hover:border-red-400"
                   : exported
-                    ? "bg-emerald-50 border-emerald-300 hover:border-emerald-400"
+                    ? "bg-blue-50 border-blue-300 hover:border-blue-400"
                     : played
                       ? "bg-green-50 border-green-300 hover:border-green-400"
                       : isMissedRecent || isMissedOld
@@ -1001,7 +1001,7 @@ export default function PlayerTab({
                     {showChanged && (() => {
                       const shade = currentShow 
                         ? getShowShade(currentShow, getSortedShows(shows)) 
-                        : { bg: '#FFF6BC', border: '#EADA76', title: 'No Scheduled Show' };
+                        : { bg: 'var(--show-shade-none-bg, #f1f5f9)', border: 'var(--show-shade-none-border, #cbd5e1)', title: 'No Scheduled Show' };
                       return (
                         <div key={`export-show-header-${idx}`} className="flex items-stretch gap-2 w-full pr-1 relative min-h-[1.75rem] my-1 z-10 font-sans">
                           <div 
@@ -1041,21 +1041,21 @@ export default function PlayerTab({
                         <span className="text-xs uppercase font-black text-slate-600 tracking-tighter">
                           {format(slot, 'MMM dd')}
                         </span>
-                        <span className="text-xs font-mono font-black text-emerald-700">
+                        <span className="text-xs font-mono font-black text-blue-700">
                           {item.slotTime}
                         </span>
                       </div>
                       
                       <div className="flex items-center gap-2">
                         {playingSlotKey === `export-preview-${key}` ? (
-                          <div className="flex items-center gap-1 text-xs font-black uppercase text-emerald-700">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-600"></div>
+                          <div className="flex items-center gap-1 text-xs font-black uppercase text-blue-700">
+                            <div className="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
                             Preview
                           </div>
                         ) : isPresent ? (
-                          <span className="text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none bg-emerald-600">Next</span>
+                          <span className="text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none bg-blue-600">Next</span>
                         ) : isUpcoming ? (
-                          <span className="text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none shadow-sm bg-emerald-600">Next</span>
+                          <span className="text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none shadow-sm bg-blue-600">Next</span>
                         ) : null}
                       </div>
                     </div>
@@ -1064,7 +1064,7 @@ export default function PlayerTab({
                     <div className="flex items-center justify-between gap-2">
                       <div className={cn(
                         "text-xs font-bold leading-tight break-words line-clamp-2 flex-1",
-                        playingSlotKey === `export-preview-${key}` ? "text-emerald-700" : "text-slate-800"
+                        playingSlotKey === `export-preview-${key}` ? "text-blue-700" : "text-slate-800"
                       )}>
                         {item.interstitialName}
                       </div>
@@ -1143,7 +1143,7 @@ export default function PlayerTab({
                             className={cn(
                               "p-1 rounded-full transition-all shadow-sm flex items-center justify-center cursor-pointer active:scale-95 border",
                               playingSlotKey === `export-preview-${key}`
-                                ? "bg-emerald-100 border-emerald-300 text-emerald-700"
+                                ? "bg-blue-100 border-blue-300 text-blue-700"
                                 : "bg-slate-200 hover:bg-slate-300 text-slate-700 border-transparent"
                             )}
                             title="Preview Audio"
@@ -1171,8 +1171,8 @@ export default function PlayerTab({
                         <div className="flex items-center gap-1.5">
                           {exported ? (
                             <>
-                              <CheckCircle className="w-3 h-3 text-emerald-600" />
-                              <span className="text-xs font-bold text-emerald-700 uppercase tracking-tighter">
+                              <CheckCircle className="w-3 h-3 text-blue-600" />
+                              <span className="text-xs font-bold text-blue-700 uppercase tracking-tighter">
                                 Exported
                               </span>
                             </>
@@ -1232,7 +1232,7 @@ export default function PlayerTab({
             <button
               id="btn-copy-play-plan"
               onClick={handleCopyPlan}
-              className="w-full h-10 flex items-center justify-center gap-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded border-b-[4px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[4px] transition-all font-black uppercase text-xs tracking-wide font-sans cursor-pointer select-none shadow-sm"
+              className="w-full h-10 flex items-center justify-center gap-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded border-b-[4px] border-blue-800 hover:brightness-110 active:border-b-0 active:translate-y-[4px] transition-all font-black uppercase text-xs tracking-wide font-sans cursor-pointer select-none shadow-sm"
             >
               <Copy className="w-4 h-4 shrink-0" />
               <span>{copiedPlan ? "Copied!" : "Copy Plan"}</span>
@@ -1241,7 +1241,7 @@ export default function PlayerTab({
             <button
               id="btn-copy-playlist"
               onClick={handleCopyPlaylist}
-              className="w-full h-10 flex items-center justify-center gap-2 px-3 bg-emerald-700 hover:bg-emerald-600 text-white rounded border-b-[4px] border-emerald-900 hover:brightness-110 active:border-b-0 active:translate-y-[4px] transition-all font-black uppercase text-xs tracking-wide font-sans cursor-pointer select-none shadow-sm"
+              className="w-full h-10 flex items-center justify-center gap-2 px-3 bg-blue-700 hover:bg-blue-600 text-white rounded border-b-[4px] border-blue-900 hover:brightness-110 active:border-b-0 active:translate-y-[4px] transition-all font-black uppercase text-xs tracking-wide font-sans cursor-pointer select-none shadow-sm"
             >
               <Copy className="w-4 h-4 shrink-0" />
               <span>{copiedPlaylist ? "Copied!" : "Copy Playlist"}</span>
@@ -1269,7 +1269,7 @@ export default function PlayerTab({
 
         const initialShade = initialActiveShow 
           ? getShowShade(initialActiveShow, getSortedShows(shows))
-          : { bg: '#f1f5f9', border: '#cbd5e1', title: 'No active show scheduled' };
+          : { bg: 'var(--show-shade-none-bg, #f1f5f9)', border: 'var(--show-shade-none-border, #cbd5e1)', title: 'No active show scheduled' };
 
         return (
           <div 
@@ -1399,7 +1399,7 @@ export default function PlayerTab({
                   })()}
                   <div 
                     ref={activeItemRef}
-                    className="bg-purple-600 h-6 flex items-center justify-between pl-1 pr-3 rounded shadow-sm border border-purple-500 ml-2"
+                    className="bg-emerald-600 h-6 flex items-center justify-between pl-1 pr-3 rounded shadow-sm border border-emerald-500 ml-2"
                     id="prerecord-start-indicator"
                   >
                     <span className="text-xs font-black uppercase text-white tracking-normal font-sans flex items-center gap-1.5 font-sans">
@@ -1474,7 +1474,7 @@ export default function PlayerTab({
                  const cardBorderClass = !isVerified
                    ? "border-red-500"
                    : isCurrentlyPlaying || isUpcoming
-                     ? (isPre ? "border-purple-600 ring-1 ring-purple-600/30" : "border-blue-600 ring-1 ring-blue-600/30")
+                     ? (isPre ? "border-emerald-600 ring-1 ring-emerald-600/30" : "border-purple-600 ring-1 ring-purple-600/30")
                      : exported
                        ? "border-emerald-600"
                        : (isMissedRecent || isMissedOld)
@@ -1488,7 +1488,7 @@ export default function PlayerTab({
                    : isCurrentlyPlaying
                      ? "bg-white"
                      : isUpcoming
-                       ? (isPre ? "bg-[#faf5ff]" : "bg-[#f0f9ff]")
+                       ? (isPre ? "bg-[#f0fdf4]" : "bg-[#faf5ff]")
                        : exported
                          ? "bg-[#f0fdf4]"
                          : (isMissedRecent || isMissedOld)
@@ -1496,7 +1496,7 @@ export default function PlayerTab({
                            : (isPast && played)
                              ? "bg-white"
                              : isPresent
-                               ? (isPre ? "bg-[#faf5ff]" : "bg-[#f0f9ff]")
+                               ? (isPre ? "bg-[#f0fdf4]" : "bg-[#faf5ff]")
                                : "bg-white";
 
                  const cardOpacityClass = (isPast && (played || exported) && !isCurrentlyPlaying)
@@ -1546,7 +1546,7 @@ export default function PlayerTab({
                         </span>
                         <span className={cn(
                           "text-xs font-mono font-black",
-                          isMissedRecent && !isCurrentlyPlaying ? "text-amber-800" : (isPresent || isCurrentlyPlaying || isUpcoming) ? (isPre ? "text-purple-600" : "text-blue-600") : "text-slate-900"
+                          isMissedRecent && !isCurrentlyPlaying ? "text-amber-800" : (isPresent || isCurrentlyPlaying || isUpcoming) ? (isPre ? "text-emerald-600" : "text-purple-600") : "text-slate-900"
                         )}>
                           {format(slot, 'HH:mm')}
                         </span>
@@ -1554,15 +1554,15 @@ export default function PlayerTab({
                      {isCurrentlyPlaying ? (
                        <div className={cn(
                          "flex items-center gap-1 text-xs font-black uppercase",
-                         isPre ? "text-purple-600" : "text-blue-600"
+                         isPre ? "text-emerald-600" : "text-purple-600"
                        )}>
-                         <div className={cn("w-1.5 h-1.5 rounded-full", isPre ? "bg-purple-600" : "bg-blue-600")}></div>
+                         <div className={cn("w-1.5 h-1.5 rounded-full", isPre ? "bg-emerald-600" : "bg-purple-600")}></div>
                          {isPre ? "Prerecord" : "Live"}
                        </div>
                      ) : isPresent ? (
-                       <span className={cn("text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none", isPre ? "bg-purple-600" : "bg-blue-600")}>Next</span>
+                       <span className={cn("text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none", isPre ? "bg-emerald-600" : "bg-purple-600")}>Next</span>
                      ) : isUpcoming ? (
-                       <span className={cn("text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none shadow-sm animate-pulse", isPre ? "bg-purple-500 shadow-purple-200" : "bg-blue-500 shadow-blue-200")}>Next</span>
+                       <span className={cn("text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none shadow-sm animate-pulse", isPre ? "bg-emerald-500 shadow-emerald-200" : "bg-purple-500 shadow-purple-200")}>Next</span>
                      ) : null}
                    </div>
 
@@ -1570,7 +1570,7 @@ export default function PlayerTab({
                    <div className="flex items-center justify-between gap-2">
                      <div className={cn(
                        "text-xs font-bold leading-tight break-words line-clamp-2 flex-1",
-                       isCurrentlyPlaying ? (isPre ? "text-purple-700" : "text-blue-700") : "text-slate-800"
+                       isCurrentlyPlaying ? (isPre ? "text-emerald-700" : "text-purple-700") : "text-slate-800"
                      )}>
                        {s.name}
                      </div>
@@ -1588,7 +1588,7 @@ export default function PlayerTab({
                            isCurrentlyPlaying ? "bg-slate-900 text-white" :
                            (played || exported) ? "bg-slate-100 text-slate-500" :
                            isMissedRecent ? "bg-slate-500 text-white" :
-                           isPresent || isUpcoming ? (isPre ? "bg-purple-600 text-white shadow-md shadow-purple-200" : "bg-blue-600 text-white shadow-md shadow-blue-200") :
+                           isPresent || isUpcoming ? (isPre ? "bg-emerald-600 text-white shadow-md shadow-emerald-200" : "bg-purple-600 text-white shadow-md shadow-purple-200") :
                            "bg-slate-700 text-white"
                          )}
                          title={!isVerified ? "Invalid or missing file" : (played || exported) ? "Read Again" : "Display Script"}
@@ -1611,7 +1611,7 @@ export default function PlayerTab({
                            isCurrentlyPlaying ? "bg-slate-900 text-white" :
                            (played || exported) ? "bg-slate-100 text-slate-500" :
                            isMissedRecent ? "bg-slate-500 text-white" :
-                           isPresent || isUpcoming ? (isPre ? "bg-purple-600 text-white shadow-md shadow-purple-200" : "bg-blue-600 text-white shadow-md shadow-blue-200") :
+                           isPresent || isUpcoming ? (isPre ? "bg-emerald-600 text-white shadow-md shadow-emerald-200" : "bg-purple-600 text-white shadow-md shadow-purple-200") :
                            "bg-slate-700 text-white"
                          )}
                          title={!isVerified ? "Invalid or missing file" : (played || exported) ? "Play Again" : undefined}
@@ -1671,7 +1671,7 @@ export default function PlayerTab({
                      )}
                      
                      {isCurrentlyPlaying ? (
-                       <div className={cn("flex items-center gap-1 text-xs font-mono font-bold leading-none", isPre ? "text-purple-600" : "text-blue-600")}>
+                       <div className={cn("flex items-center gap-1 text-xs font-mono font-bold leading-none", isPre ? "text-emerald-600" : "text-purple-600")}>
                          <span>{formatTime(currentTime)}</span>
                          <span className="opacity-30">/</span>
                          <span>{formatTime(duration)}</span>

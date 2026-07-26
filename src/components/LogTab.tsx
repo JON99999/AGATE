@@ -584,8 +584,8 @@ export default function LogTab({ logs }: LogTabProps) {
                 className={cn(
                   "flex items-stretch border-b border-grid-active hover:bg-slate-50 transition-colors last:border-0 grow min-h-[32px]",
                   i % 2 === 0 ? "bg-white" : "bg-slate-205",
-                  getLogAssetType(log) === 'script' && "border-l-4 border-l-blue-500",
-                  getLogAssetType(log) === 'audio' && "border-l-4 border-l-purple-500"
+                  getLogAssetType(log) === 'script' && "border-l-4 border-l-purple-500",
+                  getLogAssetType(log) === 'audio' && "border-l-4 border-l-blue-500"
                 )}
               >
                 {/* Timestamp cell mapped to Schedule/Actual */}
@@ -649,10 +649,10 @@ export default function LogTab({ logs }: LogTabProps) {
                   <span className={cn(
                     "inline-block text-xs font-black uppercase tracking-wider px-1 py-0.2 rounded-sm leading-none border",
                     log.playMode === 'Prerecord' 
-                      ? "bg-purple-100/90 text-purple-800 border-purple-200" 
+                      ? "bg-emerald-100/90 text-emerald-800 border-emerald-200" 
                       : log.playMode === 'Export'
-                        ? "bg-emerald-100/90 text-emerald-800 border-emerald-200"
-                        : "bg-blue-100/90 text-blue-800 border-blue-200"
+                        ? "bg-blue-100/90 text-blue-800 border-blue-200"
+                        : "bg-purple-100/90 text-purple-800 border-purple-200"
                   )}>
                     {log.playMode || 'Live'}
                   </span>

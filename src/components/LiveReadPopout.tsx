@@ -285,7 +285,7 @@ export default function LiveReadPopout({
         isMac && !isOverlay ? "pl-20" : ""
       )}>
         <div className="flex items-center gap-3 min-w-0">
-          <div className="p-1.5 rounded-md bg-blue-600/20 text-blue-400">
+          <div className="p-1.5 rounded-md bg-purple-600/20 text-purple-400">
             {isImage ? <Eye className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
           </div>
           <div className="min-w-0">
@@ -348,7 +348,7 @@ export default function LiveReadPopout({
       <div className="flex-1 overflow-y-auto p-6 bg-white flex flex-col justify-center items-center relative custom-scrollbar">
         {loading ? (
           <div className="flex flex-col items-center gap-3">
-            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-10 h-10 border-4 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
             <p className="text-xs font-black uppercase text-slate-400 tracking-wider">Loading script file...</p>
           </div>
         ) : error ? (
@@ -406,7 +406,7 @@ export default function LiveReadPopout({
           <button
             type="button"
             onClick={handleCloseNotRead}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none h-10"
+            className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none h-10"
           >
             <X className="w-4 h-4" />
             Close Preview
@@ -421,7 +421,7 @@ export default function LiveReadPopout({
               <div className={cn(
                 "relative flex items-center bg-white border rounded px-2 py-1.5 focus-within:ring-1 max-w-[160px] w-full transition-all",
                 isLogTimeValid 
-                  ? "border-slate-300 focus-within:ring-blue-500 focus-within:border-blue-500" 
+                  ? "border-slate-300 focus-within:ring-purple-500 focus-within:border-purple-500" 
                   : "border-rose-500 focus-within:ring-rose-500 focus-within:border-rose-500 ring-1 ring-rose-500"
               )}>
                 <input 
@@ -469,7 +469,7 @@ export default function LiveReadPopout({
                 type="button"
                 onClick={handleLogAsRead}
                 disabled={isLogButtonDisabled}
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 text-white font-black text-xs uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none"
+                className="px-6 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-40 disabled:hover:bg-purple-600 text-white font-black text-xs uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none"
               >
                 <Check className="w-4 h-4" />
                 {logButtonText}

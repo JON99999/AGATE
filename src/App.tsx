@@ -2159,7 +2159,11 @@ export default function App() {
             <div
               className={cn(
                 "w-6 h-6 rounded flex items-center justify-center",
-                isPre ? "bg-purple-600" : "bg-blue-500",
+                playMode === "Live"
+                  ? "bg-purple-600"
+                  : playMode === "Prerecord"
+                    ? "bg-emerald-600"
+                    : "bg-blue-600",
               )}
             >
               <Clock className="w-4 h-4" />
@@ -2174,9 +2178,11 @@ export default function App() {
               className={cn(
                 "flex items-center gap-1.5 px-2 py-1 rounded transition-colors cursor-pointer",
                 activeTab === "player"
-                  ? isPre
+                  ? playMode === "Live"
                     ? "bg-purple-600 text-white"
-                    : "bg-blue-600 text-white"
+                    : playMode === "Prerecord"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-blue-600 text-white"
                   : "text-slate-400 hover:text-white",
               )}
             >
@@ -2191,9 +2197,11 @@ export default function App() {
                 className={cn(
                   "flex items-center gap-1.5 px-2 py-1 rounded transition-colors cursor-pointer",
                   activeTab === "calendar"
-                    ? isPre
+                    ? playMode === "Live"
                       ? "bg-purple-600 text-white"
-                      : "bg-blue-600 text-white"
+                      : playMode === "Prerecord"
+                        ? "bg-emerald-600 text-white"
+                        : "bg-blue-600 text-white"
                     : "text-slate-400 hover:text-white",
                 )}
               >
@@ -2208,9 +2216,11 @@ export default function App() {
               className={cn(
                 "flex items-center gap-1.5 px-2 py-1 rounded transition-colors cursor-pointer",
                 activeTab === "log"
-                  ? isPre
+                  ? playMode === "Live"
                     ? "bg-purple-600 text-white"
-                    : "bg-blue-600 text-white"
+                    : playMode === "Prerecord"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-blue-600 text-white"
                   : "text-slate-400 hover:text-white",
               )}
             >
@@ -2230,7 +2240,7 @@ export default function App() {
           <div className="max-w-[400px] mx-auto flex items-center justify-between gap-4">
             {playMode === "Export" ? (
               <div className="flex flex-col py-0.5">
-                <p className="text-xs uppercase text-emerald-600 font-black tracking-widest leading-none flex items-center gap-1.5">
+                <p className="text-xs uppercase text-blue-600 font-black tracking-widest leading-none flex items-center gap-1.5">
                   <ListOrdered className="w-3.5 h-3.5" />
                   Playlist Export
                 </p>
@@ -2245,7 +2255,7 @@ export default function App() {
               </div>
             ) : isPre ? (
               <div className="flex flex-col py-0.5">
-                <p className="text-xs uppercase text-purple-600 font-black tracking-widest leading-none flex items-center gap-1.5">
+                <p className="text-xs uppercase text-emerald-600 font-black tracking-widest leading-none flex items-center gap-1.5">
                   <CassetteTape className="w-3.5 h-3.5" />
                   Prerecord time and date
                 </p>
@@ -2260,7 +2270,7 @@ export default function App() {
               </div>
             ) : (
               <div className="flex flex-col py-0.5">
-                <p className="text-xs uppercase text-blue-600 font-black tracking-widest leading-none flex items-center gap-1.5 mb-1">
+                <p className="text-xs uppercase text-purple-600 font-black tracking-widest leading-none flex items-center gap-1.5 mb-1">
                   <RadioTower className="w-3.5 h-3.5 animate-pulse" />
                   Live Broadcast
                 </p>
@@ -2279,7 +2289,7 @@ export default function App() {
 
               {playMode === "Live" && (
                 <>
-                  <p className="text-xs uppercase text-blue-600 font-black tracking-tight leading-none whitespace-nowrap">
+                  <p className="text-xs uppercase text-purple-600 font-black tracking-tight leading-none whitespace-nowrap">
                     Refresh: {formatCountdown(countdown)}
                   </p>
                   <button
@@ -2329,12 +2339,12 @@ export default function App() {
                 : "max-w-full md:px-6 lg:px-8",
             )}
           >
-            <div className="bg-red-950/40 border border-red-500/30 text-red-950 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
-              <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-red-950">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <div className="bg-red-950/60 border border-red-500/40 text-red-200 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
+              <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-red-400">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-400" />
                 Connection Warning
               </div>
-              <p className="text-xs font-bold leading-relaxed text-slate-950">
+              <p className="text-xs font-bold leading-relaxed text-red-100">
                 Can't access folders. Please retry.
               </p>
               <div className="mt-1 flex gap-2">
@@ -2393,12 +2403,12 @@ export default function App() {
                     : "max-w-full md:px-6 lg:px-8",
                 )}
               >
-                <div className="bg-amber-950/40 border border-amber-500/30 text-amber-950 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
-                  <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-amber-950">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-[#D97706]" />
+                <div className="bg-amber-950/60 border border-amber-500/40 text-amber-200 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
+                  <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-amber-400">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
                     Resource Warning
                   </div>
-                  <p className="text-xs font-bold leading-relaxed text-slate-950">
+                  <p className="text-xs font-bold leading-relaxed text-amber-100">
                     {missingText}
                   </p>
                   <div className="mt-1">
@@ -2623,8 +2633,8 @@ export default function App() {
                   className={cn(
                     "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                     playMode === "Live"
-                      ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]"
-                      : "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
+                      ? "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]"
+                      : "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
                   )}
                 >
                   <RadioTower
@@ -2646,8 +2656,8 @@ export default function App() {
                   className={cn(
                     "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                     playMode === "Prerecord"
-                      ? "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
-                      : "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
+                      ? "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
+                      : "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
                   )}
                 >
                   <CassetteTape
@@ -2669,8 +2679,8 @@ export default function App() {
                   className={cn(
                     "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                     playMode === "Export"
-                      ? "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
-                      : "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
+                      ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
+                      : "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
                   )}
                 >
                   <ListOrdered
@@ -2696,17 +2706,17 @@ export default function App() {
             const isExportTarget = prerecordModalTarget === "Export";
             const colors = {
               accentText: isExportTarget
-                ? "text-emerald-700"
-                : "text-purple-700",
+                ? "text-blue-700"
+                : "text-emerald-700",
               focusRing: isExportTarget
-                ? "focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
-                : "focus:ring-1 focus:ring-purple-500 focus:border-purple-500",
+                ? "focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                : "focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500",
               buttonBg: isExportTarget
-                ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                : "bg-purple-600 hover:bg-purple-700 text-white shadow-sm",
+                ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm",
               border: isExportTarget
-                ? "border-emerald-300"
-                : "border-purple-300",
+                ? "border-blue-300"
+                : "border-emerald-300",
             };
             const ModeIcon = isExportTarget ? ListOrdered : CassetteTape;
 
@@ -2943,7 +2953,7 @@ export default function App() {
                                         }}
                                         className={cn(
                                           "flex flex-col gap-0.5 px-2 py-1.5 cursor-pointer text-xs transition-all hover:brightness-95 select-none",
-                                          isSelected && cn("ring-2 ring-inset z-10 font-bold", isExportTarget ? "ring-emerald-600" : "ring-purple-600"),
+                                          isSelected && cn("ring-2 ring-inset z-10 font-bold", isExportTarget ? "ring-blue-600" : "ring-emerald-600"),
                                         )}
                                       >
                                         <div className="flex items-center justify-between gap-1 w-full min-w-0">
@@ -2956,7 +2966,7 @@ export default function App() {
                                             </span>
                                           </div>
                                           {isSelected && (
-                                            <Check className={cn("w-3.5 h-3.5 font-bold shrink-0 ml-auto", isExportTarget ? "text-emerald-700" : "text-purple-700")} />
+                                            <Check className={cn("w-3.5 h-3.5 font-bold shrink-0 ml-auto", isExportTarget ? "text-blue-700" : "text-emerald-700")} />
                                           )}
                                         </div>
                                         <div className="font-bold text-slate-900 truncate w-full text-[11px] leading-tight">
