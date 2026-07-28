@@ -508,7 +508,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
         const createdMsg = data.createdFolders.length > 0 
           ? `\n\nCreated folders for shows: ${data.createdFolders.join(', ')}`
           : '';
-        alert(`Evergreen verification completed successfully in Google Drive!\n\nFolder location: ${data.evergreensPath}${createdMsg}`);
+        alert(`Evergreen & Playlist folder verification completed successfully in Google Drive!\n\nEvergreens Location: ${data.evergreensPath}\nPlaylists Location: ${data.playlistsPath}${createdMsg}`);
         return;
       }
 
@@ -519,13 +519,14 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to verify evergreen folders');
+        throw new Error(data.error || 'Failed to verify evergreen/playlist folders');
       }
       
       const createdMsg = data.createdFolders.length > 0 
         ? `\n\nCreated folders for shows: ${data.createdFolders.join(', ')}`
         : '';
-      alert(`Evergreen verification completed successfully!\n\nFolder location: ${data.evergreensPath}${createdMsg}`);
+      const playlistsLoc = data.playlistsPath ? `\nPlaylists Location: ${data.playlistsPath}` : '';
+      alert(`Evergreen & Playlist folder verification completed successfully!\n\nEvergreens Location: ${data.evergreensPath}${playlistsLoc}${createdMsg}`);
     } catch (err: any) {
       alert(`Error verifying evergreen folders:\n${err.message}`);
     } finally {
@@ -1738,10 +1739,10 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
             onClick={handleVerifyEvergreens}
             disabled={isVerifyingEvergreens}
             className="p-1.5 px-3 bg-slate-600 text-white rounded border border-slate-700 text-xs font-black tracking-tighter shadow-sm hover:bg-slate-700 transition-all uppercase cursor-pointer h-8 disabled:opacity-55 flex items-center gap-1.5 active:translate-y-px"
-            title="Verify or create Evergreen folders for all shows"
+            title="Verify or create Evergreen & Playlist folders for all shows"
           >
             <FolderOpen className="w-3.5 h-3.5 text-slate-200" />
-            <span>{isVerifyingEvergreens ? "CHECKING..." : "CHECK EVERGREEN FOLDERS"}</span>
+            <span>{isVerifyingEvergreens ? "CHECKING..." : "CHECK EVERGREEN & PLAYLIST FOLDERS"}</span>
           </button>
         </div>
       </div>

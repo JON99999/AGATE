@@ -995,17 +995,40 @@ export const getOrCreateDriveEvergreensFolder = async (): Promise<string> => {
   return evergreensId;
 };
 
+export const getOrCreateDrivePlaylistsFolder = async (): Promise<string> => {
+  const mp3sFolder = DRIVE_FOLDERS.mp3s;
+  if (!mp3sFolder) {
+    throw new Error('Google Drive Media & Scripts folder is not configured. Please set it in Settings.');
+  }
+  let playlistsId = await findFileInFolderCaseInsensitive('Playlists', mp3sFolder);
+  if (!playlistsId) {
+    playlistsId = await findFileInFolderCaseInsensitive('playlists', mp3sFolder);
+  }
+  if (!playlistsId) {
+    playlistsId = await createFileInFolder('Playlists', mp3sFolder, 'application/vnd.google-apps.folder');
+  }
+  return playlistsId;
+};
+
 export const checkEvergreenFolderOnDrive = async (
   oldNameShort: string | undefined,
   newNameShort: string | undefined
 ): Promise<{ success: boolean; oldExists: boolean; newExists: boolean }> => {
   try {
     const evergreensId = await getOrCreateDriveEvergreensFolder();
-    const oldExists = oldNameShort ? (await findFileInFolderCaseInsensitive(oldNameShort, evergreensId) !== null) : false;
-    const newExists = newNameShort ? (await findFileInFolderCaseInsensitive(newNameShort, evergreensId) !== null) : false;
+    const playlistsId = await getOrCreateDrivePlaylistsFolder();
+
+    const oldEvergreenExists = oldNameShort ? (await findFileInFolderCaseInsensitive(oldNameShort, evergreensId) !== null) : false;
+    const oldPlaylistExists = oldNameShort ? (await findFileInFolderCaseInsensitive(oldNameShort, playlistsId) !== null) : false;
+    const oldExists = oldEvergreenExists || oldPlaylistExists;
+
+    const newEvergreenExists = newNameShort ? (await findFileInFolderCaseInsensitive(newNameShort, evergreensId) !== null) : false;
+    const newPlaylistExists = newNameShort ? (await findFileInFolderCaseInsensitive(newNameShort, playlistsId) !== null) : false;
+    const newExists = newEvergreenExists || newPlaylistExists;
+
     return { success: true, oldExists, newExists };
   } catch (err: any) {
-    console.error('Error checking evergreen folder on Drive:', err);
+    console.error('Error checking evergreen/playlist folder on Drive:', err);
     throw err;
   }
 };
@@ -1018,39 +1041,59 @@ export const applyEvergreenChangeOnDrive = async (
 ): Promise<{ success: boolean; folderCreated: boolean; folderRenamed: boolean }> => {
   try {
     const evergreensId = await getOrCreateDriveEvergreensFolder();
-    const newFolderPathId = await findFileInFolderCaseInsensitive(nameShort, evergreensId);
+    const playlistsId = await getOrCreateDrivePlaylistsFolder();
+
     let folderCreated = false;
     let folderRenamed = false;
 
+    const token = getAccessToken();
+    if (!token) throw new Error('Not authenticated with Google');
+
+    // Sync Evergreens
+    const newEvergreenFolderId = await findFileInFolderCaseInsensitive(nameShort, evergreensId);
     if (action === 'update' && oldNameShort && oldNameShort !== nameShort) {
-      const oldFolderPathId = await findFileInFolderCaseInsensitive(oldNameShort, evergreensId);
-      if (oldFolderPathId && renameFolder) {
-        if (!newFolderPathId || newFolderPathId === oldFolderPathId) {
-          // Rename the folder
-          const token = getAccessToken();
-          if (!token) throw new Error('Not authenticated with Google');
-          await driveFetch(`drive/v3/files/${oldFolderPathId}`, {
+      const oldEvergreenFolderId = await findFileInFolderCaseInsensitive(oldNameShort, evergreensId);
+      if (oldEvergreenFolderId && renameFolder) {
+        if (!newEvergreenFolderId || newEvergreenFolderId === oldEvergreenFolderId) {
+          await driveFetch(`drive/v3/files/${oldEvergreenFolderId}`, {
             method: 'PATCH',
             body: JSON.stringify({ name: nameShort })
           });
           folderRenamed = true;
         }
-      } else {
-        if (!newFolderPathId) {
-          await createFileInFolder(nameShort, evergreensId, 'application/vnd.google-apps.folder');
-          folderCreated = true;
-        }
-      }
-    } else {
-      if (!newFolderPathId) {
+      } else if (!newEvergreenFolderId) {
         await createFileInFolder(nameShort, evergreensId, 'application/vnd.google-apps.folder');
         folderCreated = true;
       }
+    } else if (!newEvergreenFolderId) {
+      await createFileInFolder(nameShort, evergreensId, 'application/vnd.google-apps.folder');
+      folderCreated = true;
+    }
+
+    // Sync Playlists
+    const newPlaylistFolderId = await findFileInFolderCaseInsensitive(nameShort, playlistsId);
+    if (action === 'update' && oldNameShort && oldNameShort !== nameShort) {
+      const oldPlaylistFolderId = await findFileInFolderCaseInsensitive(oldNameShort, playlistsId);
+      if (oldPlaylistFolderId && renameFolder) {
+        if (!newPlaylistFolderId || newPlaylistFolderId === oldPlaylistFolderId) {
+          await driveFetch(`drive/v3/files/${oldPlaylistFolderId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ name: nameShort })
+          });
+          folderRenamed = true;
+        }
+      } else if (!newPlaylistFolderId) {
+        await createFileInFolder(nameShort, playlistsId, 'application/vnd.google-apps.folder');
+        folderCreated = true;
+      }
+    } else if (!newPlaylistFolderId) {
+      await createFileInFolder(nameShort, playlistsId, 'application/vnd.google-apps.folder');
+      folderCreated = true;
     }
 
     return { success: true, folderCreated, folderRenamed };
   } catch (err: any) {
-    console.error('Error applying evergreen change on Drive:', err);
+    console.error('Error applying evergreen/playlist change on Drive:', err);
     throw err;
   }
 };
@@ -1058,7 +1101,9 @@ export const applyEvergreenChangeOnDrive = async (
 export const verifyEvergreensOnDrive = async (shows: Show[]): Promise<{
   success: boolean;
   evergreensFolderCreated: boolean;
+  playlistsFolderCreated: boolean;
   evergreensPath: string;
+  playlistsPath: string;
   createdFolders: string[];
 }> => {
   try {
@@ -1073,13 +1118,33 @@ export const verifyEvergreensOnDrive = async (shows: Show[]): Promise<{
       evergreensFolderCreated = true;
     }
 
+    let playlistsFolderCreated = false;
+    let playlistsId = await findFileInFolderCaseInsensitive('Playlists', mp3sFolder);
+    if (!playlistsId) {
+      playlistsId = await findFileInFolderCaseInsensitive('playlists', mp3sFolder);
+    }
+    if (!playlistsId) {
+      playlistsId = await createFileInFolder('Playlists', mp3sFolder, 'application/vnd.google-apps.folder');
+      playlistsFolderCreated = true;
+    }
+
     const createdFolders: string[] = [];
     for (const show of shows) {
       if (show.nameShort) {
         const showFolderId = await findFileInFolderCaseInsensitive(show.nameShort, evergreensId);
         if (!showFolderId) {
           await createFileInFolder(show.nameShort, evergreensId, 'application/vnd.google-apps.folder');
-          createdFolders.push(show.nameShort);
+          if (!createdFolders.includes(show.nameShort)) {
+            createdFolders.push(show.nameShort);
+          }
+        }
+
+        const showPlaylistFolderId = await findFileInFolderCaseInsensitive(show.nameShort, playlistsId);
+        if (!showPlaylistFolderId) {
+          await createFileInFolder(show.nameShort, playlistsId, 'application/vnd.google-apps.folder');
+          if (!createdFolders.includes(show.nameShort)) {
+            createdFolders.push(show.nameShort);
+          }
         }
       }
     }
@@ -1087,12 +1152,228 @@ export const verifyEvergreensOnDrive = async (shows: Show[]): Promise<{
     return {
       success: true,
       evergreensFolderCreated,
+      playlistsFolderCreated,
       evergreensPath: 'Google Drive: /medialibrary/Evergreens',
+      playlistsPath: 'Google Drive: /medialibrary/Playlists',
       createdFolders
     };
   } catch (err: any) {
     console.error('Error in verifyEvergreensOnDrive:', err);
     throw err;
+  }
+};
+
+export const loadPlaylistTracksFromDrive = async (
+  showNameShort?: string,
+  showName?: string,
+  mode: 'Local' | 'Drive' | 'Demo' = 'Drive'
+): Promise<{ tracks: Array<{ id: string; fileName: string; title: string; durationSeconds: number; durationFormatted: string; streamUrl: string }>; playlistFile: string | null }> => {
+  const getDemoTracks = (nameKey: string) => {
+    return [
+      {
+        id: `demo-track-1`,
+        fileName: `${nameKey}_Track_01.mp3`,
+        title: `${nameKey} - Track 01`,
+        durationSeconds: 180,
+        durationFormatted: '3:00',
+        streamUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'
+      },
+      {
+        id: `demo-track-2`,
+        fileName: `${nameKey}_Track_02.mp3`,
+        title: `${nameKey} - Track 02`,
+        durationSeconds: 210,
+        durationFormatted: '3:30',
+        streamUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3'
+      },
+      {
+        id: `demo-track-3`,
+        fileName: `${nameKey}_Track_03.mp3`,
+        title: `${nameKey} - Track 03`,
+        durationSeconds: 240,
+        durationFormatted: '4:00',
+        streamUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3'
+      }
+    ];
+  };
+
+  const primaryKey = showNameShort || showName || 'Show';
+
+  if (mode === 'Demo') {
+    const tracks = getDemoTracks(primaryKey);
+    tracks.forEach(t => {
+      availableFilesCache.set(t.fileName, { path: t.streamUrl, size: '0.1 MB', duration: t.durationFormatted });
+      driveFileNameCache.set(t.streamUrl, t.fileName);
+    });
+    return { tracks, playlistFile: null };
+  }
+
+  try {
+    const playlistsId = await getOrCreateDrivePlaylistsFolder();
+    let showFolderId: string | null = null;
+    if (showNameShort) {
+      showFolderId = await findFileInFolderCaseInsensitive(showNameShort, playlistsId);
+    }
+    if (!showFolderId && showName) {
+      showFolderId = await findFileInFolderCaseInsensitive(showName, playlistsId);
+    }
+
+    if (!showFolderId) {
+      return { tracks: [], playlistFile: null };
+    }
+
+    const files = await listFilesInFolder(showFolderId);
+    const m3uFile = files.find(f => f.name.toLowerCase().endsWith('.m3u') || f.name.toLowerCase().endsWith('.m3u8'));
+
+    const tracks: Array<{ id: string; fileName: string; title: string; durationSeconds: number; durationFormatted: string; streamUrl: string }> = [];
+    let playlistFileName: string | null = null;
+
+    if (m3uFile) {
+      playlistFileName = m3uFile.name;
+      try {
+        const m3uRes = await driveFetch(`drive/v3/files/${m3uFile.id}?alt=media`);
+        const m3uText = await m3uRes.text();
+        const lines = m3uText.split(/\r?\n/);
+
+        let pendingTitle: string | null = null;
+        let pendingDuration: number | null = null;
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          if (trimmed.startsWith('#EXTINF:')) {
+            const rest = trimmed.substring(8);
+            const commaIdx = rest.indexOf(',');
+            if (commaIdx !== -1) {
+              const durSec = parseInt(rest.substring(0, commaIdx).trim(), 10);
+              if (!isNaN(durSec) && durSec > 0) pendingDuration = durSec;
+              pendingTitle = rest.substring(commaIdx + 1).trim();
+            }
+          } else if (!trimmed.startsWith('#')) {
+            const cleanPath = trimmed.replace(/\\/g, '/');
+            const targetName = cleanPath.split('/').pop() || cleanPath;
+
+            const matchedAudio = files.find(f => f.name.toLowerCase() === targetName.toLowerCase());
+            if (matchedAudio) {
+              const streamUrl = `https://www.googleapis.com/drive/v3/files/${matchedAudio.id}?alt=media`;
+              const durationSec = pendingDuration || 180;
+              const m = Math.floor(durationSec / 60);
+              const s = Math.floor(durationSec % 60);
+              const durationFormatted = `${m}:${s.toString().padStart(2, '0')}`;
+              const title = pendingTitle || matchedAudio.name.replace(/\.[^/.]+$/, '');
+
+              tracks.push({
+                id: `drive-track-${tracks.length + 1}`,
+                fileName: matchedAudio.name,
+                title,
+                durationSeconds: durationSec,
+                durationFormatted,
+                streamUrl
+              });
+            }
+            pendingTitle = null;
+            pendingDuration = null;
+          }
+        }
+      } catch (e) {
+        console.warn('Error reading M3U file from Google Drive:', e);
+      }
+    }
+
+    if (tracks.length === 0) {
+      const audioFiles = files.filter(f => {
+        const ext = f.name.toLowerCase().split('.').pop();
+        return ext && ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'].includes(ext);
+      });
+
+      audioFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+      audioFiles.forEach((f, idx) => {
+        const streamUrl = `https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`;
+        tracks.push({
+          id: `drive-track-${idx + 1}`,
+          fileName: f.name,
+          title: f.name.replace(/\.[^/.]+$/, ''),
+          durationSeconds: 180,
+          durationFormatted: '3:00',
+          streamUrl
+        });
+      });
+    }
+
+    tracks.forEach(t => {
+      availableFilesCache.set(t.fileName, { path: t.streamUrl, size: '0.1 MB', duration: t.durationFormatted });
+      driveFileNameCache.set(t.streamUrl, t.fileName);
+    });
+
+    return { tracks, playlistFile: playlistFileName };
+
+  } catch (err) {
+    console.error('Error loading playlist tracks from Google Drive:', err);
+    return { tracks: [], playlistFile: null };
+  }
+};
+
+export const checkPlaylistShowFilesOnDrive = async (
+  currentShowNameShort?: string,
+  currentShowName?: string,
+  nextShowNameShort?: string,
+  nextShowName?: string,
+  mode: 'Local' | 'Drive' | 'Demo' = 'Drive'
+): Promise<{ currentShowFileCount: number; nextShowFileCount: number }> => {
+  if (mode === 'Demo') {
+    return {
+      currentShowFileCount: (currentShowNameShort || currentShowName) ? 3 : 0,
+      nextShowFileCount: (nextShowNameShort || nextShowName) ? 3 : 0
+    };
+  }
+
+  try {
+    const playlistsId = await getOrCreateDrivePlaylistsFolder();
+
+    const getShowCount = async (shortName?: string, name?: string): Promise<number> => {
+      if (!shortName && !name) return 0;
+      let showFolderId: string | null = null;
+      if (shortName) {
+        showFolderId = await findFileInFolderCaseInsensitive(shortName, playlistsId);
+      }
+      if (!showFolderId && name) {
+        showFolderId = await findFileInFolderCaseInsensitive(name, playlistsId);
+      }
+      if (!showFolderId) return 0;
+
+      const files = await listFilesInFolder(showFolderId);
+      const m3uFile = files.find(f => f.name.toLowerCase().endsWith('.m3u') || f.name.toLowerCase().endsWith('.m3u8'));
+
+      if (m3uFile) {
+        try {
+          const m3uRes = await driveFetch(`drive/v3/files/${m3uFile.id}?alt=media`);
+          const m3uText = await m3uRes.text();
+          const lines = m3uText.split(/\r?\n/);
+          let count = 0;
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('#')) count++;
+          }
+          if (count > 0) return count;
+        } catch (e) {}
+      }
+
+      const audioFiles = files.filter(f => {
+        const ext = f.name.toLowerCase().split('.').pop();
+        return ext && ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'].includes(ext);
+      });
+      return audioFiles.length;
+    };
+
+    const currentShowFileCount = await getShowCount(currentShowNameShort, currentShowName);
+    const nextShowFileCount = await getShowCount(nextShowNameShort, nextShowName);
+
+    return { currentShowFileCount, nextShowFileCount };
+  } catch (err) {
+    console.error('Error checking playlist show files on Google Drive:', err);
+    return { currentShowFileCount: 0, nextShowFileCount: 0 };
   }
 };
 

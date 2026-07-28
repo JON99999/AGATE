@@ -821,18 +821,31 @@ async function startServer() {
     }
   });
 
-  // API - Verify Evergreen folders
+  // API - Verify Evergreen & Playlist folders
   app.post('/api/shows/verify-evergreens', (req, res) => {
     try {
       const folderPath = currentSettings.localPathMP3s;
       if (!folderPath || !fs.existsSync(folderPath)) {
         return res.status(400).json({ error: 'Local Media Directory is not defined or is offline. Please configure Local Media Directory in Settings.' });
       }
-      const evergreensPath = path.join(folderPath, 'Evergreens');
+      let evergreensPath = path.join(folderPath, 'Evergreens');
+      if (!fs.existsSync(evergreensPath) && fs.existsSync(path.join(folderPath, 'evergreens'))) {
+        evergreensPath = path.join(folderPath, 'evergreens');
+      }
       let evergreensFolderCreated = false;
       if (!fs.existsSync(evergreensPath)) {
         fs.mkdirSync(evergreensPath, { recursive: true });
         evergreensFolderCreated = true;
+      }
+
+      let playlistsPath = path.join(folderPath, 'Playlists');
+      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, 'playlists'))) {
+        playlistsPath = path.join(folderPath, 'playlists');
+      }
+      let playlistsFolderCreated = false;
+      if (!fs.existsSync(playlistsPath)) {
+        fs.mkdirSync(playlistsPath, { recursive: true });
+        playlistsFolderCreated = true;
       }
 
       const showsFilePath = getShowsFilePath();
@@ -857,7 +870,17 @@ async function startServer() {
           const showFolderPath = path.join(evergreensPath, show.nameShort);
           if (!fs.existsSync(showFolderPath)) {
             fs.mkdirSync(showFolderPath, { recursive: true });
-            createdFolders.push(show.nameShort);
+            if (!createdFolders.includes(show.nameShort)) {
+              createdFolders.push(show.nameShort);
+            }
+          }
+
+          const showPlaylistFolderPath = path.join(playlistsPath, show.nameShort);
+          if (!fs.existsSync(showPlaylistFolderPath)) {
+            fs.mkdirSync(showPlaylistFolderPath, { recursive: true });
+            if (!createdFolders.includes(show.nameShort)) {
+              createdFolders.push(show.nameShort);
+            }
           }
         }
       }
@@ -865,7 +888,9 @@ async function startServer() {
       res.json({
         success: true,
         evergreensFolderCreated,
+        playlistsFolderCreated,
         evergreensPath,
+        playlistsPath,
         createdFolders
       });
     } catch (err: any) {
@@ -874,7 +899,7 @@ async function startServer() {
     }
   });
 
-  // API - Check if Evergreen folder exists
+  // API - Check if Evergreen or Playlist folder exists
   app.post('/api/shows/evergreen/check-folder', (req, res) => {
     try {
       const { oldNameShort, newNameShort } = req.body;
@@ -882,19 +907,410 @@ async function startServer() {
       if (!folderPath || !fs.existsSync(folderPath)) {
         return res.status(400).json({ error: 'Local Media Directory is not defined or is offline.' });
       }
-      const evergreensPath = path.join(folderPath, 'Evergreens');
-      if (!fs.existsSync(evergreensPath)) {
-        return res.json({ success: true, oldExists: false, newExists: false });
+      let evergreensPath = path.join(folderPath, 'Evergreens');
+      if (!fs.existsSync(evergreensPath) && fs.existsSync(path.join(folderPath, 'evergreens'))) {
+        evergreensPath = path.join(folderPath, 'evergreens');
       }
-      const oldExists = oldNameShort ? fs.existsSync(path.join(evergreensPath, oldNameShort)) : false;
-      const newExists = newNameShort ? fs.existsSync(path.join(evergreensPath, newNameShort)) : false;
-      res.json({ success: true, oldExists, newExists });
+      let playlistsPath = path.join(folderPath, 'Playlists');
+      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, 'playlists'))) {
+        playlistsPath = path.join(folderPath, 'playlists');
+      }
+
+      const oldEvergreenExists = (oldNameShort && fs.existsSync(evergreensPath)) ? fs.existsSync(path.join(evergreensPath, oldNameShort)) : false;
+      const oldPlaylistExists = (oldNameShort && fs.existsSync(playlistsPath)) ? fs.existsSync(path.join(playlistsPath, oldNameShort)) : false;
+      const oldExists = oldEvergreenExists || oldPlaylistExists;
+
+      const newEvergreenExists = (newNameShort && fs.existsSync(evergreensPath)) ? fs.existsSync(path.join(evergreensPath, newNameShort)) : false;
+      const newPlaylistExists = (newNameShort && fs.existsSync(playlistsPath)) ? fs.existsSync(path.join(playlistsPath, newNameShort)) : false;
+      const newExists = newEvergreenExists || newPlaylistExists;
+
+      res.json({ success: true, oldExists, newExists, oldEvergreenExists, oldPlaylistExists, newEvergreenExists, newPlaylistExists });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // API - Apply Evergreen folder creation or renaming
+  // API - Check playlist files for current and next show
+  app.post('/api/shows/playlist/check-show-files', (req, res) => {
+    try {
+      const { currentShowNameShort, nextShowNameShort } = req.body;
+      const folderPath = currentSettings.localPathMP3s;
+      
+      let currentShowFileCount = 0;
+      let nextShowFileCount = 0;
+      let currentShowFiles: string[] = [];
+      let nextShowFiles: string[] = [];
+
+      if (folderPath && fs.existsSync(folderPath)) {
+        let playlistsPath = path.join(folderPath, 'Playlists');
+        if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, 'playlists'))) {
+          playlistsPath = path.join(folderPath, 'playlists');
+        }
+
+        if (fs.existsSync(playlistsPath)) {
+          if (currentShowNameShort) {
+            const currFolderPath = path.join(playlistsPath, currentShowNameShort);
+            if (fs.existsSync(currFolderPath)) {
+              const files = fs.readdirSync(currFolderPath);
+              currentShowFiles = files.filter(f => {
+                const ext = path.extname(f).toLowerCase();
+                return ['.mp3', '.m3u'].includes(ext);
+              });
+              currentShowFileCount = currentShowFiles.length;
+            }
+          }
+
+          if (nextShowNameShort) {
+            const nextFolderPath = path.join(playlistsPath, nextShowNameShort);
+            if (fs.existsSync(nextFolderPath)) {
+              const files = fs.readdirSync(nextFolderPath);
+              nextShowFiles = files.filter(f => {
+                const ext = path.extname(f).toLowerCase();
+                return ['.mp3', '.m3u'].includes(ext);
+              });
+              nextShowFileCount = nextShowFiles.length;
+            }
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        currentShowFileCount,
+        nextShowFileCount,
+        currentShowFiles,
+        nextShowFiles
+      });
+    } catch (err: any) {
+      console.error('Error in /api/shows/playlist/check-show-files:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Helper for pure JS estimation of MP3 file duration in seconds
+  function getMp3DurationSeconds(filePath: string): number {
+    try {
+      const stats = fs.statSync(filePath);
+      const fd = fs.openSync(filePath, 'r');
+      const buffer = Buffer.alloc(4096);
+      const bytesRead = fs.readSync(fd, buffer, 0, 4096, 0);
+      fs.closeSync(fd);
+
+      let offset = 0;
+      if (bytesRead >= 10 && buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33) {
+        const id3Size = ((buffer[6] & 0x7f) << 21) | ((buffer[7] & 0x7f) << 14) | ((buffer[8] & 0x7f) << 7) | (buffer[9] & 0x7f);
+        offset = 10 + id3Size;
+      }
+
+      const bitrates = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+      const audioBuf = Buffer.alloc(2048);
+      const fd2 = fs.openSync(filePath, 'r');
+      const readAudio = fs.readSync(fd2, audioBuf, 0, 2048, Math.min(offset, Math.max(0, stats.size - 2048)));
+      fs.closeSync(fd2);
+
+      for (let i = 0; i < readAudio - 4; i++) {
+        if (audioBuf[i] === 0xff && (audioBuf[i + 1] & 0xe0) === 0xe0) {
+          const header = audioBuf.readUInt32BE(i);
+          const bitrateIdx = (header >> 12) & 0x0f;
+          const kbps = bitrates[bitrateIdx] || 128;
+          if (kbps > 0) {
+            const audioSizeBytes = Math.max(0, stats.size - offset);
+            const durationSec = Math.round((audioSizeBytes * 8) / (kbps * 1000));
+            if (durationSec > 0 && durationSec < 7200) {
+              return durationSec;
+            }
+          }
+          break;
+        }
+      }
+    } catch (e) {
+      // Ignore and fallback
+    }
+    return 180;
+  }
+
+  // Helper for flexible playlist show folder lookup
+  function findShowPlaylistFolder(playlistsPath: string, showNameShort?: string, showName?: string): string | null {
+    if (!playlistsPath || !fs.existsSync(playlistsPath)) return null;
+
+    const candidates = [showNameShort, showName].filter(Boolean) as string[];
+    if (candidates.length === 0) return null;
+
+    // 1. Direct path checks
+    for (const name of candidates) {
+      const exactPath = path.join(playlistsPath, name);
+      if (fs.existsSync(exactPath) && fs.statSync(exactPath).isDirectory()) {
+        return exactPath;
+      }
+    }
+
+    // 2. Case-insensitive and normalized matching
+    try {
+      const dirItems = fs.readdirSync(playlistsPath);
+      for (const candidate of candidates) {
+        const normCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
+        for (const item of dirItems) {
+          const itemPath = path.join(playlistsPath, item);
+          if (fs.existsSync(itemPath) && fs.statSync(itemPath).isDirectory()) {
+            const normItem = item.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (normItem === normCandidate || item.toLowerCase() === candidate.toLowerCase()) {
+              return itemPath;
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
+    return null;
+  }
+
+  // Helper for recursive audio and playlist file scanning
+  function getAllAudioAndPlaylistFiles(dir: string): { m3uFiles: string[]; audioFiles: Array<{ relPath: string; fullPath: string; name: string }> } {
+    const m3uFiles: string[] = [];
+    const audioFiles: Array<{ relPath: string; fullPath: string; name: string }> = [];
+
+    function scan(currentDir: string, relPrefix: string = '') {
+      if (!fs.existsSync(currentDir)) return;
+      try {
+        const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+        for (const entry of entries) {
+          const relPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+          const fullPath = path.join(currentDir, entry.name);
+          if (entry.isDirectory()) {
+            scan(fullPath, relPath);
+          } else if (entry.isFile()) {
+            const ext = path.extname(entry.name).toLowerCase();
+            if (ext === '.m3u' || ext === '.m3u8') {
+              m3uFiles.push(fullPath);
+            } else if (['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'].includes(ext)) {
+              audioFiles.push({ relPath, fullPath, name: entry.name });
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    scan(dir);
+    return { m3uFiles, audioFiles };
+  }
+
+  // Helper for parsing M3U files with robust relative path resolution
+  function parseM3uFile(m3uPath: string, folderPath: string) {
+    const content = fs.readFileSync(m3uPath, 'utf8');
+    const lines = content.split(/\r?\n/);
+    const result: Array<{ fileName: string; title: string; durationSeconds: number }> = [];
+
+    let pendingExtInfDuration: number | null = null;
+    let pendingExtInfTitle: string | null = null;
+
+    const m3uDir = path.dirname(m3uPath);
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      if (trimmed.startsWith('#EXTINF:')) {
+        const rest = trimmed.substring(8);
+        const commaIdx = rest.indexOf(',');
+        if (commaIdx !== -1) {
+          const durStr = rest.substring(0, commaIdx).trim();
+          const dur = parseInt(durStr, 10);
+          if (!isNaN(dur) && dur > 0) {
+            pendingExtInfDuration = dur;
+          }
+          pendingExtInfTitle = rest.substring(commaIdx + 1).trim();
+        }
+      } else if (!trimmed.startsWith('#')) {
+        const rawFileName = trimmed.replace(/\\/g, '/');
+        const fileName = path.basename(rawFileName);
+
+        let fullPath = path.isAbsolute(rawFileName) ? rawFileName : path.join(m3uDir, rawFileName);
+        if (!fs.existsSync(fullPath)) {
+          fullPath = path.join(folderPath, fileName);
+        }
+
+        let durationSeconds = pendingExtInfDuration;
+        if (!durationSeconds || durationSeconds <= 0) {
+          if (fs.existsSync(fullPath)) {
+            durationSeconds = getMp3DurationSeconds(fullPath);
+          } else {
+            durationSeconds = 180;
+          }
+        }
+
+        const title = pendingExtInfTitle || fileName.replace(/\.[^/.]+$/, '');
+        result.push({
+          fileName,
+          title,
+          durationSeconds
+        });
+
+        pendingExtInfDuration = null;
+        pendingExtInfTitle = null;
+      }
+    }
+
+    return result;
+  }
+
+  // API - Load playlist tracks for a show
+  app.post('/api/shows/playlist/load-tracks', (req, res) => {
+    try {
+      const { showNameShort, showName } = req.body;
+      if (!showNameShort && !showName) {
+        return res.status(400).json({ error: 'showNameShort or showName is required' });
+      }
+
+      const folderPath = currentSettings.localPathMP3s;
+      if (!folderPath || !fs.existsSync(folderPath)) {
+        return res.json({ success: true, tracks: [], playlistFile: null });
+      }
+
+      let playlistsPath = path.join(folderPath, 'Playlists');
+      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, 'playlists'))) {
+        playlistsPath = path.join(folderPath, 'playlists');
+      }
+
+      const showFolderPath = findShowPlaylistFolder(playlistsPath, showNameShort, showName);
+      if (!showFolderPath) {
+        return res.json({ success: true, tracks: [], playlistFile: null });
+      }
+
+      const { m3uFiles, audioFiles } = getAllAudioAndPlaylistFiles(showFolderPath);
+      let rawTracks: Array<{ fileName: string; title: string; durationSeconds: number }> = [];
+      let playlistFileName: string | null = null;
+
+      if (m3uFiles.length > 0) {
+        playlistFileName = path.basename(m3uFiles[0]);
+        rawTracks = parseM3uFile(m3uFiles[0], showFolderPath);
+      } else {
+        audioFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+        rawTracks = audioFiles.map(f => {
+          const durationSeconds = getMp3DurationSeconds(f.fullPath);
+          return {
+            fileName: f.name,
+            title: f.name.replace(/\.[^/.]+$/, ''),
+            durationSeconds
+          };
+        });
+      }
+
+      const searchKey = showNameShort || showName;
+      const tracks = rawTracks.map((t, idx) => {
+        const m = Math.floor(t.durationSeconds / 60);
+        const s = Math.floor(t.durationSeconds % 60);
+        return {
+          id: `playlist-track-${idx + 1}`,
+          fileName: t.fileName,
+          title: t.title,
+          durationSeconds: t.durationSeconds,
+          durationFormatted: `${m}:${s.toString().padStart(2, '0')}`,
+          streamUrl: `/api/shows/playlist/stream-file?showNameShort=${encodeURIComponent(searchKey)}&showName=${encodeURIComponent(showName || '')}&file=${encodeURIComponent(t.fileName)}`
+        };
+      });
+
+      res.json({
+        success: true,
+        showNameShort: searchKey,
+        playlistFile: playlistFileName,
+        tracks
+      });
+    } catch (err: any) {
+      console.error('Error in /api/shows/playlist/load-tracks:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API - Check MP3 / track count for current and next show in Playlist mode
+  app.post('/api/shows/playlist/check-show-files', (req, res) => {
+    try {
+      const { currentShowNameShort, currentShowName, nextShowNameShort, nextShowName } = req.body;
+
+      const folderPath = currentSettings.localPathMP3s;
+      if (!folderPath || !fs.existsSync(folderPath)) {
+        return res.json({ success: true, currentShowFileCount: 0, nextShowFileCount: 0 });
+      }
+
+      let playlistsPath = path.join(folderPath, 'Playlists');
+      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, 'playlists'))) {
+        playlistsPath = path.join(folderPath, 'playlists');
+      }
+
+      const getShowCount = (shortName?: string, name?: string) => {
+        if (!shortName && !name) return 0;
+        const showFolderPath = findShowPlaylistFolder(playlistsPath, shortName, name);
+        if (!showFolderPath) return 0;
+
+        const { m3uFiles, audioFiles } = getAllAudioAndPlaylistFiles(showFolderPath);
+        if (m3uFiles.length > 0) {
+          const rawTracks = parseM3uFile(m3uFiles[0], showFolderPath);
+          return rawTracks.length;
+        }
+        return audioFiles.length;
+      };
+
+      const currentShowFileCount = getShowCount(currentShowNameShort, currentShowName);
+      const nextShowFileCount = getShowCount(nextShowNameShort, nextShowName);
+
+      res.json({
+        success: true,
+        currentShowFileCount,
+        nextShowFileCount
+      });
+    } catch (err: any) {
+      console.error('Error in /api/shows/playlist/check-show-files:', err);
+      res.status(500).json({ error: err.message, currentShowFileCount: 0, nextShowFileCount: 0 });
+    }
+  });
+
+  // API - Stream playlist file
+  app.get('/api/shows/playlist/stream-file', (req, res) => {
+    try {
+      const showNameShort = req.query.showNameShort as string;
+      const showName = req.query.showName as string;
+      const file = req.query.file as string;
+      if ((!showNameShort && !showName) || !file) {
+        return res.status(400).send('showNameShort/showName and file are required');
+      }
+
+      const folderPath = currentSettings.localPathMP3s;
+      if (!folderPath || !fs.existsSync(folderPath)) {
+        return res.status(404).send('Local source folder not defined or offline');
+      }
+
+      let playlistsPath = path.join(folderPath, 'Playlists');
+      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, 'playlists'))) {
+        playlistsPath = path.join(folderPath, 'playlists');
+      }
+
+      const showFolderPath = findShowPlaylistFolder(playlistsPath, showNameShort, showName);
+      if (!showFolderPath) {
+        return res.status(404).send('Show folder not found in playlists directory');
+      }
+
+      const cleanFileName = path.basename(file);
+      let targetFilePath = path.join(showFolderPath, cleanFileName);
+
+      if (!fs.existsSync(targetFilePath)) {
+        const { audioFiles } = getAllAudioAndPlaylistFiles(showFolderPath);
+        const matched = audioFiles.find(a => a.name === cleanFileName || a.relPath === file);
+        if (matched) {
+          targetFilePath = matched.fullPath;
+        }
+      }
+
+      if (fs.existsSync(targetFilePath) && fs.statSync(targetFilePath).isFile()) {
+        res.sendFile(targetFilePath);
+      } else {
+        res.status(404).send('File not found in playlist directory');
+      }
+    } catch (e: any) {
+      res.status(500).send(e.message || 'Streaming failed');
+    }
+  });
+
+  // API - Apply Evergreen & Playlist folder creation or renaming
   app.post('/api/shows/evergreen/apply-change', (req, res) => {
     try {
       const { action, nameShort, oldNameShort, renameFolder } = req.body;
@@ -902,33 +1318,60 @@ async function startServer() {
       if (!folderPath || !fs.existsSync(folderPath)) {
         return res.status(400).json({ error: 'Local Media Directory is not defined or is offline.' });
       }
-      const evergreensPath = path.join(folderPath, 'Evergreens');
+      
+      let evergreensPath = path.join(folderPath, 'Evergreens');
+      if (!fs.existsSync(evergreensPath) && fs.existsSync(path.join(folderPath, 'evergreens'))) {
+        evergreensPath = path.join(folderPath, 'evergreens');
+      }
       if (!fs.existsSync(evergreensPath)) {
         fs.mkdirSync(evergreensPath, { recursive: true });
       }
 
-      const newFolderPath = path.join(evergreensPath, nameShort);
+      let playlistsPath = path.join(folderPath, 'Playlists');
+      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, 'playlists'))) {
+        playlistsPath = path.join(folderPath, 'playlists');
+      }
+      if (!fs.existsSync(playlistsPath)) {
+        fs.mkdirSync(playlistsPath, { recursive: true });
+      }
+
       let folderCreated = false;
       let folderRenamed = false;
 
+      // 1. Evergreens folder sync
+      const newEvergreenFolderPath = path.join(evergreensPath, nameShort);
       if (action === 'update' && oldNameShort && oldNameShort !== nameShort) {
         const oldFolderPath = path.join(evergreensPath, oldNameShort);
         if (fs.existsSync(oldFolderPath) && renameFolder) {
-          if (!fs.existsSync(newFolderPath)) {
-            fs.renameSync(oldFolderPath, newFolderPath);
+          if (!fs.existsSync(newEvergreenFolderPath)) {
+            fs.renameSync(oldFolderPath, newEvergreenFolderPath);
             folderRenamed = true;
           }
-        } else {
-          if (!fs.existsSync(newFolderPath)) {
-            fs.mkdirSync(newFolderPath, { recursive: true });
-            folderCreated = true;
-          }
-        }
-      } else {
-        if (!fs.existsSync(newFolderPath)) {
-          fs.mkdirSync(newFolderPath, { recursive: true });
+        } else if (!fs.existsSync(newEvergreenFolderPath)) {
+          fs.mkdirSync(newEvergreenFolderPath, { recursive: true });
           folderCreated = true;
         }
+      } else if (!fs.existsSync(newEvergreenFolderPath)) {
+        fs.mkdirSync(newEvergreenFolderPath, { recursive: true });
+        folderCreated = true;
+      }
+
+      // 2. Playlists folder sync
+      const newPlaylistFolderPath = path.join(playlistsPath, nameShort);
+      if (action === 'update' && oldNameShort && oldNameShort !== nameShort) {
+        const oldPlaylistFolderPath = path.join(playlistsPath, oldNameShort);
+        if (fs.existsSync(oldPlaylistFolderPath) && renameFolder) {
+          if (!fs.existsSync(newPlaylistFolderPath)) {
+            fs.renameSync(oldPlaylistFolderPath, newPlaylistFolderPath);
+            folderRenamed = true;
+          }
+        } else if (!fs.existsSync(newPlaylistFolderPath)) {
+          fs.mkdirSync(newPlaylistFolderPath, { recursive: true });
+          folderCreated = true;
+        }
+      } else if (!fs.existsSync(newPlaylistFolderPath)) {
+        fs.mkdirSync(newPlaylistFolderPath, { recursive: true });
+        folderCreated = true;
       }
 
       res.json({ success: true, folderCreated, folderRenamed });
@@ -1004,6 +1447,53 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to save log to endpoint:', e);
       res.status(500).json({ error: 'Failed to save log: ' + e.message });
+    }
+  });
+
+  // API - Dedicated Playlist Show Log Entry
+  app.post('/api/shows/playlist/log-entry', (req, res) => {
+    try {
+      const { showNameShort, showStartTime, entry } = req.body;
+      if (!showNameShort) {
+        return res.status(400).json({ error: 'showNameShort is required' });
+      }
+
+      const baseLogFilePath = getLogFilePath();
+      const baseLogDir = baseLogFilePath ? path.dirname(baseLogFilePath) : LOG_DIR;
+      const playlistLogsDir = path.join(baseLogDir, 'Playlists');
+      if (!fs.existsSync(playlistLogsDir)) {
+        fs.mkdirSync(playlistLogsDir, { recursive: true });
+      }
+
+      // File name: <ShortShowName>_<Date>_<Time>_playlist.log
+      const startDate = showStartTime ? new Date(showStartTime) : new Date();
+      const year = startDate.getFullYear();
+      const month = String(startDate.getMonth() + 1).padStart(2, '0');
+      const day = String(startDate.getDate()).padStart(2, '0');
+      const hours = String(startDate.getHours()).padStart(2, '0');
+      const minutes = String(startDate.getMinutes()).padStart(2, '0');
+
+      const dateStr = `${year}-${month}-${day}`;
+      const timeStr = `${hours}-${minutes}`;
+
+      const safeShowName = String(showNameShort).replace(/[\/\\?%*:|"<>]/g, '_');
+      const logFileName = `${safeShowName}_${dateStr}_${timeStr}_playlist.log`;
+      const logFilePath = path.join(playlistLogsDir, logFileName);
+
+      const timestamp = entry?.timestamp || new Date().toISOString();
+      const type = entry?.type || 'track';
+      const name = entry?.name || entry?.fileName || 'Unknown Item';
+      const status = entry?.status || 'played';
+      const duration = entry?.durationFormatted || (entry?.durationSeconds ? `${entry.durationSeconds}s` : '');
+
+      const logLine = `[${timestamp}] [${type.toUpperCase()}] ${name}${duration ? ` (${duration})` : ''} - ${status.toUpperCase()}\n`;
+
+      fs.appendFileSync(logFilePath, logLine, 'utf-8');
+
+      res.json({ success: true, logFileName, logFilePath });
+    } catch (e: any) {
+      console.error('Failed to save playlist show log entry:', e);
+      res.status(500).json({ error: 'Failed to save playlist log: ' + e.message });
     }
   });
 

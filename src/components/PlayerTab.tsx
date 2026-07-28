@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { format, addMinutes, subMinutes, isSameMinute, isBefore, isAfter, startOfMinute, differenceInSeconds, parseISO } from 'date-fns';
-import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download, Ear, FileText, Volume2 } from 'lucide-react';
+import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download, Ear, FileText, Volume2, ListMusic, ChevronUp, ChevronDown, RotateCcw } from 'lucide-react';
 import { Interstitial, InterstitialType, LogEntry, Show } from '../types';
 import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getSortedShows, getShowShade } from '../lib/utils';
 import LiveReadPopout from './LiveReadPopout';
-import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache } from '../lib/driveService';
+import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache, updateAudioCache, getAccessToken, driveFileNameCache, loadPlaylistTracksFromDrive, getSavedSettings } from '../lib/driveService';
 
 interface PlayerTabProps {
   interstitials: Interstitial[];
@@ -13,7 +13,8 @@ interface PlayerTabProps {
   now: Date;
   syncTime: Date;
   scrollTrigger: number;
-  playMode?: 'Live' | 'Prerecord' | 'Export';
+  playMode?: 'Live' | 'Prerecord' | 'Export' | 'Playlist';
+  playlistShow?: Show | null;
   prerecordDate?: Date | null;
   prerecordLengthMinutes?: number;
   onConfigureTimeframe?: () => void;
@@ -31,6 +32,7 @@ export default function PlayerTab({
   syncTime, 
   scrollTrigger,
   playMode = 'Live',
+  playlistShow = null,
   prerecordDate = null,
   prerecordLengthMinutes = 240,
   onConfigureTimeframe,
@@ -48,6 +50,150 @@ export default function PlayerTab({
   const [isLoggingExports, setIsLoggingExports] = useState(false);
   const [customScriptTimes, setCustomScriptTimes] = useState<Record<string, string>>({});
   const [nowClock, setNowClock] = useState(new Date());
+
+  // Playlist Mode State
+  const [playlistTracks, setPlaylistTracks] = useState<Array<{
+    id: string;
+    fileName: string;
+    title: string;
+    durationSeconds: number;
+    durationFormatted: string;
+    streamUrl: string;
+  }>>([]);
+  const [playlistFile, setPlaylistFile] = useState<string | null>(null);
+  const [isPlaylistLoading, setIsPlaylistLoading] = useState(false);
+  const [playlistError, setPlaylistError] = useState<string | null>(null);
+  const [isVerifyingEvergreens, setIsVerifyingEvergreens] = useState(false);
+  const [playedPlaylistTracks, setPlayedPlaylistTracks] = useState<Record<string, {
+    playedAt: string;
+    fileName: string;
+    title: string;
+  }>>({});
+  const [cancelledTrackIds, setCancelledTrackIds] = useState<string[]>([]);
+
+  const [, setPlaylistDurationUpdates] = useState(0);
+
+  // Sync playlist tracks from server, update caches, and detect newly added files in folder
+  const syncPlaylistTracks = async (isInitial = false) => {
+    if (playMode !== 'Playlist' || !playlistShow) return;
+
+    if (isInitial) {
+      setIsPlaylistLoading(true);
+    }
+    setPlaylistError(null);
+
+    try {
+      const settings = getSavedSettings();
+      const showNameShort = playlistShow.nameShort || playlistShow.name;
+      const showName = playlistShow.name;
+
+      let serverTracks: any[] = [];
+      let playlistFileName: string | null = null;
+
+      if (settings.mode === 'Local') {
+        const resp = await fetch('/api/shows/playlist/load-tracks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ showNameShort, showName })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Failed to load tracks');
+        serverTracks = data.tracks || [];
+        playlistFileName = data.playlistFile || null;
+      } else {
+        // 'Drive' or 'Demo' mode
+        const result = await loadPlaylistTracksFromDrive(showNameShort, showName, settings.mode);
+        serverTracks = result.tracks || [];
+        playlistFileName = result.playlistFile || null;
+      }
+
+      setPlaylistFile(playlistFileName);
+
+      const normalizedTracks = serverTracks.map((t: any, idx: number) => ({
+        ...t,
+        id: t.id || `playlist-track-${idx + 1}`
+      }));
+
+      // Register tracks in availableFilesCache & driveFileNameCache matching regular interstitials
+      normalizedTracks.forEach((t: any) => {
+        availableFilesCache.set(t.fileName, {
+          path: t.streamUrl,
+          size: '0 MB',
+          duration: t.durationFormatted
+        });
+        driveFileNameCache.set(t.streamUrl, t.fileName);
+      });
+
+      // Update tracks state intelligently without resetting played/cancelled/dragged order
+      setPlaylistTracks(prev => {
+        if (prev.length === 0 || isInitial) {
+          return normalizedTracks;
+        }
+
+        const existingFileNames = new Set(prev.map(t => t.fileName));
+        const newTracks = normalizedTracks.filter((st: any) => !existingFileNames.has(st.fileName));
+
+        if (newTracks.length === 0) {
+          return prev;
+        }
+
+        console.log(`Discovered ${newTracks.length} new track(s) added to playlist folder.`);
+        return [...prev, ...newTracks];
+      });
+
+      // Trigger pre-caching & browser duration calculation matching regular interstitials
+      const trackUrls = serverTracks.map((t: any) => t.streamUrl);
+      const token = getAccessToken();
+      updateAudioCache(trackUrls, token).catch(e => console.warn('Playlist track pre-caching error:', e));
+
+    } catch (err: any) {
+      console.error('Failed to sync playlist tracks:', err);
+      if (isInitial) {
+        setPlaylistError(err.message || 'Error loading playlist tracks');
+      }
+    } finally {
+      if (isInitial) {
+        setIsPlaylistLoading(false);
+      }
+    }
+  };
+
+  // Initial load when switching to Playlist mode or changing show
+  useEffect(() => {
+    if (playMode !== 'Playlist' || !playlistShow) {
+      setPlaylistTracks([]);
+      setPlaylistFile(null);
+      setCancelledTrackIds([]);
+      setPlayedPlaylistTracks({});
+      return;
+    }
+
+    setCancelledTrackIds([]);
+    setPlayedPlaylistTracks({});
+    syncPlaylistTracks(true);
+  }, [playMode, playlistShow]);
+
+  // Periodic check for additional tracks added to folder (every 30 seconds) + syncTime / scrollTrigger updates
+  useEffect(() => {
+    if (playMode !== 'Playlist' || !playlistShow) return;
+
+    syncPlaylistTracks(false);
+
+    const interval = setInterval(() => {
+      syncPlaylistTracks(false);
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [playMode, playlistShow, syncTime, scrollTrigger]);
+
+  // Listen for browser duration calculation events ('mp3-duration-cached')
+  useEffect(() => {
+    const handleDurationCached = () => {
+      setPlaylistDurationUpdates(prev => prev + 1);
+    };
+    window.addEventListener('mp3-duration-cached', handleDurationCached);
+    return () => window.removeEventListener('mp3-duration-cached', handleDurationCached);
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -470,8 +616,404 @@ export default function PlayerTab({
         
         return s.minute === minute && ruleMatch && afterStart && beforeEnd;
       }
+
       return false;
     });
+  };
+
+  const playlistTimeline = useMemo(() => {
+    if (playMode !== 'Playlist' || !playlistShow) return [];
+
+    const showStart = new Date(syncTime);
+    showStart.setHours(playlistShow.startHour, playlistShow.startMinute, 0, 0);
+
+    const showDurationMinutes = (playlistShow.durationHours * 60) + playlistShow.durationMinutes;
+    const showEnd = addMinutes(showStart, showDurationMinutes);
+
+    const scheduledBreaks: Array<{
+      slotTime: Date;
+      interstitials: Interstitial[];
+      totalDurationSec: number;
+    }> = [];
+
+    let currentSlot = startOfMinute(showStart);
+    while (isBefore(currentSlot, showEnd)) {
+      const sForSlot = getInterstitialsForSlot(currentSlot);
+      if (sForSlot.length > 0) {
+        const totalDur = sForSlot.reduce((acc, item) => {
+          const d = parseInt(item.duration, 10);
+          return acc + (!isNaN(d) && d > 0 ? d : 60);
+        }, 0);
+        scheduledBreaks.push({
+          slotTime: new Date(currentSlot),
+          interstitials: sForSlot,
+          totalDurationSec: totalDur
+        });
+      }
+      currentSlot = addMinutes(currentSlot, 1);
+    }
+
+    type PlaylistTimelineEntry =
+      | {
+          type: 'header';
+          id: string;
+          show: Show;
+          startTime: Date;
+          playlistFile: string | null;
+          trackCount: number;
+        }
+      | {
+          type: 'track';
+          id: string;
+          track: {
+            id: string;
+            fileName: string;
+            title: string;
+            durationSeconds: number;
+            durationFormatted: string;
+            streamUrl: string;
+          };
+          trackNumber: number;
+          startTime: Date;
+          endTime: Date;
+          played?: boolean;
+          playedAt?: string;
+          cancelled?: boolean;
+        }
+      | {
+          type: 'break';
+          id: string;
+          slotTime: Date;
+          startTime: Date;
+          interstitials: Interstitial[];
+        };
+
+    const items: PlaylistTimelineEntry[] = [
+      {
+        type: 'header',
+        id: 'playlist-header',
+        show: playlistShow,
+        startTime: showStart,
+        playlistFile,
+        trackCount: playlistTracks.length
+      }
+    ];
+
+    let currentTime = new Date(showStart);
+    let remainingBreaks = [...scheduledBreaks];
+
+    const activeAndPlayedTracks = playlistTracks.filter(t => !cancelledTrackIds.includes(t.id));
+    const cancelledTracks = playlistTracks.filter(t => !playedPlaylistTracks[t.id] && cancelledTrackIds.includes(t.id));
+
+    let activeTrackCounter = 1;
+
+    for (let i = 0; i < activeAndPlayedTracks.length; i++) {
+      const track = activeAndPlayedTracks[i];
+      const exactCachedDurationStr = mp3DurationCache.get(track.streamUrl) || availableFilesCache.get(track.fileName)?.duration;
+      let trackDur = track.durationSeconds || 180;
+      if (exactCachedDurationStr) {
+        const parts = exactCachedDurationStr.split(':');
+        if (parts.length === 2) {
+          const mins = parseInt(parts[0], 10);
+          const secs = parseInt(parts[1], 10);
+          if (!isNaN(mins) && !isNaN(secs)) {
+            trackDur = (mins * 60) + secs;
+          }
+        }
+      }
+      const playedInfo = playedPlaylistTracks[track.id];
+
+      if (playedInfo) {
+        const playedDate = new Date(playedInfo.playedAt);
+        const playedEnd = new Date(playedDate.getTime() + trackDur * 1000);
+        items.push({
+          type: 'track',
+          id: track.id,
+          track,
+          trackNumber: activeTrackCounter++,
+          startTime: playedDate,
+          endTime: playedEnd,
+          played: true,
+          playedAt: playedInfo.playedAt,
+          cancelled: false
+        });
+        if (playedEnd.getTime() > currentTime.getTime()) {
+          currentTime = new Date(playedEnd);
+        }
+        continue;
+      }
+
+      // Check if unplayed track is behind schedule relative to nowClock
+      if (currentTime.getTime() < nowClock.getTime()) {
+        currentTime = new Date(nowClock);
+      }
+
+      const tentativeStart = new Date(currentTime);
+      const tentativeEnd = new Date(tentativeStart.getTime() + trackDur * 1000);
+      const midpoint = new Date(tentativeStart.getTime() + Math.floor(trackDur / 2) * 1000);
+
+      const matchingBreakIndex = remainingBreaks.findIndex(
+        b => b.slotTime.getTime() >= tentativeStart.getTime() && b.slotTime.getTime() < tentativeEnd.getTime()
+      );
+
+      if (matchingBreakIndex === -1) {
+        while (remainingBreaks.length > 0 && remainingBreaks[0].slotTime.getTime() <= currentTime.getTime()) {
+          const b = remainingBreaks.shift()!;
+          items.push({
+            type: 'break',
+            id: `break-${b.slotTime.toISOString()}`,
+            slotTime: b.slotTime,
+            startTime: new Date(currentTime),
+            interstitials: b.interstitials
+          });
+          currentTime = new Date(currentTime.getTime() + b.totalDurationSec * 1000);
+        }
+
+        const trackStart = new Date(currentTime);
+        const trackEnd = new Date(trackStart.getTime() + trackDur * 1000);
+        items.push({
+          type: 'track',
+          id: track.id,
+          track,
+          trackNumber: activeTrackCounter++,
+          startTime: trackStart,
+          endTime: trackEnd,
+          played: false,
+          cancelled: false
+        });
+        currentTime = trackEnd;
+      } else {
+        const targetBreak = remainingBreaks[matchingBreakIndex];
+
+        if (targetBreak.slotTime.getTime() < midpoint.getTime()) {
+          // FIRST HALF: Place song card AFTER the interstitial break
+          const breaksToInsert = remainingBreaks.splice(0, matchingBreakIndex + 1);
+          for (const b of breaksToInsert) {
+            items.push({
+              type: 'break',
+              id: `break-${b.slotTime.toISOString()}`,
+              slotTime: b.slotTime,
+              startTime: new Date(currentTime),
+              interstitials: b.interstitials
+            });
+            currentTime = new Date(currentTime.getTime() + b.totalDurationSec * 1000);
+          }
+
+          const trackStart = new Date(currentTime);
+          const trackEnd = new Date(trackStart.getTime() + trackDur * 1000);
+          items.push({
+            type: 'track',
+            id: track.id,
+            track,
+            trackNumber: activeTrackCounter++,
+            startTime: trackStart,
+            endTime: trackEnd,
+            played: false,
+            cancelled: false
+          });
+          currentTime = trackEnd;
+        } else {
+          // SECOND HALF: Place song card BEFORE the interstitial break
+          const trackStart = new Date(currentTime);
+          const trackEnd = new Date(trackStart.getTime() + trackDur * 1000);
+          items.push({
+            type: 'track',
+            id: track.id,
+            track,
+            trackNumber: activeTrackCounter++,
+            startTime: trackStart,
+            endTime: trackEnd,
+            played: false,
+            cancelled: false
+          });
+          currentTime = trackEnd;
+
+          const breaksToInsert = remainingBreaks.splice(0, matchingBreakIndex + 1);
+          for (const b of breaksToInsert) {
+            items.push({
+              type: 'break',
+              id: `break-${b.slotTime.toISOString()}`,
+              slotTime: b.slotTime,
+              startTime: new Date(currentTime),
+              interstitials: b.interstitials
+            });
+            currentTime = new Date(currentTime.getTime() + b.totalDurationSec * 1000);
+          }
+        }
+      }
+    }
+
+    while (remainingBreaks.length > 0) {
+      const b = remainingBreaks.shift()!;
+      items.push({
+        type: 'break',
+        id: `break-${b.slotTime.toISOString()}`,
+        slotTime: b.slotTime,
+        startTime: new Date(currentTime),
+        interstitials: b.interstitials
+      });
+      currentTime = new Date(currentTime.getTime() + b.totalDurationSec * 1000);
+    }
+
+    // Append Cancelled Tracks at the bottom
+    for (const track of cancelledTracks) {
+      const trackDur = track.durationSeconds || 180;
+      const trackStart = new Date(currentTime);
+      const trackEnd = new Date(trackStart.getTime() + trackDur * 1000);
+      items.push({
+        type: 'track',
+        id: track.id,
+        track,
+        trackNumber: 0,
+        startTime: trackStart,
+        endTime: trackEnd,
+        played: false,
+        cancelled: true
+      });
+      currentTime = trackEnd;
+    }
+
+    return items;
+  }, [playMode, playlistShow, playlistTracks, playlistFile, syncTime, interstitials, playedPlaylistTracks, cancelledTrackIds, nowClock]);
+
+  const handleMoveTrackUp = (trackId: string) => {
+    setPlaylistTracks(prev => {
+      const activeUnplayed = prev.filter(t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id));
+      const idx = activeUnplayed.findIndex(t => t.id === trackId);
+      if (idx <= 0) return prev;
+
+      const currentTrack = activeUnplayed[idx];
+      const prevTrack = activeUnplayed[idx - 1];
+
+      const newTracks = [...prev];
+      const pos1 = newTracks.findIndex(t => t.id === currentTrack.id);
+      const pos2 = newTracks.findIndex(t => t.id === prevTrack.id);
+      if (pos1 !== -1 && pos2 !== -1) {
+        newTracks[pos1] = prevTrack;
+        newTracks[pos2] = currentTrack;
+      }
+      return newTracks;
+    });
+  };
+
+  const handleMoveTrackDown = (trackId: string) => {
+    setPlaylistTracks(prev => {
+      const activeUnplayed = prev.filter(t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id));
+      const idx = activeUnplayed.findIndex(t => t.id === trackId);
+      if (idx === -1 || idx >= activeUnplayed.length - 1) return prev;
+
+      const currentTrack = activeUnplayed[idx];
+      const nextTrack = activeUnplayed[idx + 1];
+
+      const newTracks = [...prev];
+      const pos1 = newTracks.findIndex(t => t.id === currentTrack.id);
+      const pos2 = newTracks.findIndex(t => t.id === nextTrack.id);
+      if (pos1 !== -1 && pos2 !== -1) {
+        newTracks[pos1] = nextTrack;
+        newTracks[pos2] = currentTrack;
+      }
+      return newTracks;
+    });
+  };
+
+  const handleCancelTrack = (trackId: string) => {
+    setCancelledTrackIds(prev => [...prev, trackId]);
+  };
+
+  const handleReactivateTrack = (trackId: string) => {
+    setCancelledTrackIds(prev => prev.filter(id => id !== trackId));
+    setPlaylistTracks(prev => {
+      const target = prev.find(t => t.id === trackId);
+      if (!target) return prev;
+      const remaining = prev.filter(t => t.id !== trackId);
+      const activeUnplayed = remaining.filter(t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id));
+      const cancelled = remaining.filter(t => !playedPlaylistTracks[t.id] && cancelledTrackIds.includes(t.id));
+      const played = remaining.filter(t => !!playedPlaylistTracks[t.id]);
+
+      return [...played, ...activeUnplayed, target, ...cancelled];
+    });
+  };
+
+  const handleTogglePlayTrack = (track: {
+    id: string;
+    fileName: string;
+    title: string;
+    durationSeconds: number;
+    durationFormatted: string;
+    streamUrl: string;
+  }) => {
+    if (playingSlotKey === track.id) {
+      if (playingAudio) {
+        playingAudio.pause();
+        setPlayingAudio(null);
+        setPlayingSlotKey(null);
+      }
+    } else {
+      if (playingAudio) {
+        playingAudio.pause();
+      }
+      const playableUrl = getPlayableUrl(track.streamUrl);
+      const audio = new Audio(playableUrl);
+      const playedAt = new Date().toISOString();
+      audio.play().then(() => {
+        setPlayingAudio(audio);
+        setPlayingSlotKey(track.id);
+
+        setPlayedPlaylistTracks(prev => ({
+          ...prev,
+          [track.id]: {
+            playedAt,
+            fileName: track.fileName,
+            title: track.title
+          }
+        }));
+
+        if (playlistShow) {
+          const showNameShort = playlistShow.nameShort || playlistShow.name;
+          const showStart = new Date(syncTime);
+          showStart.setHours(playlistShow.startHour, playlistShow.startMinute, 0, 0);
+
+          fetch('/api/shows/playlist/log-entry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              showNameShort,
+              showStartTime: showStart.toISOString(),
+              entry: {
+                timestamp: playedAt,
+                type: 'track',
+                name: track.title,
+                fileName: track.fileName,
+                status: 'played',
+                durationSeconds: track.durationSeconds,
+                durationFormatted: track.durationFormatted
+              }
+            })
+          }).catch(e => console.error('Failed to save playlist track log:', e));
+        }
+      }).catch(e => console.error('Error playing playlist track:', e));
+    }
+  };
+
+  const handleVerifyEvergreens = async () => {
+    setIsVerifyingEvergreens(true);
+    try {
+      const resp = await fetch('/api/shows/verify-evergreens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shows })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed to verify folders');
+      const createdMsg = data.createdFolders?.length > 0
+        ? `\n\nCreated folders for shows: ${data.createdFolders.join(', ')}`
+        : '';
+      alert(`Evergreen & Playlist folder verification completed successfully!\n\nEvergreens Location: ${data.evergreensPath}\nPlaylists Location: ${data.playlistsPath}${createdMsg}`);
+    } catch (err: any) {
+      alert(`Error verifying evergreen & playlist folders:\n${err.message}`);
+    } finally {
+      setIsVerifyingEvergreens(false);
+    }
   };
 
   const handlePlay = (s: Interstitial, slot: Date) => {
@@ -1258,7 +1800,7 @@ export default function PlayerTab({
   return (
     <div className="flex flex-col h-full relative">
       {(() => {
-        const initialActiveShow = timeline.length > 0 ? (() => {
+        const initialActiveShow = playMode === 'Playlist' ? playlistShow : (timeline.length > 0 ? (() => {
           const firstSlot = timeline[0];
           const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
           const dayName = daysOrder[firstSlot.getDay()];
@@ -1268,11 +1810,13 @@ export default function PlayerTab({
             isTimeInShow(show, dayName, hour, minute)
           );
           return activeShows[0] || null;
-        })() : null;
+        })() : null);
 
-        const initialShade = initialActiveShow 
-          ? getShowShade(initialActiveShow, getSortedShows(shows))
-          : { bg: 'var(--show-shade-none-bg, #f1f5f9)', border: 'var(--show-shade-none-border, #cbd5e1)', title: 'No active show scheduled' };
+        const initialShade = playMode === 'Playlist'
+          ? { bg: '#faf5ff', border: '#c084fc', title: 'Playlist Mode' }
+          : (initialActiveShow 
+              ? getShowShade(initialActiveShow, getSortedShows(shows))
+              : { bg: 'var(--show-shade-none-bg, #f1f5f9)', border: 'var(--show-shade-none-border, #cbd5e1)', title: 'No active show scheduled' });
 
         return (
           <div 
@@ -1295,7 +1839,9 @@ export default function PlayerTab({
               }}
             >
               <div ref={persistentTitleRef} className="line-clamp-2 font-sans">
-                {initialActiveShow ? initialActiveShow.name : "No Scheduled Show"}
+                {playMode === 'Playlist' 
+                  ? (playlistShow ? `PLAYLIST: ${playlistShow.name}` : "PLAYLIST MODE - NO SHOW SELECTED")
+                  : (initialActiveShow ? initialActiveShow.name : "No Scheduled Show")}
               </div>
             </div>
           </div>
@@ -1306,7 +1852,505 @@ export default function PlayerTab({
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto pb-4 scroll-smooth relative"
       >
-        {timeline.map((slot, index) => {
+        {(() => {
+          if (playMode === 'Playlist') {
+            if (!playlistShow) {
+              return (
+                <div className="flex flex-col items-center justify-center p-6 text-center bg-slate-50 border border-slate-200 rounded-xl m-4 space-y-3">
+                  <ListMusic className="w-8 h-8 text-purple-600" />
+                  <h3 className="text-sm font-black uppercase text-slate-800 tracking-wider">No Show Selected for Playlist Mode</h3>
+                  <p className="text-xs text-slate-600 max-w-sm">
+                    Select "Playlist" mode in the header to choose a show and load its automated music tracks.
+                  </p>
+                </div>
+              );
+            }
+            if (isPlaylistLoading) {
+              return (
+                <div className="flex items-center justify-center p-8 text-purple-700 space-x-2">
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                  <span className="text-xs font-black uppercase tracking-wider">Assembling Playlist Tracks & Interstitials...</span>
+                </div>
+              );
+            }
+            if (playlistTracks.length === 0) {
+              return (
+                <div className="flex flex-col items-center justify-center p-6 text-center bg-purple-50/50 border border-purple-200 rounded-xl m-4 space-y-3">
+                  <ListMusic className="w-8 h-8 text-purple-600" />
+                  <h3 className="text-sm font-black uppercase text-slate-900 tracking-wider">
+                    No Tracks Found in Playlist Folder
+                  </h3>
+                  <p className="text-xs text-slate-600 max-w-md">
+                    Please place <strong>.m3u</strong> playlist files or <strong>.mp3</strong> tracks inside:
+                    <br />
+                    <code className="bg-slate-200 px-1.5 py-0.5 rounded text-slate-800 text-[11px] font-mono mt-1 inline-block">
+                      /medialibrary/Playlists/{playlistShow.nameShort || playlistShow.name}
+                    </code>
+                  </p>
+                  <button
+                    onClick={handleVerifyEvergreens}
+                    disabled={isVerifyingEvergreens}
+                    className="p-1.5 px-3 bg-purple-700 hover:bg-purple-800 text-white rounded text-xs font-black uppercase cursor-pointer flex items-center gap-1.5 shadow-sm active:translate-y-px"
+                  >
+                    <span>{isVerifyingEvergreens ? "CHECKING..." : "CHECK EVERGREEN & PLAYLIST FOLDERS"}</span>
+                  </button>
+                </div>
+              );
+            }
+            return (
+              <div className="space-y-2 p-2">
+                {playlistTimeline.map(item => {
+                if (item.type === 'header') {
+                  return (
+                    <div key={item.id} className="bg-purple-900 text-white p-3 rounded-lg shadow-sm border border-purple-700 flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2.5">
+                        <ListMusic className="w-5 h-5 text-purple-300" />
+                        <div>
+                          <div className="text-xs font-black uppercase tracking-wide text-white">
+                            {item.show.name} ({item.show.nameShort || item.show.name})
+                          </div>
+                          <div className="text-[11px] text-purple-200 font-mono">
+                            {item.playlistFile ? `Loaded from .m3u: ${item.playlistFile}` : 'Loaded from Alphabetical MP3s'} • {item.trackCount} Tracks
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[11px] font-black uppercase bg-purple-800 text-purple-100 px-2.5 py-1 rounded border border-purple-600">
+                          Start: {format(item.startTime, 'HH:mm')}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (item.type === 'track') {
+                  const isCurrentlyPlaying = playingSlotKey === item.track.id;
+                  const isPlayedTrack = !!item.played;
+                  const isCancelledTrack = !!item.cancelled;
+
+                  const activeUnplayedTracks = playlistTracks.filter(
+                    t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id)
+                  );
+                  const activeIdx = activeUnplayedTracks.findIndex(t => t.id === item.track.id);
+                  const isTopActive = activeIdx === 0;
+                  const isBottomActive = activeIdx === activeUnplayedTracks.length - 1;
+
+                  return (
+                    <div 
+                      key={item.id} 
+                      className={cn(
+                        "rounded border shadow-xs p-2 my-1.5 transition-all flex flex-col gap-1.5 select-none text-left border-l-[4px]",
+                        isCurrentlyPlaying 
+                          ? "bg-purple-100/80 dark:bg-purple-950/40 border-purple-500 ring-1 ring-purple-500/40" 
+                          : isPlayedTrack
+                            ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-500 dark:border-emerald-700/60"
+                            : isCancelledTrack
+                              ? "bg-slate-100/70 dark:bg-slate-900/40 border-slate-300 dark:border-slate-800 opacity-75"
+                              : "bg-white dark:bg-slate-900 border-purple-200 dark:border-purple-800/60 hover:border-purple-300"
+                      )}
+                      style={{
+                        borderLeftColor: isCurrentlyPlaying
+                          ? '#9333ea'
+                          : isPlayedTrack
+                            ? '#10b981'
+                            : isCancelledTrack
+                              ? '#94a3b8'
+                              : '#a855f7'
+                      }}
+                      title={`MP3 File: ${item.track.fileName}`}
+                    >
+                      {/* Top Header Bar matching Interstitial layout */}
+                      <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/80 -mx-2 -mt-2 px-2 py-1 rounded-t border-b border-slate-200/80 dark:border-slate-700/60">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs uppercase font-black text-slate-600 dark:text-slate-400 tracking-tighter">
+                            {format(item.startTime, 'MMM dd')}
+                          </span>
+                          <span className="text-xs font-mono font-black text-purple-600 dark:text-purple-400">
+                            {format(item.startTime, 'HH:mm')}
+                          </span>
+                        </div>
+
+                        {isCurrentlyPlaying ? (
+                          <div className="flex items-center gap-1 text-xs font-black uppercase text-purple-600 dark:text-purple-400">
+                            <div className="w-1.5 h-1.5 rounded-full bg-purple-600 dark:bg-purple-400 animate-pulse"></div>
+                            Playing
+                          </div>
+                        ) : (isTopActive && !isPlayedTrack && !isCancelledTrack) ? (
+                          <span className="text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none bg-purple-600">Next</span>
+                        ) : null}
+                      </div>
+
+                      {/* Middle row: Title & Play button */}
+                      <div className="flex items-center justify-between gap-2 pt-0.5">
+                        <div 
+                          className={cn(
+                            "text-xs font-bold leading-tight break-words line-clamp-2 flex-1",
+                            isCurrentlyPlaying ? "text-purple-700 dark:text-purple-300" :
+                            isPlayedTrack ? "text-emerald-950 dark:text-emerald-100" :
+                            isCancelledTrack ? "text-slate-500 dark:text-slate-400 line-through decoration-slate-400/60" :
+                            "text-slate-800 dark:text-slate-100"
+                          )}
+                          title={`MP3 File: ${item.track.fileName}`}
+                        >
+                          {item.track.title}
+                        </div>
+
+                        <button
+                          onClick={() => handleTogglePlayTrack(item.track)}
+                          className={cn(
+                            "shrink-0 p-1.5 rounded-full transition-all shadow-xs cursor-pointer flex items-center justify-center",
+                            isCurrentlyPlaying
+                              ? "bg-purple-700 hover:bg-purple-800 text-white"
+                              : isPlayedTrack
+                                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                : isCancelledTrack
+                                  ? "bg-slate-400 dark:bg-slate-700 hover:bg-slate-500 text-white"
+                                  : "bg-purple-600 hover:bg-purple-500 text-white"
+                          )}
+                          title={isCurrentlyPlaying ? "Pause track" : isPlayedTrack ? "Replay playlist track" : "Play track"}
+                        >
+                          {isCurrentlyPlaying ? (
+                            <Pause className="w-3.5 h-3.5 fill-current" />
+                          ) : isPlayedTrack ? (
+                            <CheckCircle className="w-3.5 h-3.5 text-white" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Status & Duration row */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1">
+                          {isPlayedTrack ? (
+                            <>
+                              <CheckCircle className="w-2.5 h-2.5 text-green-500" />
+                              <span className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-tighter">
+                                Played
+                              </span>
+                            </>
+                          ) : isCancelledTrack ? (
+                            <>
+                              <AlertCircle className="w-2.5 h-2.5 text-slate-400" />
+                              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
+                                Cancelled
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Clock className="w-2.5 h-2.5 text-slate-500" />
+                              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
+                                To be played
+                              </span>
+                            </>
+                          )}
+                        </div>
+
+                        <span className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 leading-none">
+                          {mp3DurationCache.get(item.track.streamUrl) || availableFilesCache.get(item.track.fileName)?.duration || item.track.durationFormatted}
+                        </span>
+                      </div>
+
+                      {/* Bottom action controls stacked vertically */}
+                      {(!isPlayedTrack && !isCancelledTrack) && (
+                        <div className="border-t border-slate-200/80 dark:border-slate-700/60 pt-1 mt-0.5 flex justify-end">
+                          <div className="flex items-center gap-1 bg-slate-50/80 dark:bg-slate-800/80 p-0.5 rounded-md border border-slate-200 dark:border-slate-700/60">
+                            {!isTopActive && (
+                              <button
+                                onClick={() => handleMoveTrackUp(item.track.id)}
+                                className="p-1 text-slate-600 dark:text-slate-300 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded cursor-pointer transition-colors"
+                                title="Move song up in queue"
+                              >
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {!isBottomActive && (
+                              <button
+                                onClick={() => handleMoveTrackDown(item.track.id)}
+                                className="p-1 text-slate-600 dark:text-slate-300 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded cursor-pointer transition-colors"
+                                title="Move song down in queue"
+                              >
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleCancelTrack(item.track.id)}
+                              className="p-1 text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded cursor-pointer transition-colors"
+                              title="Cancel song (move to bottom)"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {isCancelledTrack && (
+                        <div className="border-t border-slate-200/80 dark:border-slate-700/60 pt-1 mt-0.5 flex justify-end">
+                          <button
+                            onClick={() => handleReactivateTrack(item.track.id)}
+                            className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 cursor-pointer transition-colors shadow-xs"
+                            title="Reactivate song to queue"
+                          >
+                            <RotateCcw className="w-3 h-3 text-slate-600 dark:text-slate-300" />
+                            <span>Reactivate</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                if (item.type === 'break') {
+                  const slot = item.slotTime;
+                  const sForSlot = item.interstitials;
+                  const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+                  const dayName = daysOrder[slot.getDay()];
+                  const hour = slot.getHours();
+                  const minute = slot.getMinutes();
+                  const isPre = false;
+                  const isPresent = isSameMinute(slot, now);
+                  const isPast = isBefore(slot, now) && !isPresent;
+                  const diffSeconds = Math.abs(differenceInSeconds(now, slot));
+
+                  return (
+                    <div key={item.id} className="space-y-1.5 my-1.5">
+                      {sForSlot.map((s, idx) => {
+                        const playedLog = logs.find(l => 
+                          l.interstitialId === s.id && 
+                          (l.interstitialTime === slot.toISOString() || isSameMinute(parseISO(l.timestamp), slot)) &&
+                          l.status === 'played'
+                        );
+                        const played = !!playedLog && playedLog.playMode !== 'Export';
+                        const exported = !!playedLog && playedLog.playMode === 'Export';
+                        const slotKey = `${slot.toISOString()}-${s.id}`;
+                        const customVal = customScriptTimes[slotKey];
+                        const isValid = !customVal || parseCustomTimeText(customVal) !== null;
+                        const status = getMP3Status(s.mp3Url);
+                        const isVerified = s.assetType === 'script' ? status.exists : (status.exists && status.valid);
+                        const isCurrentlyPlaying = playingSlotKey === slotKey;
+                        const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
+
+                        const isMissedRecent = isPast && !played && !exported && diffSeconds <= 1800;
+                        const isMissedOld = isPast && !played && !exported && diffSeconds > 1800;
+
+                        const fileInCache = availableFilesCache.get(s.mp3Url);
+                        const activeShows = shows.filter(show => 
+                          isTimeInShow(show, dayName, hour, minute)
+                        );
+                        const activeShow = activeShows[0];
+                        const sortedShows = getSortedShows(shows);
+                        const showShade = activeShow ? getShowShade(activeShow, sortedShows) : null;
+                        const resolvedUrl = fileInCache ? fileInCache.path : s.mp3Url;
+
+                        const cardBorderClass = !isVerified
+                          ? "border-red-500"
+                          : isCurrentlyPlaying || isUpcoming
+                            ? "border-purple-600 ring-1 ring-purple-600/30"
+                            : exported
+                              ? "border-emerald-600"
+                              : (isMissedRecent || isMissedOld)
+                                ? "border-amber-600"
+                                : (isPast && played)
+                                  ? "border-emerald-600"
+                                  : "border-slate-500";
+
+                        const cardBgClass = !isVerified
+                          ? "bg-[#fef2f2]"
+                          : isCurrentlyPlaying
+                            ? "bg-white"
+                            : isUpcoming
+                              ? "bg-[#faf5ff]"
+                              : exported
+                                ? "bg-[#f0fdf4]"
+                                : (isMissedRecent || isMissedOld)
+                                  ? "bg-[#fffbeb]"
+                                  : (isPast && played)
+                                    ? "bg-white"
+                                    : isPresent
+                                      ? "bg-[#faf5ff]"
+                                      : "bg-white";
+
+                        const cardOpacityClass = (isPast && (played || exported) && !isCurrentlyPlaying)
+                          ? "opacity-75"
+                          : (isMissedRecent || isMissedOld) && !isCurrentlyPlaying
+                            ? "opacity-95"
+                            : "opacity-100";
+
+                        return (
+                          <div key={`${slot.toISOString()}-${s.id}-${idx}`} className="flex items-stretch gap-2 w-full pr-1 relative min-h-[4.5rem]">
+                            {activeShow ? (
+                              <div 
+                                className="absolute left-0 top-[-6px] bottom-[-6px] w-1 animate-fade-in z-10" style={{ backgroundColor: showShade?.bg }} 
+                                title={showShade?.title}
+                              />
+                            ) : null}
+                            <div 
+                              onClick={() => isVerified ? handlePlay(s, slot) : null}
+                              style={{
+                                borderLeftColor: !isVerified
+                                  ? '#f43f5e'
+                                  : s.assetType === 'script'
+                                    ? '#3b82f6'
+                                    : '#a855f7'
+                              }}
+                              className={cn(
+                                "flex-1 rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 select-none cursor-pointer hover:shadow hover:border-slate-300 active:scale-[99.5%] active:bg-slate-50/30 text-left",
+                                activeShow ? "ml-1" : "", "border-l-[4px] rounded-l-none",
+                                cardBorderClass,
+                                cardBgClass,
+                                cardOpacityClass
+                              )}
+                            >
+                              <div className="flex justify-between items-center bg-slate-50 -mx-2 -mt-2 px-2 py-1 rounded-t">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs uppercase font-black text-slate-600 tracking-tighter">
+                                    {format(slot, 'MMM dd')}
+                                  </span>
+                                  <span className="text-xs font-mono font-black text-purple-600">
+                                    {format(slot, 'HH:mm')}
+                                  </span>
+                                </div>
+                                {isCurrentlyPlaying ? (
+                                  <div className="flex items-center gap-1 text-xs font-black uppercase text-purple-600">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-purple-600"></div>
+                                    Playing
+                                  </div>
+                                ) : isPresent ? (
+                                  <span className="text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none bg-purple-600">Next</span>
+                                ) : isUpcoming ? (
+                                  <span className="text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none shadow-sm animate-pulse bg-purple-500 shadow-purple-200">Next</span>
+                                ) : null}
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2">
+                                <div className={cn(
+                                  "text-xs font-bold leading-tight break-words line-clamp-2 flex-1",
+                                  isCurrentlyPlaying ? "text-purple-700" : "text-slate-800"
+                                )}>
+                                  {s.name}
+                                </div>
+                                
+                                {s.assetType === 'script' ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePlay(s, slot);
+                                    }}
+                                    className={cn(
+                                      "shrink-0 p-1 rounded-full transition-all shadow-sm cursor-pointer",
+                                      !isVerified ? "bg-red-50 text-red-300" :
+                                      isCurrentlyPlaying ? "bg-slate-900 text-white" :
+                                      (played || exported) ? "bg-slate-100 text-slate-500" :
+                                      isMissedRecent ? "bg-slate-500 text-white" :
+                                      isPresent || isUpcoming ? "bg-purple-600 text-white shadow-md shadow-purple-200" :
+                                      "bg-slate-700 text-white"
+                                    )}
+                                    title={!isVerified ? "Invalid or missing file" : (played || exported) ? "Read Again" : "Display Script"}
+                                  >
+                                    {!isVerified ? (
+                                      <X className="w-2.5 h-2.5" />
+                                    ) : (played || exported) ? (
+                                      <RefreshCw className="w-2.5 h-2.5" />
+                                    ) : isCurrentlyPlaying ? (
+                                      <Square className="w-2.5 h-2.5 fill-current" />
+                                    ) : (
+                                      <FileText className="w-2.5 h-2.5" />
+                                    )}
+                                  </button>
+                                ) : (
+                                  <div 
+                                    className={cn(
+                                      "shrink-0 p-1 rounded-full transition-all shadow-sm",
+                                      !isVerified ? "bg-red-50 text-red-300" :
+                                      isCurrentlyPlaying ? "bg-slate-900 text-white" :
+                                      (played || exported) ? "bg-slate-100 text-slate-500" :
+                                      isMissedRecent ? "bg-slate-500 text-white" :
+                                      isPresent || isUpcoming ? "bg-purple-600 text-white shadow-md shadow-purple-200" :
+                                      "bg-slate-700 text-white"
+                                    )}
+                                    title={!isVerified ? "Invalid or missing file" : (played || exported) ? "Play Again" : undefined}
+                                  >
+                                    {!isVerified ? (
+                                      <X className="w-2.5 h-2.5" />
+                                    ) : isCurrentlyPlaying ? (
+                                      <Square className="w-2.5 h-2.5 fill-current" />
+                                    ) : (played || exported) ? (
+                                      <RefreshCw className="w-2.5 h-2.5" />
+                                    ) : (
+                                      <Play className="w-2.5 h-2.5 fill-current" />
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex items-center justify-between">
+                                {isVerified ? (
+                                  <div className="flex flex-col gap-0.5">
+                                    <div className="flex items-center gap-1">
+                                      {exported ? (
+                                        <>
+                                          <CheckCircle className="w-2.5 h-2.5 text-purple-500" />
+                                          <span className="text-xs font-bold uppercase tracking-tighter text-purple-600">
+                                            Exported
+                                          </span>
+                                        </>
+                                      ) : (played || isCurrentlyPlaying) ? (
+                                        <>
+                                          <CheckCircle className="w-2.5 h-2.5 text-green-500" />
+                                          <span className="text-xs font-bold text-green-600 uppercase tracking-tighter">
+                                            {s.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
+                                          </span>
+                                        </>
+                                      ) : isMissedRecent || isMissedOld ? (
+                                        <>
+                                          <AlertCircle className="w-2.5 h-2.5 text-amber-600" />
+                                          <span className="text-xs font-bold text-amber-700 uppercase tracking-tighter">Missed</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Clock className="w-2.5 h-2.5 text-slate-500" />
+                                          <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">{s.assetType === 'script' ? "To be read" : "To be played"}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1">
+                                    <AlertCircle className="w-2.5 h-2.5 text-red-500" />
+                                    <span className="text-xs font-bold text-red-600 uppercase tracking-tighter">
+                                      {!status.exists ? "File not found." : (s.assetType === 'script' ? "Invalid script file." : "File not mp3.")}
+                                    </span>
+                                  </div>
+                                )}
+                                
+                                {isCurrentlyPlaying ? (
+                                  <div className="flex items-center gap-1 text-xs font-mono font-bold leading-none text-purple-600">
+                                    <span>{formatTime(currentTime)}</span>
+                                    <span className="opacity-30">/</span>
+                                    <span>{formatTime(duration)}</span>
+                                  </div>
+                                ) : isVerified ? (
+                                  <span className="text-xs font-mono font-bold text-slate-500 leading-none">
+                                    {s.assetType === 'script' ? (s.approximateReadTime ? (s.approximateReadTime.startsWith('~') ? s.approximateReadTime : `~${s.approximateReadTime}`) : '-:--') : (mp3DurationCache.get(s.mp3Url) || s.duration || '--:--')}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+
+                return null;
+              })}
+            </div>
+          );
+        }
+
+        return timeline.map((slot, index) => {
           const sForSlot = getInterstitialsForSlot(slot);
           const isPre = playMode === 'Prerecord';
           const isPresent = !isPre && isSameMinute(slot, now);
@@ -1431,7 +2475,7 @@ export default function PlayerTab({
                   })()}
                   <div 
                     ref={activeItemRef}
-                    className="bg-blue-600 h-6 flex items-center justify-between px-3 rounded shadow-sm border border-blue-500 ml-2"
+                    className="h-6 flex items-center justify-between px-3 rounded shadow-sm border ml-2 bg-blue-600 border-blue-500"
                     id="now-indicator"
                   >
                     <span className="text-xs font-black uppercase text-white tracking-widest font-sans flex items-center gap-1.5">
@@ -1702,7 +2746,8 @@ export default function PlayerTab({
               })}
             </div>
           );
-        })}
+        });
+      })()}
       </div>
 
       {/* No Playback Error Overlay as per user request */}

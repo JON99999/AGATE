@@ -38,11 +38,13 @@ import {
   RadioTower,
   CassetteTape,
   ListOrdered,
+  ListMusic,
   AlarmClock,
   NotebookPen,
   Undo2,
   Zap,
   ZapOff,
+  X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -66,7 +68,7 @@ import LiveReadPopout from "./components/LiveReadPopout";
 import GoogleAuthSection from "./components/GoogleAuthSection";
 import LocalHelpModal from "./components/LocalHelpModal";
 import { getInitialTheme, applyTheme, ThemeId } from "./lib/theme";
-import { cn, extractFolderId, getSortedShows, getShowShade } from "./lib/utils";
+import { cn, extractFolderId, getSortedShows, getShowShade, isTimeInShow } from "./lib/utils";
 import {
   initAuth,
   googleSignIn,
@@ -92,6 +94,7 @@ import {
   driveFileNameCache,
   availableFilesCache,
   triggerDriveBackup,
+  checkPlaylistShowFilesOnDrive,
 } from "./lib/driveService";
 
 const getFutureDatesForShow = (
@@ -403,10 +406,23 @@ export default function App() {
   const [countdown, setCountdown] = useState(300);
   const [scrollTrigger, setScrollTrigger] = useState(0);
 
-  // Prerecord States (defaults to 2 hours)
-  const [playMode, setPlayMode] = useState<"Live" | "Prerecord" | "Export">(
+  // Prerecord & Playlist States
+  const [playMode, setPlayMode] = useState<"Live" | "Prerecord" | "Export" | "Playlist">(
     "Live",
   );
+  const [selectedPlaylistShow, setSelectedPlaylistShow] = useState<Show | null>(null);
+  const [showPlaylistModal, setShowPlaylistModal] = useState(false);
+  const [playlistModalLoading, setPlaylistModalLoading] = useState(false);
+  const [playlistShowOptions, setPlaylistShowOptions] = useState<{
+    currentShow: Show | null;
+    nextShow: Show | null;
+    defaultShowId: string;
+    currentShowFileCount: number;
+    nextShowFileCount: number;
+    elapsedMinutes: number;
+    is15MinsOrMore: boolean;
+  } | null>(null);
+  const [chosenPlaylistShowId, setChosenPlaylistShowId] = useState<string>("");
   const [prerecordModalTarget, setPrerecordModalTarget] = useState<
     "Prerecord" | "Export"
   >("Prerecord");
@@ -1348,6 +1364,118 @@ export default function App() {
     setShowPrerecordConfirmStep(false);
     setPrerecordConfirmDetails(null);
     setShowPrerecordModal(true);
+  };
+
+  const handleOpenPlaylistModal = async () => {
+    setShowPlaylistModal(true);
+    setPlaylistModalLoading(true);
+
+    const sorted = getSortedShows(shows);
+    if (!sorted || sorted.length === 0) {
+      setPlaylistShowOptions({
+        currentShow: null,
+        nextShow: null,
+        defaultShowId: "",
+        currentShowFileCount: 0,
+        nextShowFileCount: 0,
+        elapsedMinutes: 0,
+        is15MinsOrMore: false
+      });
+      setPlaylistModalLoading(false);
+      return;
+    }
+
+    const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+    const nowObj = syncTime || new Date();
+    const currentDayName = daysOrder[nowObj.getDay()];
+    const currentHour = nowObj.getHours();
+    const currentMin = nowObj.getMinutes();
+    const currentWeekMin = nowObj.getDay() * 1440 + currentHour * 60 + currentMin;
+
+    const currentShow = (sorted.find(s => isTimeInShow(s, currentDayName, currentHour, currentMin)) as Show) || null;
+
+    let nextShow: Show | null = null;
+    let elapsedMinutes = 0;
+
+    if (currentShow) {
+      const currIdx = sorted.findIndex(s => s.id === currentShow.id);
+      nextShow = (sorted[(currIdx + 1) % sorted.length] as Show) || null;
+
+      const showStartWeekMin = daysOrder.indexOf(currentShow.day) * 1440 + currentShow.startHour * 60 + currentShow.startMinute;
+      elapsedMinutes = (currentWeekMin - showStartWeekMin + 10080) % 10080;
+    } else {
+      const upcoming = sorted.find(s => {
+        const startMin = daysOrder.indexOf(s.day) * 1440 + s.startHour * 60 + s.startMinute;
+        return startMin > currentWeekMin;
+      });
+      nextShow = (upcoming || sorted[0]) as Show;
+    }
+
+    const is15MinsOrMore = currentShow ? elapsedMinutes >= 15 : true;
+    const defaultShow = (is15MinsOrMore && nextShow) ? nextShow : (currentShow || nextShow);
+    const defaultShowId = defaultShow ? defaultShow.id : "";
+    setChosenPlaylistShowId(defaultShowId);
+
+    let currentShowFileCount = 0;
+    let nextShowFileCount = 0;
+
+    try {
+      const settings = getSavedSettings();
+      if (settings.mode === 'Local') {
+        const resp = await fetch("/api/shows/playlist/check-show-files", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            currentShowNameShort: currentShow?.nameShort || "",
+            currentShowName: currentShow?.name || "",
+            nextShowNameShort: nextShow?.nameShort || "",
+            nextShowName: nextShow?.name || ""
+          })
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          currentShowFileCount = data.currentShowFileCount || 0;
+          nextShowFileCount = data.nextShowFileCount || 0;
+        }
+      } else {
+        // 'Drive' or 'Demo' mode
+        const data = await checkPlaylistShowFilesOnDrive(
+          currentShow?.nameShort,
+          currentShow?.name,
+          nextShow?.nameShort,
+          nextShow?.name,
+          settings.mode
+        );
+        currentShowFileCount = data.currentShowFileCount || 0;
+        nextShowFileCount = data.nextShowFileCount || 0;
+      }
+    } catch (e) {
+      console.error("Failed to check playlist show files:", e);
+    }
+
+    setPlaylistShowOptions({
+      currentShow,
+      nextShow,
+      defaultShowId,
+      currentShowFileCount,
+      nextShowFileCount,
+      elapsedMinutes,
+      is15MinsOrMore
+    });
+    setPlaylistModalLoading(false);
+  };
+
+  const handleConfirmPlaylistShow = () => {
+    if (!playlistShowOptions) return;
+    let targetShow: Show | null = null;
+    if (chosenPlaylistShowId === playlistShowOptions.currentShow?.id) {
+      targetShow = playlistShowOptions.currentShow;
+    } else if (chosenPlaylistShowId === playlistShowOptions.nextShow?.id) {
+      targetShow = playlistShowOptions.nextShow;
+    }
+    setSelectedPlaylistShow(targetShow);
+    setPlayMode("Playlist");
+    setShowPlaylistModal(false);
   };
 
   const handleEditTimeframeModal = () => {
@@ -2471,6 +2599,7 @@ export default function App() {
                   syncTime={syncTime}
                   scrollTrigger={scrollTrigger}
                   playMode={playMode}
+                  playlistShow={selectedPlaylistShow}
                   prerecordDate={prerecordDate}
                   prerecordLengthMinutes={prerecordLengthMinutes}
                   onConfigureTimeframe={() =>
@@ -2711,6 +2840,27 @@ export default function App() {
                     )}
                   />
                   <span className="hide-export-text">Export</span>
+                </button>
+                <button
+                  onClick={() => {
+                    handleOpenPlaylistModal();
+                  }}
+                  className={cn(
+                    "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
+                    playMode === "Playlist"
+                      ? "bg-gradient-to-b from-purple-600 to-purple-700 border-t-purple-400 border-b-purple-900 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
+                      : "bg-purple-950/30 border-purple-900/30 text-purple-400/70 hover:text-purple-300 hover:bg-purple-950/45",
+                  )}
+                >
+                  <ListMusic
+                    className={cn(
+                      "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                      playMode === "Playlist"
+                        ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
+                        : "text-slate-500",
+                    )}
+                  />
+                  <span className="hide-playlist-text">Playlist</span>
                 </button>
               </div>
             )}
@@ -3234,6 +3384,166 @@ export default function App() {
             );
           })()}
       </AnimatePresence>
+
+      {/* Playlist Mode Selection Modal */}
+      <AnimatePresence>
+        {showPlaylistModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-2 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-800 rounded-xl shadow-2xl w-[420px] max-w-[95vw] text-slate-800 dark:text-slate-100 flex flex-col font-sans overflow-hidden"
+            >
+              {/* Modal Header */}
+              <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-purple-50 dark:bg-purple-950/40 shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-purple-600 dark:text-purple-400">
+                    <ListMusic className="w-5 h-5 shrink-0" />
+                  </span>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-purple-900 dark:text-purple-200">
+                    Playlist Mode - Select Show
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPlaylistModal(false)}
+                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-4 space-y-3 flex-1 min-h-0 overflow-y-auto">
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+                  Select which show's Playlist folder to activate:
+                </p>
+
+                {playlistModalLoading ? (
+                  <div className="py-8 flex flex-col items-center justify-center space-y-2 text-purple-600 dark:text-purple-400">
+                    <RefreshCw className="w-6 h-6 animate-spin" />
+                    <span className="text-xs font-bold uppercase tracking-wider">Checking Playlist Folders...</span>
+                  </div>
+                ) : playlistShowOptions ? (
+                  <div className="space-y-2.5">
+                    {/* Current Show Card */}
+                    {playlistShowOptions.currentShow ? (
+                      <div
+                        onClick={() => setChosenPlaylistShowId(playlistShowOptions.currentShow!.id)}
+                        className={cn(
+                          "p-3 rounded-lg border text-left cursor-pointer transition-all relative select-none flex flex-col gap-1.5",
+                          chosenPlaylistShowId === playlistShowOptions.currentShow.id
+                            ? "bg-purple-50/80 dark:bg-purple-950/50 border-purple-500 ring-2 ring-purple-500/30"
+                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-600"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
+                              Current Show
+                            </span>
+                            <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-1">
+                              {playlistShowOptions.currentShow.name}
+                            </h4>
+                          </div>
+                          {!playlistShowOptions.is15MinsOrMore && (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                              Default Choice
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                          <span>
+                            {playlistShowOptions.currentShowFileCount === 0
+                              ? "No MP3 tracks found"
+                              : `${playlistShowOptions.currentShowFileCount} MP3 tracks found`}
+                          </span>
+                          <span className="font-sans text-[10px] uppercase font-bold text-slate-400">
+                            {playlistShowOptions.elapsedMinutes}m elapsed
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 text-xs text-slate-500 italic bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+                        No current show active in schedule.
+                      </div>
+                    )}
+
+                    {/* Next Show Card */}
+                    {playlistShowOptions.nextShow ? (
+                      <div
+                        onClick={() => setChosenPlaylistShowId(playlistShowOptions.nextShow!.id)}
+                        className={cn(
+                          "p-3 rounded-lg border text-left cursor-pointer transition-all relative select-none flex flex-col gap-1.5",
+                          chosenPlaylistShowId === playlistShowOptions.nextShow.id
+                            ? "bg-purple-50/80 dark:bg-purple-950/50 border-purple-500 ring-2 ring-purple-500/30"
+                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-600"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700">
+                              Next Show
+                            </span>
+                            <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-1">
+                              {playlistShowOptions.nextShow.name}
+                            </h4>
+                          </div>
+                          {playlistShowOptions.is15MinsOrMore && (
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                              Default Choice (&ge;15m into show)
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                          <span>
+                            {playlistShowOptions.nextShowFileCount === 0
+                              ? "No MP3 tracks found"
+                              : `${playlistShowOptions.nextShowFileCount} MP3 tracks found`}
+                          </span>
+                          <span className="font-sans text-[10px] uppercase font-bold text-slate-400">
+                            {playlistShowOptions.nextShow.day} {playlistShowOptions.nextShow.startHour.toString().padStart(2, '0')}:{playlistShowOptions.nextShow.startMinute.toString().padStart(2, '0')}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 text-xs text-slate-500 italic bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+                        No upcoming show in schedule.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-3 text-xs text-slate-500 italic">No show information available.</div>
+                )}
+              </div>
+
+              {/* Modal Actions */}
+              <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex gap-2 justify-end shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowPlaylistModal(false)}
+                  className="px-3.5 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold uppercase tracking-wider rounded border border-slate-300 dark:border-slate-700 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!chosenPlaylistShowId}
+                  onClick={handleConfirmPlaylistShow}
+                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wider rounded shadow-md transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ListMusic className="w-4 h-4 shrink-0" />
+                  <span>Start Playlist Mode</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {showLocationsModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">

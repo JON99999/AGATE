@@ -46,7 +46,7 @@ export interface LogEntry {
   interstitialName: string;
   interstitialId: string;
   status: 'played' | 'skipped' | 'failed';
-  playMode?: 'Live' | 'Prerecord' | 'Export';
+  playMode?: 'Live' | 'Prerecord' | 'Export' | 'Playlist';
   logTimeStamp?: string;
   assetType?: 'audio' | 'script';
 }
