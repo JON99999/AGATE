@@ -856,14 +856,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background-color: rgba(147, 51, 234, 0.18) !important;
   color: #e9d5ff !important;
 }
-[data-theme="dark"] .bg-purple-50 *,
-.dark .bg-purple-50 *,
-[data-theme="dark-test"] .bg-purple-50 *,
-[data-theme="dark"] .bg-purple-100 *,
-.dark .bg-purple-100 *,
-[data-theme="dark-test"] .bg-purple-100 * {
-  color: #e9d5ff !important;
-}
 
 [data-theme="dark"] .bg-blue-50,
 .dark .bg-blue-50,
@@ -874,14 +866,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background-color: rgba(37, 99, 235, 0.18) !important;
   color: #bfdbfe !important;
 }
-[data-theme="dark"] .bg-blue-50 *,
-.dark .bg-blue-50 *,
-[data-theme="dark-test"] .bg-blue-50 *,
-[data-theme="dark"] .bg-blue-100 *,
-.dark .bg-blue-100 *,
-[data-theme="dark-test"] .bg-blue-100 * {
-  color: #bfdbfe !important;
-}
 
 [data-theme="dark"] .bg-orange-50,
 .dark .bg-orange-50,
@@ -890,14 +874,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .dark .bg-orange-100,
 [data-theme="dark-test"] .bg-orange-100 {
   background-color: rgba(234, 88, 12, 0.18) !important;
-  color: #fed7aa !important;
-}
-[data-theme="dark"] .bg-orange-50 *,
-.dark .bg-orange-50 *,
-[data-theme="dark-test"] .bg-orange-50 *,
-[data-theme="dark"] .bg-orange-100 *,
-.dark .bg-orange-100 *,
-[data-theme="dark-test"] .bg-orange-100 * {
   color: #fed7aa !important;
 }
 
@@ -1003,14 +979,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-color: rgba(239, 68, 68, 0.6) !important;
   color: #fecdd3 !important;
 }
-[data-theme="dark"] .bg-red-950\/60 *,
-.dark .bg-red-950\/60 *,
-[data-theme="dark-test"] .bg-red-950\/60 *,
-[data-theme="dark"] .bg-red-950\/40 *,
-.dark .bg-red-950\/40 *,
-[data-theme="dark-test"] .bg-red-950\/40 * {
-  color: #fecdd3 !important;
-}
 
 [data-theme="dark"] .bg-amber-950\/60,
 .dark .bg-amber-950\/60,
@@ -1022,14 +990,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-color: rgba(245, 158, 11, 0.6) !important;
   color: #fef08a !important;
 }
-[data-theme="dark"] .bg-amber-950\/60 *,
-.dark .bg-amber-950\/60 *,
-[data-theme="dark-test"] .bg-amber-950\/60 *,
-[data-theme="dark"] .bg-amber-950\/40 *,
-.dark .bg-amber-950\/40 *,
-[data-theme="dark-test"] .bg-amber-950\/40 * {
-  color: #fef08a !important;
-}
 
 /* Item 6: Disconnect and Retry badge & Show Slot Fallback Contrast in Dark & Dark Test */
 [data-theme="dark"] .bg-amber-100,
@@ -1037,11 +997,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 [data-theme="dark-test"] .bg-amber-100 {
   background-color: rgba(120, 53, 15, 0.9) !important;
   border-color: #f59e0b !important;
-  color: #fef08a !important;
-}
-[data-theme="dark"] .bg-amber-100 *,
-.dark .bg-amber-100 *,
-[data-theme="dark-test"] .bg-amber-100 * {
   color: #fef08a !important;
 }
 
