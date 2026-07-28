@@ -72,9 +72,9 @@
   --border-strong: #475569;   /* slate-600 prominent borders */
 
   /* Show Shade Colors */
-  --show-shade-odd-bg: #28200a;
+  --show-shade-odd-bg: #383a56;
   --show-shade-odd-border: #685315;
-  --show-shade-even-bg: #1f1a08;
+  --show-shade-even-bg: #222325;
   --show-shade-even-border: #524011;
   --show-shade-none-bg: #1e293b;
   --show-shade-none-border: #475569;
@@ -104,10 +104,10 @@
   --border-strong: #475569;   /* slate-600 prominent borders */
 
   /* Show Shade Colors - Colorhunt guide inspired standard dark mode scheme (#2f3032 / #383a56 with #b0a565 / #ede68a) */
-  --show-shade-odd-bg: #383a56;
-  --show-shade-odd-border: #b0a565;
-  --show-shade-even-bg: #2f3032;
-  --show-shade-even-border: #ede68a;
+  --show-shade-odd-bg: #2C2C2B;
+  --show-shade-odd-border: #404033;
+  --show-shade-even-bg: #373B12;
+  --show-shade-even-border: #52581B;
   --show-shade-none-bg: #1e293b;
   --show-shade-none-border: #475569;
 
@@ -526,6 +526,17 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
+/* Dynamic theme-controlled underglow shadow colors */
+.shadow-emerald-200 {
+  --tw-shadow-color: var(--underglow-emerald) !important;
+}
+.shadow-purple-200 {
+  --tw-shadow-color: var(--underglow-purple) !important;
+}
+.shadow-blue-100 {
+  --tw-shadow-color: var(--underglow-blue) !important;
+}
+
 /* High contrast text inside player card titles & headers */
 [data-theme="dark"] .text-slate-600,
 .dark .text-slate-600,
@@ -534,6 +545,52 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .dark .text-slate-500,
 [data-theme="dark-test"] .text-slate-500 {
   color: #94a3b8 !important;
+}
+
+/* High contrast accent font colors for Player cards in Dark & Dark Test themes */
+[data-theme="dark"] .text-blue-700,
+.dark .text-blue-700,
+[data-theme="dark-test"] .text-blue-700,
+[data-theme="dark"] .text-blue-600,
+.dark .text-blue-600,
+[data-theme="dark-test"] .text-blue-600 {
+  color: #60a5fa !important;
+}
+
+[data-theme="dark"] .text-purple-700,
+.dark .text-purple-700,
+[data-theme="dark-test"] .text-purple-700,
+[data-theme="dark"] .text-purple-600,
+.dark .text-purple-600,
+[data-theme="dark-test"] .text-purple-600 {
+  color: #c084fc !important;
+}
+
+[data-theme="dark"] .text-emerald-700,
+.dark .text-emerald-700,
+[data-theme="dark-test"] .text-emerald-700,
+[data-theme="dark"] .text-emerald-600,
+.dark .text-emerald-600,
+[data-theme="dark-test"] .text-emerald-600 {
+  color: #34d399 !important;
+}
+
+[data-theme="dark"] .text-green-700,
+.dark .text-green-700,
+[data-theme="dark-test"] .text-green-700,
+[data-theme="dark"] .text-green-600,
+.dark .text-green-600,
+[data-theme="dark-test"] .text-green-600 {
+  color: #4ade80 !important;
+}
+
+[data-theme="dark"] .text-amber-700,
+.dark .text-amber-700,
+[data-theme="dark-test"] .text-amber-700,
+[data-theme="dark"] .text-amber-800,
+.dark .text-amber-800,
+[data-theme="dark-test"] .text-amber-800 {
+  color: #fde047 !important;
 }
 
 /* High-contrast status badges in Dark & Dark Test */
@@ -581,37 +638,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   border-color: #dc2626 !important;
 }
 
-/* 2. Show Highlighting Light Text in Dark Mode */
-[data-theme="dark"] .text-black,
-.dark .text-black {
+/* 2. Show Highlighting Text in Dark Mode (Commented out)
+[data-theme="dark"] [style*="background-color: var(--show-shade-odd-bg)"] > .show-title,
+[data-theme="dark"] [style*="background-color: var(--show-shade-even-bg)"] > .show-title {
   color: #fff6bc !important;
 }
-
-[data-theme="dark"] [style*="background-color: rgb(255, 246, 188)"],
-.dark [style*="background-color: rgb(255, 246, 188)"],
-[data-theme="dark"] [style*="background-color: #FFF6BC"],
-.dark [style*="background-color: #FFF6BC"],
-[data-theme="dark"] [style*="background-color: #FFE385"],
-.dark [style*="background-color: #FFE385"],
-[data-theme="dark"] [style*="background-color: #FEF08A"],
-.dark [style*="background-color: #FEF08A"],
-[data-theme="dark"] [style*="background-color: #FEF9C3"],
-.dark [style*="background-color: #FEF9C3"],
-[data-theme="dark"] [style*="background-color: #FEF3C7"],
-.dark [style*="background-color: #FEF3C7"] {
-  background-color: #28200a !important;
-  border-color: #685315 !important;
-  color: #fff6bc !important;
-}
-
-[data-theme="dark"] [style*="background-color: rgb(255, 246, 188)"] *,
-.dark [style*="background-color: rgb(255, 246, 188)"] *,
-[data-theme="dark"] [style*="background-color: #FFF6BC"] *,
-.dark [style*="background-color: #FFF6BC"] *,
-[data-theme="dark"] [style*="background-color: #FFE385"] *,
-.dark [style*="background-color: #FFE385"] * {
-  color: #fff6bc !important;
-}
+*/
 
 /* 3. Calendar Admin Challenge Button in Dark & Dark Test (Requirement 4) */
 [data-theme="dark"] .admin-challenge-btn,
@@ -807,20 +839,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
    DARK TEST & DARK MODE SPECIFIC OVERRIDES
    ========================================================================== */
 
-/* Item 2: Show title font and horizontal rule styling in Dark Test mode */
-[data-theme="dark-test"] [style*="background-color: var(--show-shade-odd-bg)"],
-[data-theme="dark-test"] [style*="background-color: var(--show-shade-even-bg)"],
-[data-theme="dark-test"] [style*="background-color: #383a56"],
-[data-theme="dark-test"] [style*="background-color: #2f3032"] {
+/* Item 2: Show title font and horizontal rule styling in Dark Test mode (Commented out)
+[data-theme="dark-test"] [style*="background-color: var(--show-shade-odd-bg)"] > .show-title,
+[data-theme="dark-test"] [style*="background-color: var(--show-shade-even-bg)"] > .show-title {
   color: #ede68a !important;
 }
-
-[data-theme="dark-test"] [style*="background-color: var(--show-shade-odd-bg)"] .font-sans,
-[data-theme="dark-test"] [style*="background-color: var(--show-shade-even-bg)"] .font-sans,
-[data-theme="dark-test"] [style*="background-color: #383a56"] .font-sans,
-[data-theme="dark-test"] [style*="background-color: #2f3032"] .font-sans {
-  color: #ede68a !important;
-}
+*/
 
 /* Item 3: Calendar Cards in Dark Mode & Dark Test - Dark card background with distinct left-side border highlighting */
 [data-theme="dark"] .bg-purple-50,
@@ -1020,6 +1044,84 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 [data-theme="dark-test"] .bg-amber-100 * {
   color: #fef08a !important;
 }
+
+/* Dark Test Theme: Weekly Interstitial Grid Styling */
+[data-theme="dark-test"] .grid-weekly-table-container {
+  border-color: #475569 !important; /* Crisp slate-600 outer container border */
+  background-color: #0f172a !important;
+}
+
+[data-theme="dark-test"] .grid-weekly-table th,
+[data-theme="dark-test"] .grid-weekly-table td {
+  border-color: #334155 !important; /* Crisp slate-700 vertical and horizontal grid borders */
+}
+
+[data-theme="dark-test"] .grid-weekly-table th {
+  background-color: #1e293b !important;
+  color: #94a3b8 !important;
+}
+
+[data-theme="dark-test"] .grid-weekly-table th:hover {
+  background-color: #334155 !important;
+  color: #60a5fa !important; /* Vibrant blue highlight on day header rollover */
+}
+
+[data-theme="dark-test"] .grid-weekly-table tr:hover {
+  background-color: rgba(30, 41, 59, 0.7) !important; /* Distinct row highlight on hover */
+}
+
+[data-theme="dark-test"] .grid-weekly-table td:first-child:hover {
+  background-color: #334155 !important;
+  color: #60a5fa !important; /* Vibrant blue highlight on hour row header rollover */
+}
+
+/* Inactive ("X") cells in Dark Test theme: standard un-tinted dark background, red X icon, and responsive hover state */
+[data-theme="dark-test"] .grid-weekly-cell-inactive {
+  background-color: #1e293b !important; /* Reverted background tint */
+}
+
+[data-theme="dark-test"] .grid-weekly-cell-inactive:hover {
+  background-color: rgba(220, 38, 38, 0.45) !important; /* Retained enhanced hover feedback */
+}
+
+/* Enforce vibrant Red X icon across light and dark themes */
+.grid-weekly-x-icon,
+.grid-weekly-cell-inactive svg {
+  color: #dc2626 !important;
+  stroke: #dc2626 !important;
+}
+
+[data-theme="dark-test"] .grid-weekly-x-icon,
+[data-theme="dark-test"] .grid-weekly-cell-inactive svg,
+[data-theme="dark"] .grid-weekly-x-icon,
+[data-theme="dark"] .grid-weekly-cell-inactive svg {
+  color: #f87171 !important; /* Bright coral-red X icon in dark mode */
+  stroke: #f87171 !important;
+}
+
+/* Active ("Check") cells in Dark Test theme: rich emerald green background, bright hover state */
+[data-theme="dark-test"] .grid-weekly-cell-active {
+  background-color: rgba(6, 78, 59, 0.85) !important;
+}
+
+[data-theme="dark-test"] .grid-weekly-cell-active:hover {
+  background-color: rgba(16, 185, 129, 0.7) !important;
+}
+
+.grid-weekly-check-icon,
+.grid-weekly-cell-active svg {
+  color: #059669 !important;
+  stroke: #059669 !important;
+}
+
+[data-theme="dark-test"] .grid-weekly-check-icon,
+[data-theme="dark-test"] .grid-weekly-cell-active svg,
+[data-theme="dark"] .grid-weekly-check-icon,
+[data-theme="dark"] .grid-weekly-cell-active svg {
+  color: #34d399 !important; /* Vivid emerald green check icon in dark mode */
+  stroke: #34d399 !important;
+}
+
 
 
 

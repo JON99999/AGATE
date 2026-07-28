@@ -174,15 +174,15 @@ export function getShowShade(show: BaseShow, sortedShows: BaseShow[]): { bg: str
   // Use index-based alternating colors supporting light and dark theme CSS variables
   if (index !== -1 && index % 2 !== 0) {
     return {
-      bg: 'var(--show-shade-odd-bg, #FFE385)',
-      border: 'var(--show-shade-odd-border, #D1B443)',
+      bg: 'var(--show-shade-odd-bg)',
+      border: 'var(--show-shade-odd-border)',
       title: `Active during show: ${show.name}`
     };
   }
 
   return {
-    bg: 'var(--show-shade-even-bg, #FFF6BC)',
-    border: 'var(--show-shade-even-border, #EADA76)',
+    bg: 'var(--show-shade-even-bg)',
+    border: 'var(--show-shade-even-border)',
     title: `Active during show: ${show.name}`
   };
 }

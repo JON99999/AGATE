@@ -22,6 +22,10 @@ export interface ThemeColors {
   showShadeOddBorder: string;
   showShadeEvenBg: string;
   showShadeEvenBorder: string;
+
+  underglowEmerald: string;
+  underglowPurple: string;
+  underglowBlue: string;
 }
 
 export interface ThemeDefinition {
@@ -56,6 +60,10 @@ export const THEMES: Record<string, ThemeDefinition> = {
       showShadeOddBorder: '#D1B443',
       showShadeEvenBg: '#FFF6BC',
       showShadeEvenBorder: '#EADA76',
+
+      underglowEmerald: '#a7f3d0',
+      underglowPurple: '#e9d5ff',
+      underglowBlue: '#dbeafe',
     },
   },
   dark: {
@@ -79,10 +87,14 @@ export const THEMES: Record<string, ThemeDefinition> = {
       borderSubtle: '#1e293b',   // slate-800 subtle dividers
       borderStrong: '#475569',   // slate-600 prominent borders
 
-      showShadeOddBg: '#28200a',
+      showShadeOddBg: '#383a56',
       showShadeOddBorder: '#685315',
-      showShadeEvenBg: '#1f1a08',
+      showShadeEvenBg: '#222325',
       showShadeEvenBorder: '#524011',
+
+      underglowEmerald: '#064e3b',
+      underglowPurple: '#581c87',
+      underglowBlue: '#1e3a8a',
     },
   },
   'dark-test': {
@@ -106,10 +118,14 @@ export const THEMES: Record<string, ThemeDefinition> = {
       borderSubtle: '#1e293b',   // slate-800 subtle dividers
       borderStrong: '#475569',   // slate-600 prominent borders
 
-      showShadeOddBg: '#28200a',
-      showShadeOddBorder: '#685315',
-      showShadeEvenBg: '#1f1a08',
-      showShadeEvenBorder: '#524011',
+      showShadeOddBg: '#2C2C2B',
+      showShadeOddBorder: '#404033',
+      showShadeEvenBg: '#373B12',
+      showShadeEvenBorder: '#52581B',
+
+      underglowEmerald: '#064e3b',
+      underglowPurple: '#581c87',
+      underglowBlue: '#1e3a8a',
     },
   },
   system: {
@@ -134,6 +150,9 @@ export const THEMES: Record<string, ThemeDefinition> = {
       showShadeOddBorder: '#D1B443',
       showShadeEvenBg: '#FFF6BC',
       showShadeEvenBorder: '#EADA76',
+      underglowEmerald: '#a7f3d0',
+      underglowPurple: '#e9d5ff',
+      underglowBlue: '#dbeafe',
     },
   },
 };

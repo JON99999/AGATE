@@ -497,7 +497,7 @@ export default function PlayerTab({
         interstitialId: s.id,
         interstitialName: s.name,
         interstitialTime: interstitialTimeISO,
-        initialLoggedTime: playedLog?.timestamp || ''
+        initialLoggedTime: playedLog?.logTimeStamp || playedLog?.timestamp || ''
       };
 
       if ((window as any).electronAPI && (window as any).electronAPI.spawnLiveRead) {
@@ -901,14 +901,17 @@ export default function PlayerTab({
             </button>
 
             {/* Yellow card for the show name */}
-            <div className="flex items-stretch gap-2 w-full relative min-h-[2.25rem] h-[2.25rem] font-sans">
+            <div 
+              className="flex items-stretch gap-2 w-full relative min-h-[2.5rem] h-[2.5rem] z-10 shrink-0 mb-0 font-sans"
+              style={{ paddingRight: '4px' }}
+            >
               <div 
                 className="absolute left-0 top-0 bottom-0 w-1 z-10"
                 style={{ backgroundColor: exportShade.bg }}
                 title={exportShade.title}
               />
               <div 
-                className="text-black p-1 px-3 rounded-none shadow-sm flex flex-col justify-center text-xs font-black tracking-normal leading-tight ml-1 select-none uppercase border flex-1"
+                className="text-slate-800 p-1 px-3 rounded-none shadow-sm flex flex-col justify-center text-xs font-black tracking-normal leading-tight ml-1 select-none uppercase border flex-1"
                 style={{ 
                   backgroundColor: exportShade.bg, 
                   borderColor: exportShade.border 
@@ -1010,7 +1013,7 @@ export default function PlayerTab({
                             title={shade.title}
                           />
                           <div 
-                            className="text-black p-1 px-3 rounded-none shadow-sm flex flex-col justify-center text-xs font-black tracking-normal leading-tight ml-1 select-none uppercase border flex-1"
+                            className="text-slate-800 p-1 px-3 rounded-none shadow-sm flex flex-col justify-center text-xs font-black tracking-normal leading-tight ml-1 select-none uppercase border flex-1"
                             style={{ backgroundColor: shade.bg, borderColor: shade.border }}
                           >
                             <div className="line-clamp-2 font-sans">
@@ -1088,7 +1091,7 @@ export default function PlayerTab({
                                 interstitialId: item.interstitialId,
                                 interstitialName: item.interstitialName,
                                 interstitialTime: interstitialTimeISO,
-                                initialLoggedTime: playedLog?.timestamp || ''
+                                initialLoggedTime: playedLog?.logTimeStamp || playedLog?.timestamp || ''
                               };
 
                               if ((window as any).electronAPI && (window as any).electronAPI.spawnLiveRead) {
@@ -1180,7 +1183,7 @@ export default function PlayerTab({
                             <>
                               <CheckCircle className="w-3 h-3 text-green-600" />
                               <span className="text-xs font-bold text-green-700 uppercase tracking-tighter">
-                                {item.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.timestamp), 'HH:mm') : ''}
+                                {item.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : ''}
                               </span>
                             </>
                           ) : isMissedRecent || isMissedOld ? (
@@ -1285,7 +1288,7 @@ export default function PlayerTab({
             />
             <div 
               ref={persistentTextBoxRef}
-              className="text-black p-1 px-3 rounded-none shadow-sm flex flex-col justify-center text-xs font-black tracking-normal leading-tight ml-1 select-none uppercase border flex-1"
+              className="text-slate-800 p-1 px-3 rounded-none shadow-sm flex flex-col justify-center text-xs font-black tracking-normal leading-tight ml-1 select-none uppercase border flex-1"
               style={{ 
                 backgroundColor: initialShade.bg, 
                 borderColor: initialShade.border 
@@ -1351,7 +1354,7 @@ export default function PlayerTab({
                       title={shade.title}
                     />
                     <div 
-                      className="text-black p-1 px-3 rounded-none shadow-sm flex flex-col justify-center text-xs font-black tracking-normal leading-tight ml-1 select-none uppercase border flex-1"
+                      className="text-slate-800 p-1 px-3 rounded-none shadow-sm flex flex-col justify-center text-xs font-black tracking-normal leading-tight ml-1 select-none uppercase border flex-1"
                       style={{ backgroundColor: shade.bg, borderColor: shade.border }}
                     >
                       <div className="line-clamp-2 font-sans">
@@ -1371,7 +1374,7 @@ export default function PlayerTab({
                       title={shade.title}
                     />
                     <div 
-                      className="text-black p-1 px-3 rounded-none shadow-sm flex flex-col justify-center text-xs font-black tracking-normal leading-tight ml-1 select-none uppercase border flex-1"
+                      className="text-slate-800 p-1 px-3 rounded-none shadow-sm flex flex-col justify-center text-xs font-black tracking-normal leading-tight ml-1 select-none uppercase border flex-1"
                       style={{ backgroundColor: shade.bg, borderColor: shade.border }}
                     >
                       <div className="line-clamp-2 font-sans">
@@ -1541,12 +1544,12 @@ export default function PlayerTab({
                     {/* Header: Date & Time */}
                     <div className="flex justify-between items-center bg-slate-50 -mx-2 -mt-2 px-2 py-1 rounded-t">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs uppercase font-black text-slate-500 tracking-tighter">
+                        <span className="text-xs uppercase font-black text-slate-600 tracking-tighter">
                           {format(slot, 'MMM dd')}
                         </span>
                         <span className={cn(
                           "text-xs font-mono font-black",
-                          isMissedRecent && !isCurrentlyPlaying ? "text-amber-800" : (isPresent || isCurrentlyPlaying || isUpcoming) ? (isPre ? "text-emerald-600" : "text-purple-600") : "text-slate-900"
+                          isMissedRecent && !isCurrentlyPlaying ? "text-amber-800" : (isPre ? "text-emerald-600" : "text-purple-600")
                         )}>
                           {format(slot, 'HH:mm')}
                         </span>
@@ -1636,8 +1639,8 @@ export default function PlayerTab({
                          <div className="flex items-center gap-1">
                            {exported ? (
                              <>
-                               <CheckCircle className="w-2.5 h-2.5 text-emerald-500" />
-                               <span className="text-xs font-bold text-emerald-600 uppercase tracking-tighter">
+                               <CheckCircle className={cn("w-2.5 h-2.5", isPre ? "text-emerald-500" : "text-purple-500")} />
+                               <span className={cn("text-xs font-bold uppercase tracking-tighter", isPre ? "text-emerald-600" : "text-purple-600")}>
                                  Exported
                                </span>
                              </>
@@ -1645,18 +1648,18 @@ export default function PlayerTab({
                              <>
                                <CheckCircle className="w-2.5 h-2.5 text-green-500" />
                                <span className="text-xs font-bold text-green-600 uppercase tracking-tighter">
-                                 Played {playedLog ? format(parseISO(playedLog.timestamp), 'HH:mm') : ''}
+                                 {s.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
                                </span>
                              </>
                            ) : isMissedRecent || isMissedOld ? (
                              <>
-                               <AlertCircle className="w-2.5 h-2.5 text-orange-600" />
-                               <span className="text-xs font-bold text-orange-600 uppercase tracking-tighter">Missed</span>
+                               <AlertCircle className="w-2.5 h-2.5 text-amber-600" />
+                               <span className="text-xs font-bold text-amber-700 uppercase tracking-tighter">Missed</span>
                              </>
                            ) : (
                              <>
-                               <Clock className="w-2.5 h-2.5 text-slate-400" />
-                               <span className="text-xs font-bold text-slate-400 uppercase tracking-tighter">{s.assetType === 'script' ? "To be read" : "To be played"}</span>
+                               <Clock className="w-2.5 h-2.5 text-slate-500" />
+                               <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">{s.assetType === 'script' ? "To be read" : "To be played"}</span>
                              </>
                            )}
                          </div>
@@ -1677,7 +1680,7 @@ export default function PlayerTab({
                          <span>{formatTime(duration)}</span>
                        </div>
                      ) : isVerified ? (
-                       <span className="text-xs font-mono font-bold text-slate-400 leading-none">
+                       <span className="text-xs font-mono font-bold text-slate-500 leading-none">
                          {s.assetType === 'script' ? (s.approximateReadTime ? (s.approximateReadTime.startsWith('~') ? s.approximateReadTime : `~${s.approximateReadTime}`) : '-:--') : (mp3DurationCache.get(s.mp3Url) || s.duration || '--:--')}
                        </span>
                      ) : null}
@@ -1710,6 +1713,7 @@ export default function PlayerTab({
             initialInterstitialId={activeLiveReadOverlay.interstitialId}
             initialInterstitialName={activeLiveReadOverlay.interstitialName}
             initialInterstitialTime={activeLiveReadOverlay.interstitialTime}
+            initialLoggedTime={activeLiveReadOverlay.initialLoggedTime}
             isOverlay={true}
             onClose={() => setActiveLiveReadOverlay(null)}
             onLogCommit={(logEntry) => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, ShieldAlert, Copy, Check, XCircle, FolderOpen, Music, Search, Play, Square, ChevronUp, ChevronDown, RefreshCw, Eye, User, BookOpen } from 'lucide-react';
+import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, ShieldAlert, Copy, Check, XCircle, X, FolderOpen, Music, Search, Play, Square, ChevronUp, ChevronDown, RefreshCw, Eye, User, BookOpen } from 'lucide-react';
 import { Interstitial, InterstitialType, InterstitialMetadata, Show } from '../types';
 import { cn, getMP3Status, formatDuration, getFilenameFromUrlOrPath, isTimeInShow, getSortedShows, getShowShade } from '../lib/utils';
 import { getPlayableUrl, DRIVE_FOLDERS, getSavedSettings, verifyEvergreensOnDrive, checkEvergreenFolderOnDrive, applyEvergreenChangeOnDrive } from '../lib/driveService';
@@ -2399,7 +2399,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                       key={isContinuation ? `show-cont-${show.id}` : `show-start-${show.id}`}
                                       title={showSummaryText}
                                       className={cn(
-                                        "text-black flex flex-col justify-center text-xs font-black tracking-normal leading-tight w-full uppercase mb-0.5 text-left cursor-pointer transition-all hover:translate-x-0.5 border-0 border-b-2 rounded-none shrink-0 py-0.5 px-1 overflow-hidden",
+                                        "text-slate-800 flex flex-col justify-center text-xs font-black tracking-normal leading-tight w-full uppercase mb-0.5 text-left cursor-pointer transition-all hover:translate-x-0.5 border-0 border-b-2 rounded-none shrink-0 py-0.5 px-1 overflow-hidden",
                                         calendarLayoutMode === 'compact' ? "h-[1.75rem] text-xs" : "h-[2.25rem]"
                                       )}
                                       style={{ backgroundColor: getShowShade(show, getSortedShows(shows)).bg, borderBottomColor: getShowShade(show, getSortedShows(shows)).border }}
@@ -2496,6 +2496,14 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                   </div>
                                 );
 
+                                const renderCompactInterstitialPlaceholder = (key: string) => (
+                                  <div key={key} className="inline-flex items-stretch gap-[2px] opacity-0 pointer-events-none select-none shrink-0">
+                                    <div className="inline-flex items-center justify-center p-0.5 px-0.5 rounded font-mono text-xs font-black leading-none border border-transparent">
+                                      00
+                                    </div>
+                                  </div>
+                                );
+
                                 const renderSubRowContent = () => {
                                   if (def.type === 'show_slot') {
                                     if (def.min === 0) {
@@ -2514,8 +2522,45 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                     }
                                   } else {
                                     if (calendarLayoutMode === 'compact') {
-                                      const intersInRange = cellInterstitials.filter(s => s.minute >= def.startMin! && s.minute < def.endMin!);
-                                      return intersInRange.map(s => renderInterstitialCard(s));
+                                      const day = calendarDays[dayIdx];
+                                      const startMin = def.startMin ?? 0;
+                                      const endMin = def.endMin ?? 60;
+
+                                      const cellIntersInSubRow = cellInterstitials.filter(
+                                        s => s.minute >= startMin && s.minute < endMin
+                                      );
+
+                                      if (cellIntersInSubRow.length === 0) {
+                                        return null;
+                                      }
+
+                                      // Gather all interstitials for this day across all hours within this subrow minute range
+                                      const dayAllHoursInters = Array.from({ length: 24 }, (_, h) => {
+                                        return getInterstitialsForDateTime(day, h).filter(
+                                          s => s.minute >= startMin && s.minute < endMin
+                                        );
+                                      });
+
+                                      const dayUniqueMins = Array.from(
+                                        new Set(dayAllHoursInters.flatMap(list => list.map(s => s.minute)))
+                                      ).sort((a, b) => a - b);
+
+                                      if (dayUniqueMins.length === 0) {
+                                        return null;
+                                      }
+
+                                      return dayUniqueMins.flatMap((m) => {
+                                        const maxItemsAtMForDay = Math.max(
+                                          ...dayAllHoursInters.map(list => list.filter(s => s.minute === m).length)
+                                        );
+                                        const cellIntersAtM = cellIntersInSubRow.filter(s => s.minute === m);
+                                        const items = cellIntersAtM.map(s => renderInterstitialCard(s));
+                                        const placeholdersNeeded = maxItemsAtMForDay - cellIntersAtM.length;
+                                        const placeholders = Array.from({ length: placeholdersNeeded }, (_, pIdx) =>
+                                          renderCompactInterstitialPlaceholder(`placeholder-compact-${m}-${dayIdx}-${pIdx}`)
+                                        );
+                                        return [...items, ...placeholders];
+                                      });
                                     } else {
                                       if (subRowUniqueMins.length === 0) {
                                         return null;
@@ -2574,9 +2619,9 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
               {/* Active Interstitials Section */}
             <div className="space-y-2">
               <div className="flex items-center gap-2 mb-2">
-                <div className="h-px bg-green-300 flex-1"></div>
-                <span className="text-xs font-black text-green-700 uppercase tracking-widest leading-none">Active Interstitials</span>
-                <div className="h-px bg-green-300 flex-1"></div>
+                <div className="h-px bg-emerald-300/60 dark:bg-emerald-700/50 flex-1"></div>
+                <span className="text-xs font-black text-emerald-800 dark:text-emerald-300 uppercase tracking-widest leading-none">Active Interstitials</span>
+                <div className="h-px bg-emerald-300/60 dark:bg-emerald-700/50 flex-1"></div>
               </div>
               
               {(() => {
@@ -3215,7 +3260,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                 className={cn(
                                   "px-2 py-0.5 text-xs font-black uppercase transition-all select-none cursor-pointer rounded-l rounded-r-none h-6 flex items-center justify-center leading-none border",
                                   formData.enabled 
-                                    ? "bg-emerald-600 border-emerald-600 text-white shadow-xs z-10" 
+                                    ? "bg-emerald-700 border-emerald-700 text-white shadow-xs z-10" 
                                     : "bg-slate-50 border-slate-300 text-slate-500 hover:text-slate-800 hover:bg-slate-100"
                                 )}
                               >
@@ -3334,10 +3379,10 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                     {!formData.name && <p className="text-xs text-red-500 font-bold uppercase tracking-tighter mt-1">Name is required</p>}
                   </div>
 
-                  {/* MP3 File Group with Blue Header */}
+                  {/* File Group with Blue Header */}
                   <div className="space-y-0 mt-0">
                     <div className="bg-blue-600 text-white text-xs font-black uppercase tracking-widest px-3 py-1.5 rounded-t-none select-none">
-                      {formData.assetType === 'script' ? 'Script / Image File' : 'MP3 File'}
+                      {formData.assetType === 'script' ? 'Script / Image File' : 'File'}
                     </div>
                     <div className="p-3 bg-slate-50 border-x border-b border-slate-350 rounded-b-lg space-y-3 shadow-xs">
                       {/* MP3 Row */}
@@ -3379,9 +3424,9 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                 return (
                                   <>
                                     {isVerified ? (
-                                      <CheckCircle className="w-4 h-4 text-green-600 shrink-0" title={isScript ? "Script Verified" : "File Verified"} />
+                                      <CheckCircle className="w-4 h-4 text-emerald-700 dark:text-emerald-400 stroke-[2.5] shrink-0" title={isScript ? "Script Verified" : "File Verified"} />
                                     ) : !status.exists ? (
-                                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0 animate-pulse" title="File not found" />
+                                      <AlertCircle className="w-4 h-4 text-red-500 stroke-[2.5] shrink-0 animate-pulse" title="File not found" />
                                     ) : (
                                       <Music className="w-4 h-4 text-orange-400 shrink-0" title="File not mp3" />
                                     )}
@@ -3398,7 +3443,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                         </span>
                                       )}
                                       {isVerified && (
-                                        <span className="font-black text-green-600 uppercase">
+                                        <span className="font-black text-emerald-700 dark:text-emerald-400 uppercase">
                                           {isScript ? "Script / Image Verified" : "File Verified"}
                                         </span>
                                       )}
@@ -3566,17 +3611,17 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
 
                     <div className="flex justify-between items-center">
                       <h4 className="text-xs font-black text-blue-700 uppercase tracking-widest">Weekly Interstitial</h4>
-                      <div className="flex gap-2 text-xs font-black uppercase text-slate-400">
-                        <span className="flex items-center gap-1"><Check className="w-2.5 h-2.5 text-green-600" /> Active</span>
-                        <span className="flex items-center gap-1"><XCircle className="w-2.5 h-2.5 text-red-400" /> Inactive</span>
+                      <div className="flex gap-2 text-xs font-black uppercase text-slate-500">
+                        <span className="flex items-center gap-1.5"><Check className="w-3 h-3 text-emerald-700 dark:text-emerald-400 stroke-[3.5] grid-weekly-check-icon" /> Active</span>
+                        <span className="flex items-center gap-1.5"><X className="w-3 h-3 text-red-600 dark:text-red-400 stroke-[3.5] grid-weekly-x-icon" /> Inactive</span>
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-collapse">
+                    <div className="overflow-x-auto border border-blue-200/80 dark:border-slate-700/60 rounded-lg bg-white dark:bg-slate-900 shadow-xs grid-weekly-table-container">
+                      <table className="w-full border-collapse table-fixed grid-weekly-table">
                         <thead>
-                          <tr className="border-b border-blue-100/50">
-                            <th className="p-1">
+                          <tr className="bg-blue-50/60 dark:bg-slate-800/60 border-b border-blue-200/80 dark:border-slate-700/60">
+                            <th className="p-1 w-14 text-center border-r border-blue-200/80 dark:border-slate-700/60">
                               <button 
                                 onClick={() => {
                                   const currentRules = formData.gridRules || [];
@@ -3590,7 +3635,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                     setFormData({ ...formData, gridRules: allKeys });
                                   }
                                 }}
-                                className="px-1.5 py-0.5 rounded bg-blue-600 text-xs font-black text-white hover:bg-blue-700 transition-colors uppercase"
+                                className="px-1.5 py-0.5 rounded bg-blue-600 text-xs font-black text-white hover:bg-blue-700 transition-colors uppercase cursor-pointer"
                               >
                                 All
                               </button>
@@ -3599,7 +3644,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                               <th 
                                 key={i} 
                                 onClick={() => toggleColumn(i)}
-                                className="p-1 text-xs font-black text-slate-400 cursor-pointer hover:text-blue-600 transition-colors uppercase pb-2"
+                                className="p-1 text-xs font-black text-slate-500 dark:text-slate-400 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors uppercase text-center border-r border-blue-200/80 dark:border-slate-700/60 last:border-r-0"
                               >
                                 {day}
                               </th>
@@ -3608,30 +3653,30 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                         </thead>
                         <tbody>
                           {Array.from({ length: 24 }).map((_, h) => (
-                            <tr key={h} className="hover:bg-blue-100/30 transition-colors">
+                            <tr key={h} className="hover:bg-blue-100/30 dark:hover:bg-slate-800/40 transition-colors">
                               <td 
                                 onClick={() => toggleRow(h)}
-                                className="p-0 text-xs font-black text-slate-400 pr-2 cursor-pointer hover:text-blue-600 transition-colors border-r border-slate-100 text-right leading-none h-4"
+                                className="p-0 text-xs font-black text-slate-500 dark:text-slate-400 pr-1.5 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors border-r border-b border-blue-200/80 dark:border-slate-700/60 text-right leading-none h-4 font-mono select-none"
                               >
                                 {h.toString().padStart(2, '0')}:00
                               </td>
                               {Array.from({ length: 7 }).map((_, d) => {
                                 const active = formData.gridRules?.includes(`${d}-${h}`);
                                 return (
-                                  <td key={d} className="p-0 border-b border-white/50">
+                                  <td key={d} className="p-0 border-b border-r border-blue-200/80 dark:border-slate-700/60 last:border-r-0">
                                     <button
                                       onClick={() => toggleGridCell(d, h)}
                                       className={cn(
-                                        "w-full h-4 flex items-center justify-center transition-all border-r border-white/50",
+                                        "w-full h-4 flex items-center justify-center transition-all cursor-pointer",
                                         active 
-                                          ? "bg-green-500 hover:bg-green-400 shadow-sm" 
-                                          : "bg-red-50 hover:bg-red-100"
+                                          ? "grid-weekly-cell-active bg-emerald-700 hover:bg-emerald-600 dark:bg-emerald-800 dark:hover:bg-emerald-700 shadow-xs" 
+                                          : "grid-weekly-cell-inactive bg-slate-100 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-900/50"
                                       )}
                                     >
                                       {active ? (
-                                        <Check className="w-2.5 h-2.5 text-white" />
+                                        <Check className="w-3 h-3 text-white stroke-[3.5] grid-weekly-check-icon" />
                                       ) : (
-                                        <XCircle className="w-2 h-2 text-red-200" />
+                                        <X className="w-3 h-3 text-red-600 dark:text-red-400 stroke-[3.5] grid-weekly-x-icon" />
                                       )}
                                     </button>
                                   </td>

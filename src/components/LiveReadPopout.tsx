@@ -86,7 +86,9 @@ export default function LiveReadPopout({
   const [error, setError] = useState<string | null>(null);
 
   // UI adjustment states
-  const [zoomLevel, setZoomLevel] = useState(20); // Font size in px, starting high for announcer readability
+  const [zoomLevel, setZoomLevel] = useState(20); // Font size in px for text
+  const [imageZoom, setImageZoom] = useState(100); // Scale percentage for images (100 = fit available window)
+  const [pdfZoom, setPdfZoom] = useState(100); // Scale percentage for PDFs
   const [currentTimeText, setCurrentTimeText] = useState('');
   const [logTimeText, setLogTimeText] = useState('');
   const [isEditingLogTime, setIsEditingLogTime] = useState(false);
@@ -203,9 +205,18 @@ export default function LiveReadPopout({
     return () => clearInterval(interval);
   }, [isEditingLogTime, loggedTime]);
 
-  // Handle Zoom In / Zoom Out (Announcer friendly readability)
-  const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 2, 40));
-  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 2, 14));
+  // Handle Zoom In / Zoom Out (Announcer friendly readability for text, images, and PDFs)
+  const handleZoomIn = () => {
+    if (isText) setZoomLevel(prev => Math.min(prev + 2, 40));
+    else if (isImage) setImageZoom(prev => Math.min(prev + 25, 400));
+    else if (isPdf) setPdfZoom(prev => Math.min(prev + 25, 300));
+  };
+
+  const handleZoomOut = () => {
+    if (isText) setZoomLevel(prev => Math.max(prev - 2, 14));
+    else if (isImage) setImageZoom(prev => Math.max(prev - 25, 25));
+    else if (isPdf) setPdfZoom(prev => Math.max(prev - 25, 50));
+  };
 
   const isLogTimeValid = !isEditingLogTime || parseCustomTimeText(logTimeText) !== null;
 
@@ -306,25 +317,38 @@ export default function LiveReadPopout({
             <span>{currentTimeText}</span>
           </div>
 
-          {/* Zoom Level buttons (only for Text scripts) */}
-          {isText && (
+          {/* Zoom Level buttons (for Text scripts, Images, and PDFs) */}
+          {(isText || isImage || isPdf) && (
             <div className="flex items-center bg-slate-950 border border-slate-850 rounded overflow-hidden">
               <button 
+                type="button"
                 onClick={handleZoomOut}
-                disabled={zoomLevel <= 14}
-                className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                title="Zoom Text Out"
+                disabled={
+                  isText ? zoomLevel <= 14 :
+                  isImage ? imageZoom <= 25 :
+                  pdfZoom <= 50
+                }
+                className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer"
+                title={isText ? "Zoom Text Out" : isImage ? "Zoom Image Out" : "Zoom PDF Out"}
               >
                 <ZoomOut className="w-4 h-4" />
               </button>
-              <div className="px-1 text-xs font-mono font-black text-slate-400 border-x border-slate-850 select-none">
-                {zoomLevel}px
+              <div 
+                className="px-2 text-xs font-mono font-black text-slate-400 border-x border-slate-850 select-none min-w-[3.5rem] text-center"
+                title="Current Zoom Level"
+              >
+                {isText ? `${zoomLevel}px` : isImage ? `${imageZoom}%` : `${pdfZoom}%`}
               </div>
               <button 
+                type="button"
                 onClick={handleZoomIn}
-                disabled={zoomLevel >= 40}
-                className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                title="Zoom Text In"
+                disabled={
+                  isText ? zoomLevel >= 40 :
+                  isImage ? imageZoom >= 400 :
+                  pdfZoom >= 300
+                }
+                className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer"
+                title={isText ? "Zoom Text In" : isImage ? "Zoom Image In" : "Zoom PDF In"}
               >
                 <ZoomIn className="w-4 h-4" />
               </button>
@@ -376,24 +400,41 @@ export default function LiveReadPopout({
 
             {/* Image File Display */}
             {isImage && fileUrl && (
-              <div className="flex-1 w-full bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center justify-center overflow-auto shadow-inner">
+              <div className="flex-1 w-full bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center justify-center overflow-auto shadow-inner custom-scrollbar relative">
                 <img 
                   src={fileUrl} 
                   alt={fileName} 
                   referrerPolicy="no-referrer"
-                  className="max-w-full max-h-full object-contain rounded shadow-md border border-slate-200"
+                  className="rounded shadow-md border border-slate-200 transition-all duration-150"
+                  style={{
+                    width: imageZoom === 100 ? undefined : `${imageZoom}%`,
+                    maxWidth: imageZoom === 100 ? '100%' : 'none',
+                    maxHeight: imageZoom === 100 ? '100%' : 'none',
+                    objectFit: 'contain'
+                  }}
                 />
               </div>
             )}
 
             {/* PDF File Display */}
             {isPdf && fileUrl && (
-              <div className="flex-1 w-full bg-slate-50 border border-slate-200 rounded-xl overflow-hidden shadow-inner flex flex-col">
-                <iframe 
-                  src={`${fileUrl}#toolbar=0`}
-                  title="PDF Document Viewer"
-                  className="flex-1 w-full h-full border-0"
-                />
+              <div className="flex-1 w-full bg-slate-50 border border-slate-200 rounded-xl overflow-auto shadow-inner flex flex-col custom-scrollbar p-2">
+                <div 
+                  className="flex-1 w-full min-h-full transition-all duration-150 flex flex-col"
+                  style={{
+                    width: pdfZoom === 100 ? '100%' : `${pdfZoom}%`,
+                    height: pdfZoom === 100 ? '100%' : `${pdfZoom}%`,
+                    minWidth: '100%',
+                    minHeight: '100%'
+                  }}
+                >
+                  <iframe 
+                    src={`${fileUrl}#toolbar=0&navpanes=0&zoom=${pdfZoom}`}
+                    title="PDF Document Viewer"
+                    className="w-full h-full border-0 rounded flex-1"
+                    style={{ minHeight: '100%' }}
+                  />
+                </div>
               </div>
             )}
           </div>

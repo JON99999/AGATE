@@ -94,7 +94,11 @@ import {
   triggerDriveBackup,
 } from "./lib/driveService";
 
-const getFutureDatesForShow = (showDay: string): Date[] => {
+const getFutureDatesForShow = (
+  showDay: string,
+  startHour?: number,
+  startMinute?: number
+): Date[] => {
   const daysOfWeek = [
     "Sunday",
     "Monday",
@@ -108,10 +112,25 @@ const getFutureDatesForShow = (showDay: string): Date[] => {
   if (targetDayIndex === -1) return [];
 
   const occurrences: Date[] = [];
+  const now = new Date();
   const start = new Date();
   for (let i = 0; i < 62; i++) {
     const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
     if (d.getDay() === targetDayIndex) {
+      if (i === 0 && startHour !== undefined && startMinute !== undefined) {
+        const showStart = new Date(
+          d.getFullYear(),
+          d.getMonth(),
+          d.getDate(),
+          startHour,
+          startMinute,
+          0,
+          0
+        );
+        if (showStart <= now) {
+          continue;
+        }
+      }
       occurrences.push(d);
     }
   }
@@ -1253,7 +1272,7 @@ export default function App() {
     const show = shows.find((s) => s.id === showId);
     setSelectedPrerecordShowId(showId);
     if (show) {
-      const dates = getFutureDatesForShow(show.day);
+      const dates = getFutureDatesForShow(show.day, show.startHour, show.startMinute);
       if (dates.length > 0) {
         setPrerecordDateInput(format(dates[0], "yyyy-MM-dd"));
       } else {
@@ -2958,7 +2977,7 @@ export default function App() {
                                       >
                                         <div className="flex items-center justify-between gap-1 w-full min-w-0">
                                           <div className="flex items-center gap-1.5 min-w-0">
-                                            <span className="px-1 py-0.2 bg-blue-100/90 text-blue-800 border border-blue-200 rounded text-[9px] font-black uppercase tracking-tight shrink-0">
+                                            <span className="px-1 py-0.2 bg-blue-50 text-blue-700 border border-blue-150 rounded text-[9px] font-black uppercase tracking-tight shrink-0">
                                               {show.day}
                                             </span>
                                             <span className="text-[10px] font-mono font-bold text-slate-700 truncate">
@@ -2984,7 +3003,7 @@ export default function App() {
                               (() => {
                                 const show = shows.find((s) => s.id === selectedPrerecordShowId);
                                 if (!show) return null;
-                                const occurrences = getFutureDatesForShow(show.day);
+                                const occurrences = getFutureDatesForShow(show.day, show.startHour, show.startMinute);
                                 return (
                                   <div className="flex flex-col space-y-1 text-left pt-0.5 shrink-0">
                                     <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 select-none">
