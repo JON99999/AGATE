@@ -7,7 +7,9 @@ export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
     define: {
-      'import.meta.env.VITE_APP_MODE': JSON.stringify(process.env.VITE_APP_MODE || 'Admin')
+      'import.meta.env.VITE_APP_MODE': JSON.stringify(process.env.VITE_APP_MODE || 'Admin'),
+      'global': 'globalThis',
+      'process.env': {},
     },
     resolve: {
       alias: {
