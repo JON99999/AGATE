@@ -47,6 +47,7 @@ This application is primarily a **Desktop Application** built with Electron and 
 - **Strict Distinction Between Questions and Commands**: Do not interpret a user's question as a command to modify files or execute corrective actions immediately. Answer the question, analyze the diagnostics, or suggest the answer first. Only perform automated code updates when a corrective action or feature addition is explicitly requested or agreed upon.
 - **Error Link Requirement**: When explicitly asked to "Check your work in Github" or similar requests, the agent MUST consult and strictly follow the protocol defined in `/CheckYourWorkInGithubPrompt.md` at the project root. Under normal conversational flows or unrelated developer queries, this specific protocol does not apply.
 - **GitHub Build Error Triaging**: Whenever checking GitHub release failures or compilation issues, do not run standard local checks blindly. Proactively check if compilation errors are due to virtualized environment constraints unique to modern headless pipelines running on different runner architectures through the GitHub web release actions interface. Ensure each solution explicitly resolves these remote compilation issues to minimize release cycle delays.
+- **No Suppression of Errors or Warnings**: Never suppress, silence, or hide errors, warnings, or console logging unless the user explicitly instructs that they should not be reported as errors.
 
 ## Integrity of Data and Schedules
 

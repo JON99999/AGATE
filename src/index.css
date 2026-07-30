@@ -211,35 +211,68 @@
 }
 
 /* 1. First, remove "Folders" text and leave the folder icon */
-@media (max-width: 520px) {
+@media (max-width: 580px) {
   .hide-folders-text {
     display: none !important;
   }
 }
 
-/* 2. Second, remove "Export" text and leave the export icon */
-@media (max-width: 460px) {
-  .hide-export-text {
+/* Tiered mode text hiding sequence: non-selected mode labels hide first; selected mode label hides last */
+@media (max-width: 500px) {
+  .hide-mode-text-tier-1 {
     display: none !important;
   }
 }
 
-/* 3. Third, remove "Prerecord" text and leave the prerecord icon */
-@media (max-width: 400px) {
-  .hide-prerecord-text {
+@media (max-width: 440px) {
+  .hide-mode-text-tier-2 {
     display: none !important;
   }
 }
 
-/* 4. Fourth, remove "Live" text and leave the radio icon */
-@media (max-width: 340px) {
-  .hide-live-text {
+@media (max-width: 380px) {
+  .hide-mode-text-tier-3 {
     display: none !important;
   }
 }
 
-/* 5. Finally, remove the entire Demo object as a last resort */
-@media (max-width: 280px) {
+@media (max-width: 320px) {
+  .hide-mode-text-tier-4 {
+    display: none !important;
+  }
+}
+
+/* Collapse horizontal mode controls into vertical selector */
+@media (max-width: 310px) {
+  .mode-horizontal-group {
+    display: none !important;
+  }
+  .mode-vertical-group {
+    display: block !important;
+  }
+  .mode-vertical-spacer {
+    width: 95px;
+  }
+}
+
+@media (min-width: 311px) {
+  .mode-vertical-group {
+    display: none !important;
+  }
+}
+
+/* Before collapsing vertical control to icons only, show icons + descriptive text. At <= 250px, collapse text to icons only */
+@media (max-width: 250px) {
+  .mode-vertical-text {
+    display: none !important;
+  }
+  .mode-vertical-spacer {
+    width: 31px;
+  }
+}
+
+/* 7. Finally, remove the entire Demo object as a last resort */
+@media (max-width: 260px) {
   .hide-demo-label {
     display: none !important;
   }
@@ -1076,6 +1109,27 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   color: #34d399 !important; /* Vivid emerald green check icon in dark mode */
   stroke: #34d399 !important;
 }
+
+/* Lightweight vertical dissolve transition for playlist song card text rotation */
+@keyframes cardTextFade {
+  0% {
+    opacity: 0.25;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-card-text-fade {
+  animation: cardTextFade 350ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.disable-animations .animate-card-text-fade {
+  animation: none !important;
+}
+
 
 
 

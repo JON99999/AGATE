@@ -1,6 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
+import * as mmb from 'music-metadata-browser';
 import { Interstitial, LogEntry, Show } from '../types';
+import { Mp3ID3Metadata } from './utils';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App & Auth
@@ -178,8 +180,12 @@ export const handleLogout = async () => {
 
 // Memory Cache for MP3 binary blobs to provide immediate playback and zero latency
 export const mp3BlobCache = new Map<string, string>(); // Maps raw URL (e.g. googleapis drive url) to local Blob URL
+export const rawBlobCache = new Map<string, Blob>(); // Maps raw URL to binary Blob
+export const mp3MetadataCache = new Map<string, Mp3ID3Metadata>(); // Maps raw URL to parsed ID3 metadata
 export const mp3DurationCache = new Map<string, string>(); // Maps raw URL to calculated duration "m:ss"
 export const availableFilesCache = new Map<string, { path: string; size: string; duration: string }>();
+
+const pendingFetches = new Map<string, Promise<string>>();
 
 export const calculateDurationForUrl = (url: string, sourceUrl: string) => {
   if (mp3DurationCache.has(url)) return;
@@ -215,11 +221,14 @@ export const clearAudioCache = () => {
     }
   }
   mp3BlobCache.clear();
+  rawBlobCache.clear();
+  mp3MetadataCache.clear();
   mp3DurationCache.clear();
+  pendingFetches.clear();
 };
 
 /**
- * Download an MP3 from Drive or Local into memory cache
+ * Download an MP3 from Drive or Local into memory cache and parse ID3 metadata simultaneously
  */
 export const cacheMP3 = async (url: string, token: string): Promise<string> => {
   let resolvedUrl = url;
@@ -230,6 +239,10 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
 
   if (mp3BlobCache.has(resolvedUrl)) {
     return mp3BlobCache.get(resolvedUrl)!;
+  }
+
+  if (pendingFetches.has(resolvedUrl)) {
+    return pendingFetches.get(resolvedUrl)!;
   }
 
   const isDriveUrl = resolvedUrl.includes('googleapis.com') || resolvedUrl.includes('drive.google.com');
@@ -243,28 +256,61 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
     }
   }
 
-  try {
-    const res = await fetch(resolvedUrl, { headers });
-    if (!res.ok) throw new Error(`Failed to fetch MP3 from url: ${res.statusText}`);
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    mp3BlobCache.set(resolvedUrl, blobUrl);
-    
-    // Calculate duration for the newly cached audio file
-    calculateDurationForUrl(url, blobUrl);
-    calculateDurationForUrl(resolvedUrl, blobUrl);
-    
-    return blobUrl;
-  } catch (err) {
-    console.error(`Error caching MP3 (${url}):`, err);
-    
-    // Fallback for non-Drive URLs if fetching fails (e.g., CORS on external web files)
-    if (!isDriveUrl) {
-      calculateDurationForUrl(url, resolvedUrl);
-      return resolvedUrl;
+  const fetchPromise = (async () => {
+    try {
+      const res = await fetch(resolvedUrl, { headers });
+      if (!res.ok) throw new Error(`Failed to fetch MP3 from url: ${res.statusText}`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      mp3BlobCache.set(resolvedUrl, blobUrl);
+      mp3BlobCache.set(url, blobUrl);
+      rawBlobCache.set(resolvedUrl, blob);
+      rawBlobCache.set(url, blob);
+
+      // Calculate duration for the newly cached audio file
+      calculateDurationForUrl(url, blobUrl);
+      calculateDurationForUrl(resolvedUrl, blobUrl);
+
+      // Parse ID3 metadata directly from the downloaded blob in RAM
+      try {
+        const parsed = await mmb.parseBlob(blob);
+        if (parsed.common) {
+          const meta: Mp3ID3Metadata = {
+            title: parsed.common.title || undefined,
+            artist: parsed.common.artist || undefined,
+            albumArtist: parsed.common.albumartist || parsed.common.artist || undefined,
+            album: parsed.common.album || undefined
+          };
+          if (meta.title || meta.artist || meta.albumArtist || meta.album) {
+            mp3MetadataCache.set(resolvedUrl, meta);
+            mp3MetadataCache.set(url, meta);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('mp3-metadata-loaded', { 
+                detail: { url, resolvedUrl, meta } 
+              }));
+            }
+          }
+        }
+      } catch (e) {
+        // ID3 parse fail on blob
+      }
+
+      return blobUrl;
+    } catch (err) {
+      console.error(`Error caching MP3 (${url}):`, err);
+      if (!isDriveUrl) {
+        calculateDurationForUrl(url, resolvedUrl);
+        return resolvedUrl;
+      }
+      throw err;
+    } finally {
+      pendingFetches.delete(resolvedUrl);
     }
-    throw err;
-  }
+  })();
+
+  pendingFetches.set(resolvedUrl, fetchPromise);
+  return fetchPromise;
 };
 
 /**

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { format, addMinutes, subMinutes, isSameMinute, isBefore, isAfter, startOfMinute, differenceInSeconds, parseISO } from 'date-fns';
 import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download, Ear, FileText, Volume2, ListMusic, ChevronUp, ChevronDown, RotateCcw } from 'lucide-react';
 import { Interstitial, InterstitialType, LogEntry, Show } from '../types';
-import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getSortedShows, getShowShade } from '../lib/utils';
+import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getSortedShows, getShowShade, readMp3ID3Metadata, Mp3ID3Metadata } from '../lib/utils';
 import LiveReadPopout from './LiveReadPopout';
 import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache, updateAudioCache, getAccessToken, driveFileNameCache, loadPlaylistTracksFromDrive, getSavedSettings } from '../lib/driveService';
 
@@ -50,12 +50,24 @@ export default function PlayerTab({
   const [isLoggingExports, setIsLoggingExports] = useState(false);
   const [customScriptTimes, setCustomScriptTimes] = useState<Record<string, string>>({});
   const [nowClock, setNowClock] = useState(new Date());
+  const [cardRotateStep, setCardRotateStep] = useState<number>(0);
+
+  // Synchronized 4-second rotation interval for playlist song cards
+  useEffect(() => {
+    const rotateTimer = setInterval(() => {
+      setCardRotateStep(prev => prev + 1);
+    }, 4000);
+    return () => clearInterval(rotateTimer);
+  }, []);
 
   // Playlist Mode State
   const [playlistTracks, setPlaylistTracks] = useState<Array<{
     id: string;
     fileName: string;
     title: string;
+    artist?: string;
+    albumArtist?: string;
+    album?: string;
     durationSeconds: number;
     durationFormatted: string;
     streamUrl: string;
@@ -70,6 +82,8 @@ export default function PlayerTab({
     title: string;
   }>>({});
   const [cancelledTrackIds, setCancelledTrackIds] = useState<string[]>([]);
+  const [pushedBeforeBreakTrackIds, setPushedBeforeBreakTrackIds] = useState<string[]>([]);
+  const [trackMetadataMap, setTrackMetadataMap] = useState<Record<string, Mp3ID3Metadata>>({});
 
   const [, setPlaylistDurationUpdates] = useState(0);
 
@@ -146,6 +160,52 @@ export default function PlayerTab({
       const token = getAccessToken();
       updateAudioCache(trackUrls, token).catch(e => console.warn('Playlist track pre-caching error:', e));
 
+      // Asynchronously load ID3 metadata for tooltips
+      serverTracks.forEach((t: any) => {
+        if (t.artist || t.album) {
+          const directMeta = {
+            title: t.title,
+            artist: t.artist,
+            albumArtist: t.albumArtist || t.artist,
+            album: t.album
+          };
+          setTrackMetadataMap(prev => ({
+            ...prev,
+            [t.streamUrl]: directMeta,
+            [t.fileName]: directMeta,
+            [t.id]: directMeta
+          }));
+        }
+
+        if (t.streamUrl) {
+          readMp3ID3Metadata(t.streamUrl, token || undefined).then(meta => {
+            if (meta) {
+              setTrackMetadataMap(prev => ({
+                ...prev,
+                [t.streamUrl]: {
+                  title: meta.title || t.title,
+                  artist: meta.artist || t.artist,
+                  albumArtist: meta.albumArtist || t.albumArtist || meta.artist || t.artist,
+                  album: meta.album || t.album
+                },
+                [t.fileName]: {
+                  title: meta.title || t.title,
+                  artist: meta.artist || t.artist,
+                  albumArtist: meta.albumArtist || t.albumArtist || meta.artist || t.artist,
+                  album: meta.album || t.album
+                },
+                [t.id]: {
+                  title: meta.title || t.title,
+                  artist: meta.artist || t.artist,
+                  albumArtist: meta.albumArtist || t.albumArtist || meta.artist || t.artist,
+                  album: meta.album || t.album
+                }
+              }));
+            }
+          });
+        }
+      });
+
     } catch (err: any) {
       console.error('Failed to sync playlist tracks:', err);
       if (isInitial) {
@@ -164,11 +224,13 @@ export default function PlayerTab({
       setPlaylistTracks([]);
       setPlaylistFile(null);
       setCancelledTrackIds([]);
+      setPushedBeforeBreakTrackIds([]);
       setPlayedPlaylistTracks({});
       return;
     }
 
     setCancelledTrackIds([]);
+    setPushedBeforeBreakTrackIds([]);
     setPlayedPlaylistTracks({});
     syncPlaylistTracks(true);
   }, [playMode, playlistShow]);
@@ -193,6 +255,23 @@ export default function PlayerTab({
     };
     window.addEventListener('mp3-duration-cached', handleDurationCached);
     return () => window.removeEventListener('mp3-duration-cached', handleDurationCached);
+  }, []);
+
+  // Listen for MP3 metadata parsing events ('mp3-metadata-loaded')
+  useEffect(() => {
+    const handleMetadataLoaded = (e: any) => {
+      const { url, resolvedUrl, meta } = e.detail || {};
+      if (meta) {
+        setTrackMetadataMap(prev => {
+          const updated = { ...prev };
+          if (url) updated[url] = meta;
+          if (resolvedUrl) updated[resolvedUrl] = meta;
+          return updated;
+        });
+      }
+    };
+    window.addEventListener('mp3-metadata-loaded', handleMetadataLoaded);
+    return () => window.removeEventListener('mp3-metadata-loaded', handleMetadataLoaded);
   }, []);
 
   useEffect(() => {
@@ -375,36 +454,51 @@ export default function PlayerTab({
     if (!container) return;
 
     const handleScroll = () => {
-      const slotElements = container.querySelectorAll('[data-slot-time]');
-      let currentActiveShow: Show | null = null;
-      const containerRect = container.getBoundingClientRect();
-      
-      for (let i = 0; i < slotElements.length; i++) {
-        const el = slotElements[i] as HTMLElement;
-        const rect = el.getBoundingClientRect();
-        
-        if (rect.top - containerRect.top <= 15 && rect.bottom - containerRect.top > 15) {
-          const timeStr = el.getAttribute('data-slot-time');
-          if (timeStr) {
-            const slotDate = new Date(timeStr);
-            const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
-            const dayName = daysOrder[slotDate.getDay()];
-            const hour = slotDate.getHours();
-            const minute = slotDate.getMinutes();
-            
-            const activeShows = shows.filter(show => 
-              isTimeInShow(show, dayName, hour, minute)
-            );
-            if (activeShows.length > 0) {
-              currentActiveShow = activeShows[0];
-            }
-          }
-          break;
-        }
-      }
-
-      // Update persistent header DOM directly to avoid full-screen React redraw
       if (persistentTitleRef.current && persistentLeftStripRef.current && persistentTextBoxRef.current) {
+        if (playMode === 'Playlist') {
+          const shade = playlistShow 
+            ? getShowShade(playlistShow, getSortedShows(shows))
+            : { bg: '#faf5ff', border: '#c084fc', title: 'Playlist Mode' };
+          
+          const newText = playlistShow ? playlistShow.name : "Playlist Mode";
+          if (persistentTitleRef.current.textContent !== newText) {
+            persistentTitleRef.current.textContent = newText;
+          }
+          persistentLeftStripRef.current.style.backgroundColor = shade.bg;
+          persistentLeftStripRef.current.title = shade.title;
+          persistentTextBoxRef.current.style.backgroundColor = shade.bg;
+          persistentTextBoxRef.current.style.borderColor = shade.border;
+          return;
+        }
+
+        const slotElements = container.querySelectorAll('[data-slot-time]');
+        let currentActiveShow: Show | null = null;
+        const containerRect = container.getBoundingClientRect();
+        
+        for (let i = 0; i < slotElements.length; i++) {
+          const el = slotElements[i] as HTMLElement;
+          const rect = el.getBoundingClientRect();
+          
+          if (rect.top - containerRect.top <= 15 && rect.bottom - containerRect.top > 15) {
+            const timeStr = el.getAttribute('data-slot-time');
+            if (timeStr) {
+              const slotDate = new Date(timeStr);
+              const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+              const dayName = daysOrder[slotDate.getDay()];
+              const hour = slotDate.getHours();
+              const minute = slotDate.getMinutes();
+              
+              const activeShows = shows.filter(show => 
+                isTimeInShow(show, dayName, hour, minute)
+              );
+              if (activeShows.length > 0) {
+                currentActiveShow = activeShows[0];
+              }
+            }
+            break;
+          }
+        }
+
         const shade = currentActiveShow 
           ? getShowShade(currentActiveShow, getSortedShows(shows))
           : { bg: 'var(--show-shade-none-bg, #f1f5f9)', border: 'var(--show-shade-none-border, #cbd5e1)', title: 'No active show scheduled' };
@@ -430,7 +524,7 @@ export default function PlayerTab({
       container.removeEventListener('scroll', handleScroll);
       clearTimeout(timer);
     };
-  }, [shows, scrollTrigger]);
+  }, [shows, scrollTrigger, playMode, playlistShow]);
 
   useEffect(() => {
     // Initial call or when dependency changes to ensure header is correctly synced
@@ -467,18 +561,33 @@ export default function PlayerTab({
         
         // Update persistent header DOM directly
         if (persistentTitleRef.current && persistentLeftStripRef.current && persistentTextBoxRef.current) {
-          const shade = currentActiveShow 
-            ? getShowShade(currentActiveShow, getSortedShows(shows))
-            : { bg: 'var(--show-shade-none-bg, #f1f5f9)', border: 'var(--show-shade-none-border, #cbd5e1)', title: 'No active show scheduled' };
-          
-          const newText = currentActiveShow ? currentActiveShow.name : "No Scheduled Show";
-          if (persistentTitleRef.current.textContent !== newText) {
-            persistentTitleRef.current.textContent = newText;
+          if (playMode === 'Playlist') {
+            const shade = playlistShow 
+              ? getShowShade(playlistShow, getSortedShows(shows))
+              : { bg: '#faf5ff', border: '#c084fc', title: 'Playlist Mode' };
+            
+            const newText = playlistShow ? playlistShow.name : "Playlist Mode";
+            if (persistentTitleRef.current.textContent !== newText) {
+              persistentTitleRef.current.textContent = newText;
+            }
+            persistentLeftStripRef.current.style.backgroundColor = shade.bg;
+            persistentLeftStripRef.current.title = shade.title;
+            persistentTextBoxRef.current.style.backgroundColor = shade.bg;
+            persistentTextBoxRef.current.style.borderColor = shade.border;
+          } else {
+            const shade = currentActiveShow 
+              ? getShowShade(currentActiveShow, getSortedShows(shows))
+              : { bg: 'var(--show-shade-none-bg, #f1f5f9)', border: 'var(--show-shade-none-border, #cbd5e1)', title: 'No active show scheduled' };
+            
+            const newText = currentActiveShow ? currentActiveShow.name : "No Scheduled Show";
+            if (persistentTitleRef.current.textContent !== newText) {
+              persistentTitleRef.current.textContent = newText;
+            }
+            persistentLeftStripRef.current.style.backgroundColor = shade.bg;
+            persistentLeftStripRef.current.title = shade.title;
+            persistentTextBoxRef.current.style.backgroundColor = shade.bg;
+            persistentTextBoxRef.current.style.borderColor = shade.border;
           }
-          persistentLeftStripRef.current.style.backgroundColor = shade.bg;
-          persistentLeftStripRef.current.title = shade.title;
-          persistentTextBoxRef.current.style.backgroundColor = shade.bg;
-          persistentTextBoxRef.current.style.borderColor = shade.border;
         }
       }
     }, 100);
@@ -784,8 +893,9 @@ export default function PlayerTab({
         currentTime = trackEnd;
       } else {
         const targetBreak = remainingBreaks[matchingBreakIndex];
+        const isPushedBeforeBreak = pushedBeforeBreakTrackIds.includes(track.id);
 
-        if (targetBreak.slotTime.getTime() < midpoint.getTime()) {
+        if (!isPushedBeforeBreak && targetBreak.slotTime.getTime() < midpoint.getTime()) {
           // FIRST HALF: Place song card AFTER the interstitial break
           const breaksToInsert = remainingBreaks.splice(0, matchingBreakIndex + 1);
           for (const b of breaksToInsert) {
@@ -813,7 +923,7 @@ export default function PlayerTab({
           });
           currentTime = trackEnd;
         } else {
-          // SECOND HALF: Place song card BEFORE the interstitial break
+          // SECOND HALF (or forced before break): Place song card BEFORE the interstitial break
           const trackStart = new Date(currentTime);
           const trackEnd = new Date(trackStart.getTime() + trackDur * 1000);
           items.push({
@@ -874,13 +984,17 @@ export default function PlayerTab({
     }
 
     return items;
-  }, [playMode, playlistShow, playlistTracks, playlistFile, syncTime, interstitials, playedPlaylistTracks, cancelledTrackIds, nowClock]);
+  }, [playMode, playlistShow, playlistTracks, playlistFile, syncTime, interstitials, playedPlaylistTracks, cancelledTrackIds, pushedBeforeBreakTrackIds, nowClock]);
 
   const handleMoveTrackUp = (trackId: string) => {
     setPlaylistTracks(prev => {
       const activeUnplayed = prev.filter(t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id));
       const idx = activeUnplayed.findIndex(t => t.id === trackId);
-      if (idx <= 0) return prev;
+      if (idx === 0) {
+        setPushedBeforeBreakTrackIds(pushed => pushed.includes(trackId) ? pushed : [...pushed, trackId]);
+        return prev;
+      }
+      if (idx < 0) return prev;
 
       const currentTrack = activeUnplayed[idx];
       const prevTrack = activeUnplayed[idx - 1];
@@ -897,6 +1011,10 @@ export default function PlayerTab({
   };
 
   const handleMoveTrackDown = (trackId: string) => {
+    if (pushedBeforeBreakTrackIds.includes(trackId)) {
+      setPushedBeforeBreakTrackIds(pushed => pushed.filter(id => id !== trackId));
+      return;
+    }
     setPlaylistTracks(prev => {
       const activeUnplayed = prev.filter(t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id));
       const idx = activeUnplayed.findIndex(t => t.id === trackId);
@@ -1813,7 +1931,9 @@ export default function PlayerTab({
         })() : null);
 
         const initialShade = playMode === 'Playlist'
-          ? { bg: '#faf5ff', border: '#c084fc', title: 'Playlist Mode' }
+          ? (playlistShow 
+              ? getShowShade(playlistShow, getSortedShows(shows))
+              : { bg: '#faf5ff', border: '#c084fc', title: 'Playlist Mode' })
           : (initialActiveShow 
               ? getShowShade(initialActiveShow, getSortedShows(shows))
               : { bg: 'var(--show-shade-none-bg, #f1f5f9)', border: 'var(--show-shade-none-border, #cbd5e1)', title: 'No active show scheduled' });
@@ -1840,7 +1960,7 @@ export default function PlayerTab({
             >
               <div ref={persistentTitleRef} className="line-clamp-2 font-sans">
                 {playMode === 'Playlist' 
-                  ? (playlistShow ? `PLAYLIST: ${playlistShow.name}` : "PLAYLIST MODE - NO SHOW SELECTED")
+                  ? (playlistShow ? playlistShow.name : "Playlist Mode")
                   : (initialActiveShow ? initialActiveShow.name : "No Scheduled Show")}
               </div>
             </div>
@@ -1897,208 +2017,274 @@ export default function PlayerTab({
                 </div>
               );
             }
+            const firstUnplayedIdx = playlistTimeline.findIndex(item => item.type === 'track' && !item.played);
+            const unplayedTimelineCards = playlistTimeline.filter(
+              item => (item.type === 'track' && !item.played && !item.cancelled) || item.type === 'break'
+            );
+
             return (
               <div className="space-y-2 p-2">
-                {playlistTimeline.map(item => {
-                if (item.type === 'header') {
-                  return (
-                    <div key={item.id} className="bg-purple-900 text-white p-3 rounded-lg shadow-sm border border-purple-700 flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2.5">
-                        <ListMusic className="w-5 h-5 text-purple-300" />
-                        <div>
-                          <div className="text-xs font-black uppercase tracking-wide text-white">
-                            {item.show.name} ({item.show.nameShort || item.show.name})
-                          </div>
-                          <div className="text-[11px] text-purple-200 font-mono">
-                            {item.playlistFile ? `Loaded from .m3u: ${item.playlistFile}` : 'Loaded from Alphabetical MP3s'} • {item.trackCount} Tracks
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[11px] font-black uppercase bg-purple-800 text-purple-100 px-2.5 py-1 rounded border border-purple-600">
-                          Start: {format(item.startTime, 'HH:mm')}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                }
+                {playlistTimeline.map((item, index) => {
+                  if (item.type === 'header') {
+                    return null;
+                  }
 
-                if (item.type === 'track') {
-                  const isCurrentlyPlaying = playingSlotKey === item.track.id;
-                  const isPlayedTrack = !!item.played;
-                  const isCancelledTrack = !!item.cancelled;
+                  const isNowPosition = index === firstUnplayedIdx || (firstUnplayedIdx === -1 && index === playlistTimeline.length - 1);
 
-                  const activeUnplayedTracks = playlistTracks.filter(
-                    t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id)
-                  );
-                  const activeIdx = activeUnplayedTracks.findIndex(t => t.id === item.track.id);
-                  const isTopActive = activeIdx === 0;
-                  const isBottomActive = activeIdx === activeUnplayedTracks.length - 1;
-
-                  return (
+                  const nowCard = isNowPosition ? (
                     <div 
-                      key={item.id} 
-                      className={cn(
-                        "rounded border shadow-xs p-2 my-1.5 transition-all flex flex-col gap-1.5 select-none text-left border-l-[4px]",
-                        isCurrentlyPlaying 
-                          ? "bg-purple-100/80 dark:bg-purple-950/40 border-purple-500 ring-1 ring-purple-500/40" 
-                          : isPlayedTrack
-                            ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-500 dark:border-emerald-700/60"
-                            : isCancelledTrack
-                              ? "bg-slate-100/70 dark:bg-slate-900/40 border-slate-300 dark:border-slate-800 opacity-75"
-                              : "bg-white dark:bg-slate-900 border-purple-200 dark:border-purple-800/60 hover:border-purple-300"
-                      )}
-                      style={{
-                        borderLeftColor: isCurrentlyPlaying
-                          ? '#9333ea'
-                          : isPlayedTrack
-                            ? '#10b981'
-                            : isCancelledTrack
-                              ? '#94a3b8'
-                              : '#a855f7'
-                      }}
-                      title={`MP3 File: ${item.track.fileName}`}
+                      key="now-indicator"
+                      ref={activeItemRef}
+                      className="h-6 flex items-center justify-between px-3 rounded shadow-sm border my-1.5 ml-1 bg-blue-600 border-blue-500 text-white select-none"
+                      id="now-indicator"
                     >
-                      {/* Top Header Bar matching Interstitial layout */}
-                      <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/80 -mx-2 -mt-2 px-2 py-1 rounded-t border-b border-slate-200/80 dark:border-slate-700/60">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs uppercase font-black text-slate-600 dark:text-slate-400 tracking-tighter">
-                            {format(item.startTime, 'MMM dd')}
-                          </span>
-                          <span className="text-xs font-mono font-black text-purple-600 dark:text-purple-400">
-                            {format(item.startTime, 'HH:mm')}
-                          </span>
-                        </div>
+                      <span className="text-xs font-black uppercase text-white tracking-widest font-sans flex items-center gap-1.5">
+                        <RadioTower className="w-3.5 h-3.5 text-white/90 shrink-0" />
+                        now
+                      </span>
+                      {renderCacheStatusMessage()}
+                    </div>
+                  ) : null;
 
-                        {isCurrentlyPlaying ? (
-                          <div className="flex items-center gap-1 text-xs font-black uppercase text-purple-600 dark:text-purple-400">
-                            <div className="w-1.5 h-1.5 rounded-full bg-purple-600 dark:bg-purple-400 animate-pulse"></div>
-                            Playing
-                          </div>
-                        ) : (isTopActive && !isPlayedTrack && !isCancelledTrack) ? (
-                          <span className="text-xs text-white px-1 py-0.5 rounded font-black uppercase leading-none bg-purple-600">Next</span>
-                        ) : null}
-                      </div>
+                  if (item.type === 'track') {
+                    const isCurrentlyPlaying = playingSlotKey === item.track.id;
+                    const isPlayedTrack = !!item.played;
+                    const isCancelledTrack = !!item.cancelled;
 
-                      {/* Middle row: Title & Play button */}
-                      <div className="flex items-center justify-between gap-2 pt-0.5">
+                    const timelineCardIdx = unplayedTimelineCards.findIndex(c => c.id === item.id);
+                    const isTopCardInTimeline = timelineCardIdx === 0;
+                    const isBottomCardInTimeline = timelineCardIdx === unplayedTimelineCards.length - 1;
+
+                    const meta = trackMetadataMap[item.track.streamUrl] ||
+                                 trackMetadataMap[item.track.fileName] ||
+                                 trackMetadataMap[item.track.id];
+
+                    const isParsed = !!meta;
+
+                    const mp3FileName = item.track.fileName || item.track.title || '';
+                    const rawArtist = meta?.artist ? meta.artist.trim() : null;
+                    const rawAlbumArtist = meta?.albumArtist ? meta.albumArtist.trim() : null;
+                    const rawTitle = meta?.title ? meta.title.trim() : null;
+                    const rawAlbum = meta?.album ? meta.album.trim() : null;
+
+                    // Row 1: Artist and (Album Artist)
+                    let row1Text: string | null = null;
+                    if (rawArtist && rawAlbumArtist) {
+                      const normArtist = rawArtist.toLowerCase();
+                      const normAlbumArtist = rawAlbumArtist.toLowerCase();
+                      if (normArtist === normAlbumArtist || normArtist.includes(normAlbumArtist)) {
+                        row1Text = rawArtist;
+                      } else {
+                        row1Text = `${rawArtist} (${rawAlbumArtist})`;
+                      }
+                    } else if (rawArtist) {
+                      row1Text = rawArtist;
+                    } else if (rawAlbumArtist) {
+                      row1Text = rawAlbumArtist;
+                    }
+
+                    // Row 2: Title - Album (Fallback to filename if title and album are blank)
+                    let row2Text: string = mp3FileName;
+                    if (rawTitle && rawAlbum) {
+                      row2Text = `${rawTitle} - ${rawAlbum}`;
+                    } else if (rawTitle) {
+                      row2Text = rawTitle;
+                    } else if (rawAlbum) {
+                      row2Text = rawAlbum;
+                    } else {
+                      row2Text = mp3FileName;
+                    }
+
+                    // Tooltip
+                    const tooltipParts: string[] = [];
+                    if (mp3FileName) tooltipParts.push(`File: ${mp3FileName}`);
+                    if (rawTitle) tooltipParts.push(`Track: ${rawTitle}`);
+                    if (rawArtist) tooltipParts.push(`Artist: ${rawArtist}`);
+                    if (rawAlbumArtist) tooltipParts.push(`Album Artist: ${rawAlbumArtist}`);
+                    if (rawAlbum) tooltipParts.push(`Album: ${rawAlbum}`);
+                    if (!isParsed) tooltipParts.push(`(ID3 Tags: ...parsing...)`);
+
+                    const tooltipText = tooltipParts.join('\n');
+
+                    return (
+                      <Fragment key={item.id}>
+                        {nowCard}
                         <div 
                           className={cn(
-                            "text-xs font-bold leading-tight break-words line-clamp-2 flex-1",
-                            isCurrentlyPlaying ? "text-purple-700 dark:text-purple-300" :
-                            isPlayedTrack ? "text-emerald-950 dark:text-emerald-100" :
-                            isCancelledTrack ? "text-slate-500 dark:text-slate-400 line-through decoration-slate-400/60" :
-                            "text-slate-800 dark:text-slate-100"
-                          )}
-                          title={`MP3 File: ${item.track.fileName}`}
-                        >
-                          {item.track.title}
-                        </div>
-
-                        <button
-                          onClick={() => handleTogglePlayTrack(item.track)}
-                          className={cn(
-                            "shrink-0 p-1.5 rounded-full transition-all shadow-xs cursor-pointer flex items-center justify-center",
-                            isCurrentlyPlaying
-                              ? "bg-purple-700 hover:bg-purple-800 text-white"
+                            "rounded border shadow-xs p-2 my-1.5 transition-all flex flex-col gap-1.5 select-none text-left border-l-[4px]",
+                            isCurrentlyPlaying 
+                              ? "ring-1 ring-purple-500/40" 
                               : isPlayedTrack
-                                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                ? "opacity-90"
                                 : isCancelledTrack
-                                  ? "bg-slate-400 dark:bg-slate-700 hover:bg-slate-500 text-white"
-                                  : "bg-purple-600 hover:bg-purple-500 text-white"
+                                  ? "opacity-75"
+                                  : ""
                           )}
-                          title={isCurrentlyPlaying ? "Pause track" : isPlayedTrack ? "Replay playlist track" : "Play track"}
+                          style={{
+                            backgroundColor: 'var(--playlist-card-bg)',
+                            borderColor: 'var(--playlist-card-border)',
+                            color: 'var(--playlist-card-text)',
+                            borderLeftColor: isCurrentlyPlaying
+                              ? '#9333ea'
+                              : isPlayedTrack
+                                ? '#10b981'
+                                : isCancelledTrack
+                                  ? '#94a3b8'
+                                  : '#a855f7'
+                          }}
+                          title={tooltipText}
                         >
-                          {isCurrentlyPlaying ? (
-                            <Pause className="w-3.5 h-3.5 fill-current" />
-                          ) : isPlayedTrack ? (
-                            <CheckCircle className="w-3.5 h-3.5 text-white" />
-                          ) : (
-                            <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                          )}
-                        </button>
-                      </div>
+                          {/* Top Header Bar for Playlist card: ListMusic icon + Up/Down/X controls on left, Play button right-justified */}
+                          <div 
+                            className="flex justify-between items-center -mx-2 -mt-2 px-2 py-1 rounded-t border-b border-slate-200/60 dark:border-slate-700/60"
+                            style={{ backgroundColor: 'var(--playlist-card-header-bg)' }}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <ListMusic className="w-3.5 h-3.5 text-purple-600 dark:text-purple-300 shrink-0" />
+                              
+                              {/* Up, Down, X, Reactivate controls slid to the left next to list note icon */}
+                              <div className="flex items-center gap-0.5 ml-0.5">
+                                {(!isPlayedTrack && !isCancelledTrack) && (
+                                  <>
+                                    {!isTopCardInTimeline && (
+                                      <button
+                                        onClick={() => handleMoveTrackUp(item.track.id)}
+                                        className="p-0.5 text-slate-700 dark:text-slate-200 hover:text-purple-800 dark:hover:text-purple-200 hover:bg-purple-200/60 dark:hover:bg-purple-900/60 rounded border border-slate-300 dark:border-slate-700 cursor-pointer transition-colors"
+                                        title="Move song up in queue"
+                                      >
+                                        <ChevronUp className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    {!isBottomCardInTimeline && (
+                                      <button
+                                        onClick={() => handleMoveTrackDown(item.track.id)}
+                                        className="p-0.5 text-slate-700 dark:text-slate-200 hover:text-purple-800 dark:hover:text-purple-200 hover:bg-purple-200/60 dark:hover:bg-purple-900/60 rounded border border-slate-300 dark:border-slate-700 cursor-pointer transition-colors"
+                                        title="Move song down in queue"
+                                      >
+                                        <ChevronDown className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => handleCancelTrack(item.track.id)}
+                                      className="p-0.5 text-slate-600 dark:text-slate-300 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-950/60 rounded border border-slate-300 dark:border-slate-700 cursor-pointer transition-colors"
+                                      title="Cancel song (move to bottom)"
+                                    >
+                                      <X className="w-3 h-3" />
+                                    </button>
+                                  </>
+                                )}
 
-                      {/* Status & Duration row */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1">
-                          {isPlayedTrack ? (
-                            <>
-                              <CheckCircle className="w-2.5 h-2.5 text-green-500" />
-                              <span className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-tighter">
-                                Played
-                              </span>
-                            </>
-                          ) : isCancelledTrack ? (
-                            <>
-                              <AlertCircle className="w-2.5 h-2.5 text-slate-400" />
-                              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
-                                Cancelled
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <Clock className="w-2.5 h-2.5 text-slate-500" />
-                              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
-                                To be played
-                              </span>
-                            </>
-                          )}
-                        </div>
+                                {isCancelledTrack && (
+                                  <button
+                                    onClick={() => handleReactivateTrack(item.track.id)}
+                                    className="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 cursor-pointer transition-colors shadow-xs"
+                                    title="Reactivate song to queue"
+                                  >
+                                    <RotateCcw className="w-2.5 h-2.5 text-slate-600 dark:text-slate-300" />
+                                    <span>Reactivate</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
 
-                        <span className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 leading-none">
-                          {mp3DurationCache.get(item.track.streamUrl) || availableFilesCache.get(item.track.fileName)?.duration || item.track.durationFormatted}
-                        </span>
-                      </div>
+                            {/* Right side: Playing badge + Right-justified circular Play / Pause / Check button */}
+                            <div className="flex items-center gap-1.5 ml-auto">
+                              {isCurrentlyPlaying && (
+                                <span className="text-[10px] font-black uppercase text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-purple-600 dark:bg-purple-400 animate-pulse" />
+                                  Playing
+                                </span>
+                              )}
 
-                      {/* Bottom action controls stacked vertically */}
-                      {(!isPlayedTrack && !isCancelledTrack) && (
-                        <div className="border-t border-slate-200/80 dark:border-slate-700/60 pt-1 mt-0.5 flex justify-end">
-                          <div className="flex items-center gap-1 bg-slate-50/80 dark:bg-slate-800/80 p-0.5 rounded-md border border-slate-200 dark:border-slate-700/60">
-                            {!isTopActive && (
                               <button
-                                onClick={() => handleMoveTrackUp(item.track.id)}
-                                className="p-1 text-slate-600 dark:text-slate-300 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded cursor-pointer transition-colors"
-                                title="Move song up in queue"
+                                onClick={() => handleTogglePlayTrack(item.track)}
+                                className={cn(
+                                  "w-5 h-5 rounded-full shrink-0 aspect-square transition-all shadow-xs cursor-pointer flex items-center justify-center p-0 border border-transparent",
+                                  isCurrentlyPlaying
+                                    ? "bg-purple-700 hover:bg-purple-800 text-white"
+                                    : isPlayedTrack
+                                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                      : isCancelledTrack
+                                        ? "bg-slate-400 dark:bg-slate-700 hover:bg-slate-500 text-white"
+                                        : "bg-purple-600 hover:bg-purple-500 text-white"
+                                )}
+                                title={isCurrentlyPlaying ? "Pause track" : isPlayedTrack ? "Replay playlist track" : "Play track"}
                               >
-                                <ChevronUp className="w-3.5 h-3.5" />
+                                {isCurrentlyPlaying ? (
+                                  <Pause className="w-2.5 h-2.5 fill-current" />
+                                ) : isPlayedTrack ? (
+                                  <CheckCircle className="w-2.5 h-2.5 text-white" />
+                                ) : (
+                                  <Play className="w-2.5 h-2.5 fill-current ml-0.5" />
+                                )}
                               </button>
+                            </div>
+                          </div>
+
+                          {/* MP3 Information: Top justified, 3 rows fixed min-height for uniform card size */}
+                          <div 
+                            className={cn(
+                              "flex flex-col justify-start items-start text-left w-full font-sans font-normal text-xs leading-snug gap-0.5 pt-0.5 min-h-[3.6rem]",
+                              isCurrentlyPlaying ? "text-purple-800 dark:text-purple-200" :
+                              isPlayedTrack ? "text-emerald-950 dark:text-emerald-100" :
+                              isCancelledTrack ? "text-slate-500 dark:text-slate-400 line-through decoration-slate-400/60" :
+                              "text-slate-900 dark:text-slate-100"
                             )}
-                            {!isBottomActive && (
-                              <button
-                                onClick={() => handleMoveTrackDown(item.track.id)}
-                                className="p-1 text-slate-600 dark:text-slate-300 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 rounded cursor-pointer transition-colors"
-                                title="Move song down in queue"
-                              >
-                                <ChevronDown className="w-3.5 h-3.5" />
-                              </button>
+                            title={tooltipText}
+                          >
+                            {!isParsed ? (
+                              <div className="line-clamp-3 break-words font-sans font-normal text-xs w-full">
+                                {mp3FileName}
+                              </div>
+                            ) : (
+                              <>
+                                {row1Text && (
+                                  <div className="line-clamp-1 truncate font-sans font-normal text-xs w-full text-slate-600 dark:text-slate-300">
+                                    {row1Text}
+                                  </div>
+                                )}
+                                <div className={cn("break-words font-sans font-normal text-xs w-full", row1Text ? "line-clamp-2" : "line-clamp-3")}>
+                                  {row2Text}
+                                </div>
+                              </>
                             )}
-                            <button
-                              onClick={() => handleCancelTrack(item.track.id)}
-                              className="p-1 text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded cursor-pointer transition-colors"
-                              title="Cancel song (move to bottom)"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                          </div>
+
+                          {/* Status & Duration row */}
+                          <div className="flex items-center justify-between gap-1 pt-0.5">
+                            <div className="flex items-center gap-1">
+                              {isPlayedTrack ? (
+                                <>
+                                  <CheckCircle className="w-2.5 h-2.5 text-green-500" />
+                                  <span className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-tighter">
+                                    Played
+                                  </span>
+                                </>
+                              ) : isCancelledTrack ? (
+                                <>
+                                  <AlertCircle className="w-2.5 h-2.5 text-slate-400" />
+                                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
+                                    Cancelled
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="w-2.5 h-2.5 text-slate-500" />
+                                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
+                                    To be played
+                                  </span>
+                                </>
+                              )}
+                            </div>
+
+                            <span className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 leading-none">
+                              {mp3DurationCache.get(item.track.streamUrl) || availableFilesCache.get(item.track.fileName)?.duration || item.track.durationFormatted}
+                            </span>
                           </div>
                         </div>
-                      )}
-
-                      {isCancelledTrack && (
-                        <div className="border-t border-slate-200/80 dark:border-slate-700/60 pt-1 mt-0.5 flex justify-end">
-                          <button
-                            onClick={() => handleReactivateTrack(item.track.id)}
-                            className="flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 cursor-pointer transition-colors shadow-xs"
-                            title="Reactivate song to queue"
-                          >
-                            <RotateCcw className="w-3 h-3 text-slate-600 dark:text-slate-300" />
-                            <span>Reactivate</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
+                      </Fragment>
+                    );
+                  }
 
                 if (item.type === 'break') {
                   const slot = item.slotTime;

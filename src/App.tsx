@@ -413,6 +413,7 @@ export default function App() {
   const [selectedPlaylistShow, setSelectedPlaylistShow] = useState<Show | null>(null);
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
   const [playlistModalLoading, setPlaylistModalLoading] = useState(false);
+  const [playlistModalNow, setPlaylistModalNow] = useState<Date>(new Date());
   const [playlistShowOptions, setPlaylistShowOptions] = useState<{
     currentShow: Show | null;
     nextShow: Show | null;
@@ -422,6 +423,8 @@ export default function App() {
     elapsedMinutes: number;
     is15MinsOrMore: boolean;
   } | null>(null);
+  const playlistShowOptionsRef = useRef<typeof playlistShowOptions>(null);
+  playlistShowOptionsRef.current = playlistShowOptions;
   const [chosenPlaylistShowId, setChosenPlaylistShowId] = useState<string>("");
   const [prerecordModalTarget, setPrerecordModalTarget] = useState<
     "Prerecord" | "Export"
@@ -632,6 +635,20 @@ export default function App() {
 
   // Application Theme State
   const [currentTheme, setCurrentTheme] = useState<ThemeId>(() => getInitialTheme());
+  const [mobileThemeExpanded, setMobileThemeExpanded] = useState(false);
+  const [mobileModeExpanded, setMobileModeExpanded] = useState(false);
+
+  const getModeTextHideClass = (mode: "Live" | "Prerecord" | "Export" | "Playlist") => {
+    const defaultOrder: ("Live" | "Prerecord" | "Export" | "Playlist")[] = ["Playlist", "Export", "Prerecord", "Live"];
+    if (playMode === mode) {
+      return "hide-mode-text-tier-4";
+    }
+    const unselected = defaultOrder.filter((m) => m !== playMode);
+    const index = unselected.indexOf(mode);
+    if (index === 0) return "hide-mode-text-tier-1";
+    if (index === 1) return "hide-mode-text-tier-2";
+    return "hide-mode-text-tier-3";
+  };
 
   useEffect(() => {
     applyTheme(currentTheme);
@@ -1366,13 +1383,14 @@ export default function App() {
     setShowPrerecordModal(true);
   };
 
-  const handleOpenPlaylistModal = async () => {
-    setShowPlaylistModal(true);
-    setPlaylistModalLoading(true);
+  const updatePlaylistModalData = async (isInitial: boolean = false, overrideTime?: Date) => {
+    if (isInitial) {
+      setPlaylistModalLoading(true);
+    }
 
     const sorted = getSortedShows(shows);
     if (!sorted || sorted.length === 0) {
-      setPlaylistShowOptions({
+      const emptyOpts = {
         currentShow: null,
         nextShow: null,
         defaultShowId: "",
@@ -1380,13 +1398,15 @@ export default function App() {
         nextShowFileCount: 0,
         elapsedMinutes: 0,
         is15MinsOrMore: false
-      });
-      setPlaylistModalLoading(false);
+      };
+      setPlaylistShowOptions(emptyOpts);
+      playlistShowOptionsRef.current = emptyOpts;
+      if (isInitial) setPlaylistModalLoading(false);
       return;
     }
 
     const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
-    const nowObj = syncTime || new Date();
+    const nowObj = overrideTime || syncTime || new Date();
     const currentDayName = daysOrder[nowObj.getDay()];
     const currentHour = nowObj.getHours();
     const currentMin = nowObj.getMinutes();
@@ -1414,10 +1434,22 @@ export default function App() {
     const is15MinsOrMore = currentShow ? elapsedMinutes >= 15 : true;
     const defaultShow = (is15MinsOrMore && nextShow) ? nextShow : (currentShow || nextShow);
     const defaultShowId = defaultShow ? defaultShow.id : "";
-    setChosenPlaylistShowId(defaultShowId);
 
-    let currentShowFileCount = 0;
-    let nextShowFileCount = 0;
+    const prevCurrentShowId = playlistShowOptionsRef.current?.currentShow?.id;
+    const prevNextShowId = playlistShowOptionsRef.current?.nextShow?.id;
+    const showsChanged = isInitial || prevCurrentShowId !== currentShow?.id || prevNextShowId !== nextShow?.id;
+
+    if (isInitial || showsChanged) {
+      setChosenPlaylistShowId((prevId) => {
+        if (!isInitial && prevId && ((currentShow && prevId === currentShow.id) || (nextShow && prevId === nextShow.id))) {
+          return prevId;
+        }
+        return defaultShowId;
+      });
+    }
+
+    let currentShowFileCount = playlistShowOptionsRef.current?.currentShowFileCount || 0;
+    let nextShowFileCount = playlistShowOptionsRef.current?.nextShowFileCount || 0;
 
     try {
       const settings = getSavedSettings();
@@ -1453,7 +1485,7 @@ export default function App() {
       console.error("Failed to check playlist show files:", e);
     }
 
-    setPlaylistShowOptions({
+    const newOptions = {
       currentShow,
       nextShow,
       defaultShowId,
@@ -1461,9 +1493,30 @@ export default function App() {
       nextShowFileCount,
       elapsedMinutes,
       is15MinsOrMore
-    });
-    setPlaylistModalLoading(false);
+    };
+
+    playlistShowOptionsRef.current = newOptions;
+    setPlaylistShowOptions(newOptions);
+    if (isInitial) setPlaylistModalLoading(false);
   };
+
+  const handleOpenPlaylistModal = async () => {
+    setShowPlaylistModal(true);
+    setPlaylistModalNow(new Date());
+    await updatePlaylistModalData(true);
+  };
+
+  useEffect(() => {
+    if (!showPlaylistModal) return;
+
+    const timer = setInterval(() => {
+      const currentNow = new Date();
+      setPlaylistModalNow(currentNow);
+      updatePlaylistModalData(false, currentNow);
+    }, 5000);
+
+    return () => clearInterval(timer);
+  }, [showPlaylistModal, shows]);
 
   const handleConfirmPlaylistShow = () => {
     if (!playlistShowOptions) return;
@@ -1473,6 +1526,12 @@ export default function App() {
     } else if (chosenPlaylistShowId === playlistShowOptions.nextShow?.id) {
       targetShow = playlistShowOptions.nextShow;
     }
+    setSelectedPlaylistShow(targetShow);
+    setPlayMode("Playlist");
+    setShowPlaylistModal(false);
+  };
+
+  const handleSelectAndConfirmShow = (targetShow: Show) => {
     setSelectedPlaylistShow(targetShow);
     setPlayMode("Playlist");
     setShowPlaylistModal(false);
@@ -2658,16 +2717,21 @@ export default function App() {
       >
         <div className="flex justify-between items-center gap-2 w-full mx-auto min-h-[32px]">
           <div className="flex items-center shrink-0 gap-2">
-            <button
-              onClick={() => setShowLocationsModal(true)}
-              className="flex items-center gap-1.5 px-2 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 transition-all cursor-pointer shadow-sm text-xs font-black uppercase tracking-wider"
-            >
-              <Folder className="w-3.5 h-3.5 shrink-0" />
-              <span className="hide-folders-text">Folders</span>
-            </button>
+            <div className="bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] flex items-center">
+              <button
+                type="button"
+                onClick={() => setShowLocationsModal(true)}
+                className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded border border-slate-700 transition-all cursor-pointer shadow-sm text-xs font-black uppercase tracking-wider"
+                title="Manage Storage Folders"
+              >
+                <Folder className="w-3.5 h-3.5 shrink-0" />
+                <span className="hide-folders-text">Folders</span>
+              </button>
+            </div>
 
             {/* Light/Dark/System Theme Selector Pill Group next to standard Folders icon */}
-            <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
+            {/* Expanded view for wide screens */}
+            <div className="hidden sm:flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
               <button
                 type="button"
                 onClick={() => handleThemeChange("light")}
@@ -2758,6 +2822,65 @@ export default function App() {
               </button>
             </div>
 
+            {/* Collapsed view for smaller screens: active theme control itself expands vertically into choices on hover or click */}
+            <div
+              className="sm:hidden relative group shrink-0"
+              onMouseEnter={() => setMobileThemeExpanded(true)}
+              onMouseLeave={() => setMobileThemeExpanded(false)}
+            >
+              {/* Expanding control container overlaying the reserved button slot */}
+              <div
+                className={cn(
+                  "absolute bottom-0 right-0 bg-slate-950 p-0.5 rounded border border-slate-900 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] flex flex-col items-center gap-0.5 transition-all duration-150 z-50",
+                  mobileThemeExpanded ? "shadow-2xl ring-1 ring-slate-800" : ""
+                )}
+              >
+                {[
+                  { id: "light" as const, label: "Light Mode", Icon: Sun },
+                  { id: "dark" as const, label: "Dark Mode", Icon: Moon },
+                  { id: "system" as const, label: "System Theme", Icon: Laptop },
+                  { id: "dark-test" as const, label: "Dark Test Theme", Icon: HelpCircle },
+                ].map((item) => {
+                  const isActive = currentTheme === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={(e) => {
+                        handleThemeChange(item.id);
+                        (e.currentTarget as HTMLElement).blur();
+                      }}
+                      title={item.label}
+                      aria-label={item.label}
+                      className={cn(
+                        "px-2 py-1 rounded transition-all cursor-pointer border flex items-center justify-center relative shrink-0 w-full",
+                        !isActive && !mobileThemeExpanded && "hidden group-hover:flex",
+                        isActive
+                          ? item.id === "dark-test"
+                            ? "bg-slate-800 border-slate-700 text-amber-400 shadow-sm"
+                            : "bg-slate-800 border-slate-700 text-white shadow-sm"
+                          : "bg-slate-950/40 border-slate-900/40 text-slate-500 hover:text-slate-300 hover:bg-slate-900/60"
+                      )}
+                    >
+                      <item.Icon className="w-3.5 h-3.5 shrink-0" />
+                      <span
+                        className={cn(
+                          "w-1.5 h-1.5 rounded-full transition-all duration-300 absolute -top-0.5 -right-0.5",
+                          isActive
+                            ? item.id === "dark-test"
+                              ? "bg-amber-500 shadow-[0_0_8px_#F59E0B,0_0_3px_#F59E0B]"
+                              : "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                            : "bg-slate-800 opacity-0"
+                        )}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Dummy spacer to maintain exact header element footprint */}
+              <div className="w-[31px] h-[30px] pointer-events-none" />
+            </div>
+
             {/* DEMO Indicator displayed only in Demo storage Mode - aligned next to the Folders button */}
             {locationMode === "Demo" && (
               <span className="text-xs font-black tracking-widest text-[#F59E0B] animate-pulse bg-amber-950/40 px-2.5 py-1 rounded border border-amber-500/20 leading-none">
@@ -2767,102 +2890,216 @@ export default function App() {
           </div>
 
           <div className="flex items-center shrink-0 ml-auto">
-            {/* Mode Pill Group with 3D depressed highlight styles and lit indicators - only shown on Player tab */}
+            {/* Mode Controls - only shown on Player tab */}
             {activeTab === "player" && (
-              <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
-                <button
-                  onClick={() => {
-                    if (playMode !== "Live") {
-                      setPlayMode("Live");
-                      setPrerecordDate(null);
-                      handleRefresh();
-                    }
-                  }}
-                  className={cn(
-                    "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
-                    playMode === "Live"
-                      ? "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]"
-                      : "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
-                  )}
-                >
-                  <RadioTower
+              <>
+                {/* Horizontal Mode Pill Group (Wide / Medium screens) */}
+                <div className="mode-horizontal-group flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (playMode !== "Live") {
+                        setPlayMode("Live");
+                        setPrerecordDate(null);
+                        handleRefresh();
+                      }
+                    }}
+                    title="Live Mode"
+                    aria-label="Live Mode"
                     className={cn(
-                      "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                      "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                       playMode === "Live"
-                        ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                        : "text-slate-500",
+                        ? "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]"
+                        : "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
                     )}
-                  />
-                  <span className="hide-live-text">Live</span>
-                </button>
-                <button
-                  onClick={() => {
-                    if (playMode !== "Prerecord") {
-                      handleOpenTimeframeModal("Prerecord");
-                    }
-                  }}
-                  className={cn(
-                    "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
-                    playMode === "Prerecord"
-                      ? "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
-                      : "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
-                  )}
-                >
-                  <CassetteTape
+                  >
+                    <RadioTower
+                      className={cn(
+                        "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                        playMode === "Live"
+                          ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
+                          : "text-slate-500",
+                      )}
+                    />
+                    <span className={getModeTextHideClass("Live")}>Live</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (playMode !== "Prerecord") {
+                        handleOpenTimeframeModal("Prerecord");
+                      }
+                    }}
+                    title="Prerecord Mode"
+                    aria-label="Prerecord Mode"
                     className={cn(
-                      "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                      "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                       playMode === "Prerecord"
-                        ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                        : "text-slate-500",
+                        ? "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
+                        : "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
                     )}
-                  />
-                  <span className="hide-prerecord-text">Prerecord</span>
-                </button>
-                <button
-                  onClick={() => {
-                    if (playMode !== "Export") {
-                      handleOpenTimeframeModal("Export");
-                    }
-                  }}
-                  className={cn(
-                    "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
-                    playMode === "Export"
-                      ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
-                      : "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
-                  )}
-                >
-                  <ListOrdered
+                  >
+                    <CassetteTape
+                      className={cn(
+                        "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                        playMode === "Prerecord"
+                          ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
+                          : "text-slate-500",
+                      )}
+                    />
+                    <span className={getModeTextHideClass("Prerecord")}>Prerecord</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (playMode !== "Export") {
+                        handleOpenTimeframeModal("Export");
+                      }
+                    }}
+                    title="Export Mode"
+                    aria-label="Export Mode"
                     className={cn(
-                      "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                      "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                       playMode === "Export"
-                        ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                        : "text-slate-500",
+                        ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
+                        : "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
                     )}
-                  />
-                  <span className="hide-export-text">Export</span>
-                </button>
-                <button
-                  onClick={() => {
-                    handleOpenPlaylistModal();
-                  }}
-                  className={cn(
-                    "px-2 px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
-                    playMode === "Playlist"
-                      ? "bg-gradient-to-b from-purple-600 to-purple-700 border-t-purple-400 border-b-purple-900 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
-                      : "bg-purple-950/30 border-purple-900/30 text-purple-400/70 hover:text-purple-300 hover:bg-purple-950/45",
-                  )}
-                >
-                  <ListMusic
+                  >
+                    <ListOrdered
+                      className={cn(
+                        "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                        playMode === "Export"
+                          ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
+                          : "text-slate-500",
+                      )}
+                    />
+                    <span className={getModeTextHideClass("Export")}>Export</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenPlaylistModal();
+                    }}
+                    title="Playlist Mode"
+                    aria-label="Playlist Mode"
                     className={cn(
-                      "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                      "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                       playMode === "Playlist"
-                        ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                        : "text-slate-500",
+                        ? "bg-gradient-to-b from-purple-600 to-purple-700 border-t-purple-400 border-b-purple-900 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
+                        : "bg-purple-950/30 border-purple-900/30 text-purple-400/70 hover:text-purple-300 hover:bg-purple-950/45",
                     )}
-                  />
-                  <span className="hide-playlist-text">Playlist</span>
-                </button>
-              </div>
+                  >
+                    <ListMusic
+                      className={cn(
+                        "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                        playMode === "Playlist"
+                          ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
+                          : "text-slate-500",
+                      )}
+                    />
+                    <span className={getModeTextHideClass("Playlist")}>Playlist</span>
+                  </button>
+                </div>
+
+                {/* Collapsed view for smaller screens: active mode control itself expands vertically into choices on hover or click */}
+                <div
+                  className="mode-vertical-group relative group shrink-0"
+                  onMouseEnter={() => setMobileModeExpanded(true)}
+                  onMouseLeave={() => setMobileModeExpanded(false)}
+                >
+                  <div
+                    className={cn(
+                      "absolute bottom-0 right-0 flex flex-col bg-slate-950 p-0.5 rounded border border-slate-900 z-50 gap-0.5 transition-all duration-200 shadow-xl",
+                      mobileModeExpanded ? "shadow-2xl ring-1 ring-slate-800" : ""
+                    )}
+                  >
+                    {[
+                      {
+                        id: "Live" as const,
+                        label: "Live Mode",
+                        Icon: RadioTower,
+                        onClick: () => {
+                          if (playMode !== "Live") {
+                            setPlayMode("Live");
+                            setPrerecordDate(null);
+                            handleRefresh();
+                          }
+                        },
+                        activeClass: "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]",
+                        inactiveClass: "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
+                      },
+                      {
+                        id: "Prerecord" as const,
+                        label: "Prerecord Mode",
+                        Icon: CassetteTape,
+                        onClick: () => {
+                          if (playMode !== "Prerecord") {
+                            handleOpenTimeframeModal("Prerecord");
+                          }
+                        },
+                        activeClass: "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
+                        inactiveClass: "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
+                      },
+                      {
+                        id: "Export" as const,
+                        label: "Export Mode",
+                        Icon: ListOrdered,
+                        onClick: () => {
+                          if (playMode !== "Export") {
+                            handleOpenTimeframeModal("Export");
+                          }
+                        },
+                        activeClass: "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
+                        inactiveClass: "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
+                      },
+                      {
+                        id: "Playlist" as const,
+                        label: "Playlist Mode",
+                        Icon: ListMusic,
+                        onClick: () => {
+                          handleOpenPlaylistModal();
+                        },
+                        activeClass: "bg-gradient-to-b from-purple-600 to-purple-700 border-t-purple-400 border-b-purple-900 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
+                        inactiveClass: "bg-purple-950/30 border-purple-900/30 text-purple-400/70 hover:text-purple-300 hover:bg-purple-950/45",
+                      },
+                    ].map((item) => {
+                      const isActive = playMode === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={(e) => {
+                            item.onClick();
+                            (e.currentTarget as HTMLElement).blur();
+                            setMobileModeExpanded(false);
+                          }}
+                          title={item.label}
+                          aria-label={item.label}
+                          className={cn(
+                            "px-2 py-1 rounded transition-all cursor-pointer border flex items-center justify-start relative shrink-0 w-full gap-1.5",
+                            !isActive && !mobileModeExpanded && "hidden group-hover:flex",
+                            isActive ? item.activeClass : item.inactiveClass
+                          )}
+                        >
+                          <item.Icon
+                            className={cn(
+                              "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                              isActive
+                                ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
+                                : "text-slate-500"
+                            )}
+                          />
+                          <span className="mode-vertical-text text-xs font-black uppercase tracking-wider whitespace-nowrap">
+                            {item.id}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Dummy spacer to maintain exact element footprint */}
+                  <div className="mode-vertical-spacer h-[30px] pointer-events-none" />
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -3416,10 +3653,6 @@ export default function App() {
 
               {/* Modal Content */}
               <div className="p-4 space-y-3 flex-1 min-h-0 overflow-y-auto">
-                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-                  Select which show's Playlist folder to activate:
-                </p>
-
                 {playlistModalLoading ? (
                   <div className="py-8 flex flex-col items-center justify-center space-y-2 text-purple-600 dark:text-purple-400">
                     <RefreshCw className="w-6 h-6 animate-spin" />
@@ -3428,88 +3661,105 @@ export default function App() {
                 ) : playlistShowOptions ? (
                   <div className="space-y-2.5">
                     {/* Current Show Card */}
-                    {playlistShowOptions.currentShow ? (
-                      <div
-                        onClick={() => setChosenPlaylistShowId(playlistShowOptions.currentShow!.id)}
-                        className={cn(
-                          "p-3 rounded-lg border text-left cursor-pointer transition-all relative select-none flex flex-col gap-1.5",
-                          chosenPlaylistShowId === playlistShowOptions.currentShow.id
-                            ? "bg-purple-50/80 dark:bg-purple-950/50 border-purple-500 ring-2 ring-purple-500/30"
-                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-600"
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
-                              Current Show
-                            </span>
-                            <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-1">
-                              {playlistShowOptions.currentShow.name}
-                            </h4>
-                          </div>
-                          {!playlistShowOptions.is15MinsOrMore && (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                              Default Choice
-                            </span>
-                          )}
-                        </div>
+                    {playlistShowOptions.currentShow ? (() => {
+                      const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+                      const nowObj = playlistModalNow || syncTime || new Date();
+                      const currentWeekMin = nowObj.getDay() * 1440 + nowObj.getHours() * 60 + nowObj.getMinutes();
+                      const showStartWeekMin = daysOrder.indexOf(playlistShowOptions.currentShow.day) * 1440 + playlistShowOptions.currentShow.startHour * 60 + playlistShowOptions.currentShow.startMinute;
+                      const totalShowMin = (playlistShowOptions.currentShow.durationHours * 60) + playlistShowOptions.currentShow.durationMinutes;
+                      const elapsedMin = (currentWeekMin - showStartWeekMin + 10080) % 10080;
+                      const remainingMin = totalShowMin - elapsedMin;
+                      
+                      const formatHM = (mins: number) => {
+                        const h = Math.floor(Math.max(0, mins) / 60);
+                        const m = Math.floor(Math.max(0, mins) % 60);
+                        return `${h}:${m.toString().padStart(2, '0')}`;
+                      };
 
-                        <div className="text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                          <span>
-                            {playlistShowOptions.currentShowFileCount === 0
-                              ? "No MP3 tracks found"
-                              : `${playlistShowOptions.currentShowFileCount} MP3 tracks found`}
-                          </span>
-                          <span className="font-sans text-[10px] uppercase font-bold text-slate-400">
-                            {playlistShowOptions.elapsedMinutes}m elapsed
-                          </span>
+                      const timeLabel = remainingMin < 30 
+                        ? `${formatHM(remainingMin)} remaining`
+                        : `${formatHM(elapsedMin)} elapsed`;
+
+                      return (
+                        <div
+                          onClick={() => handleSelectAndConfirmShow(playlistShowOptions.currentShow!)}
+                          className={cn(
+                            "p-3 rounded-lg border text-left cursor-pointer transition-all relative select-none flex flex-col gap-1.5",
+                            chosenPlaylistShowId === playlistShowOptions.currentShow.id
+                              ? "bg-purple-50/80 dark:bg-purple-950/50 border-purple-500 ring-2 ring-purple-500/30"
+                              : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-600 hover:shadow-md"
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
+                                Current Show
+                              </span>
+                              <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-1">
+                                {playlistShowOptions.currentShow.name}
+                              </h4>
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                            <span>
+                              {`${playlistShowOptions.currentShowFileCount} MP3s`}
+                            </span>
+                            <span className="font-sans text-[10px] uppercase font-bold text-slate-400">
+                              {timeLabel}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
+                      );
+                    })() : (
                       <div className="p-3 text-xs text-slate-500 italic bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
                         No current show active in schedule.
                       </div>
                     )}
 
                     {/* Next Show Card */}
-                    {playlistShowOptions.nextShow ? (
-                      <div
-                        onClick={() => setChosenPlaylistShowId(playlistShowOptions.nextShow!.id)}
-                        className={cn(
-                          "p-3 rounded-lg border text-left cursor-pointer transition-all relative select-none flex flex-col gap-1.5",
-                          chosenPlaylistShowId === playlistShowOptions.nextShow.id
-                            ? "bg-purple-50/80 dark:bg-purple-950/50 border-purple-500 ring-2 ring-purple-500/30"
-                            : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-600"
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700">
-                              Next Show
-                            </span>
-                            <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-1">
-                              {playlistShowOptions.nextShow.name}
-                            </h4>
-                          </div>
-                          {playlistShowOptions.is15MinsOrMore && (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                              Default Choice (&ge;15m into show)
-                            </span>
-                          )}
-                        </div>
+                    {playlistShowOptions.nextShow ? (() => {
+                      const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+                      const nowObj = playlistModalNow || syncTime || new Date();
+                      const currentWeekMin = nowObj.getDay() * 1440 + nowObj.getHours() * 60 + nowObj.getMinutes();
+                      const nextStartWeekMin = daysOrder.indexOf(playlistShowOptions.nextShow.day) * 1440 + playlistShowOptions.nextShow.startHour * 60 + playlistShowOptions.nextShow.startMinute;
+                      const minsUntilNextShow = (nextStartWeekMin - currentWeekMin + 10080) % 10080;
+                      const nextH = Math.floor(Math.max(0, minsUntilNextShow) / 60);
+                      const nextM = Math.floor(Math.max(0, minsUntilNextShow) % 60);
+                      const startsInLabel = `Starts in ${nextH}:${nextM.toString().padStart(2, '0')}`;
 
-                        <div className="text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                          <span>
-                            {playlistShowOptions.nextShowFileCount === 0
-                              ? "No MP3 tracks found"
-                              : `${playlistShowOptions.nextShowFileCount} MP3 tracks found`}
-                          </span>
-                          <span className="font-sans text-[10px] uppercase font-bold text-slate-400">
-                            {playlistShowOptions.nextShow.day} {playlistShowOptions.nextShow.startHour.toString().padStart(2, '0')}:{playlistShowOptions.nextShow.startMinute.toString().padStart(2, '0')}
-                          </span>
+                      return (
+                        <div
+                          onClick={() => handleSelectAndConfirmShow(playlistShowOptions.nextShow!)}
+                          className={cn(
+                            "p-3 rounded-lg border text-left cursor-pointer transition-all relative select-none flex flex-col gap-1.5",
+                            chosenPlaylistShowId === playlistShowOptions.nextShow.id
+                              ? "bg-purple-50/80 dark:bg-purple-950/50 border-purple-500 ring-2 ring-purple-500/30"
+                              : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-600 hover:shadow-md"
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700">
+                                Next Show
+                              </span>
+                              <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-1">
+                                {playlistShowOptions.nextShow.name}
+                              </h4>
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                            <span>
+                              {`${playlistShowOptions.nextShowFileCount} MP3s`}
+                            </span>
+                            <span className="font-sans text-[10px] uppercase font-bold text-slate-400">
+                              {startsInLabel}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
+                      );
+                    })() : (
                       <div className="p-3 text-xs text-slate-500 italic bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
                         No upcoming show in schedule.
                       </div>
@@ -3528,15 +3778,6 @@ export default function App() {
                   className="px-3.5 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold uppercase tracking-wider rounded border border-slate-300 dark:border-slate-700 transition cursor-pointer"
                 >
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={!chosenPlaylistShowId}
-                  onClick={handleConfirmPlaylistShow}
-                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-black uppercase tracking-wider rounded shadow-md transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <ListMusic className="w-4 h-4 shrink-0" />
-                  <span>Start Playlist Mode</span>
                 </button>
               </div>
             </motion.div>

@@ -26,6 +26,11 @@ export interface ThemeColors {
   underglowEmerald: string;
   underglowPurple: string;
   underglowBlue: string;
+
+  playlistCardBg: string;
+  playlistCardBorder: string;
+  playlistCardHeaderBg: string;
+  playlistCardText: string;
 }
 
 export interface ThemeDefinition {
@@ -64,6 +69,11 @@ export const THEMES: Record<string, ThemeDefinition> = {
       underglowEmerald: '#a7f3d0',
       underglowPurple: '#e9d5ff',
       underglowBlue: '#dbeafe',
+
+      playlistCardBg: '#f5f3ff',
+      playlistCardBorder: '#c084fc',
+      playlistCardHeaderBg: '#f3e8ff',
+      playlistCardText: '#581c87',
     },
   },
   dark: {
@@ -95,6 +105,11 @@ export const THEMES: Record<string, ThemeDefinition> = {
       underglowEmerald: '#064e3b',
       underglowPurple: '#581c87',
       underglowBlue: '#1e3a8a',
+
+      playlistCardBg: '#1e112a',
+      playlistCardBorder: '#7e22ce',
+      playlistCardHeaderBg: '#2e1045',
+      playlistCardText: '#e9d5ff',
     },
   },
   'dark-test': {
@@ -126,6 +141,11 @@ export const THEMES: Record<string, ThemeDefinition> = {
       underglowEmerald: '#064e3b',
       underglowPurple: '#581c87',
       underglowBlue: '#1e3a8a',
+
+      playlistCardBg: '#241432',
+      playlistCardBorder: '#a855f7',
+      playlistCardHeaderBg: '#331849',
+      playlistCardText: '#f3e8ff',
     },
   },
   system: {
@@ -153,6 +173,11 @@ export const THEMES: Record<string, ThemeDefinition> = {
       underglowEmerald: '#a7f3d0',
       underglowPurple: '#e9d5ff',
       underglowBlue: '#dbeafe',
+
+      playlistCardBg: '#f5f3ff',
+      playlistCardBorder: '#c084fc',
+      playlistCardHeaderBg: '#f3e8ff',
+      playlistCardText: '#581c87',
     },
   },
 };

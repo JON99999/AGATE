@@ -1,7 +1,7 @@
 {
   "name": "interstitial-er",
   "private": true,
-  "version": "0.11.3",
+  "version": "0.11.5",
   "description": "Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.",
   "author": "Interstitial-er",
   "repository": {
@@ -60,11 +60,12 @@
       "identity": "-",
       "icon": "build/icon.icns"
     },
-    "dmg": {
-    }
+    "dmg": {}
   },
   "dependencies": {
     "express": "^4.21.2",
+    "music-metadata": "^11.14.0",
+    "music-metadata-browser": "^2.5.11",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

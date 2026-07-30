@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { parseFile } from 'music-metadata';
 import { Interstitial, LogEntry, Show } from './src/types';
 
 // Detect safe persistent directory for packaged desktop apps
@@ -1029,6 +1030,26 @@ async function startServer() {
     return 180;
   }
 
+  // Helper for pure JS reading of MP3 ID3 metadata on server side using music-metadata
+  async function getMp3ServerMetadata(filePath: string): Promise<{ title?: string; artist?: string; albumArtist?: string; album?: string } | null> {
+    try {
+      if (!fs.existsSync(filePath)) return null;
+      const parsed = await parseFile(filePath, { skipCovers: true });
+      const common = parsed.common;
+      if (common.title || common.artist || common.albumartist || common.album) {
+        return {
+          title: common.title || undefined,
+          artist: common.artist || undefined,
+          albumArtist: common.albumartist || common.artist || undefined,
+          album: common.album || undefined
+        };
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   // Helper for flexible playlist show folder lookup
   function findShowPlaylistFolder(playlistsPath: string, showNameShort?: string, showName?: string): string | null {
     if (!playlistsPath || !fs.existsSync(playlistsPath)) return null;
@@ -1154,7 +1175,7 @@ async function startServer() {
   }
 
   // API - Load playlist tracks for a show
-  app.post('/api/shows/playlist/load-tracks', (req, res) => {
+  app.post('/api/shows/playlist/load-tracks', async (req, res) => {
     try {
       const { showNameShort, showName } = req.body;
       if (!showNameShort && !showName) {
@@ -1197,18 +1218,29 @@ async function startServer() {
       }
 
       const searchKey = showNameShort || showName;
-      const tracks = rawTracks.map((t, idx) => {
+      const tracks = await Promise.all(rawTracks.map(async (t, idx) => {
         const m = Math.floor(t.durationSeconds / 60);
         const s = Math.floor(t.durationSeconds % 60);
+
+        // Try reading ID3 metadata from local file if it exists
+        let meta: { title?: string; artist?: string; albumArtist?: string; album?: string } | null = null;
+        const filePath = path.join(showFolderPath, t.fileName);
+        if (fs.existsSync(filePath)) {
+          meta = await getMp3ServerMetadata(filePath);
+        }
+
         return {
           id: `playlist-track-${idx + 1}`,
           fileName: t.fileName,
-          title: t.title,
+          title: meta?.title || t.title,
+          artist: meta?.artist,
+          albumArtist: meta?.albumArtist || meta?.artist,
+          album: meta?.album,
           durationSeconds: t.durationSeconds,
           durationFormatted: `${m}:${s.toString().padStart(2, '0')}`,
           streamUrl: `/api/shows/playlist/stream-file?showNameShort=${encodeURIComponent(searchKey)}&showName=${encodeURIComponent(showName || '')}&file=${encodeURIComponent(t.fileName)}`
         };
-      });
+      }));
 
       res.json({
         success: true,
@@ -1219,6 +1251,51 @@ async function startServer() {
     } catch (err: any) {
       console.error('Error in /api/shows/playlist/load-tracks:', err);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API - Get metadata for a specific playlist MP3 file
+  app.get('/api/shows/playlist/file-metadata', async (req, res) => {
+    try {
+      const showNameShort = req.query.showNameShort as string;
+      const showName = req.query.showName as string;
+      const file = req.query.file as string;
+
+      if ((!showNameShort && !showName) || !file) {
+        return res.status(400).json({ error: 'Missing parameters' });
+      }
+
+      const folderPath = currentSettings.localPathMP3s;
+      if (!folderPath || !fs.existsSync(folderPath)) {
+        return res.status(404).json({ error: 'Local folder not configured' });
+      }
+
+      let playlistsPath = path.join(folderPath, 'Playlists');
+      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, 'playlists'))) {
+        playlistsPath = path.join(folderPath, 'playlists');
+      }
+
+      const showFolderPath = findShowPlaylistFolder(playlistsPath, showNameShort, showName);
+      if (!showFolderPath) {
+        return res.status(404).json({ error: 'Show folder not found' });
+      }
+
+      const cleanFileName = path.basename(file);
+      let targetFilePath = path.join(showFolderPath, cleanFileName);
+      if (!fs.existsSync(targetFilePath)) {
+        const { audioFiles } = getAllAudioAndPlaylistFiles(showFolderPath);
+        const matched = audioFiles.find(a => a.name === cleanFileName || a.relPath === file);
+        if (matched) targetFilePath = matched.fullPath;
+      }
+
+      if (fs.existsSync(targetFilePath)) {
+        const meta = await getMp3ServerMetadata(targetFilePath);
+        return res.json({ success: true, metadata: meta });
+      }
+
+      return res.status(404).json({ error: 'File not found' });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
