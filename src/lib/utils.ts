@@ -97,8 +97,7 @@ export function parseID3v1Bytes(bytes: Uint8Array): Mp3ID3Metadata | null {
   return null;
 }
 
-// Pure-JS ID3v2 & ID3v1 metadata parser with music-metadata-browser
-import * as mmb from 'music-metadata-browser';
+// Pure-JS ID3v2 & ID3v1 metadata parser
 
 export async function readMp3ID3Metadata(url: string, authToken?: string): Promise<Mp3ID3Metadata | null> {
   try {
@@ -126,22 +125,15 @@ export async function readMp3ID3Metadata(url: string, authToken?: string): Promi
       }
     }
 
-    // 3. If raw blob is already cached in RAM, parse it instantly!
+    // 3. If raw blob is already cached in RAM, parse it instantly with pure-JS ID3 parser
     const cachedBlob = rawBlobCache.get(url);
     if (cachedBlob) {
       try {
-        const parsed = await mmb.parseBlob(cachedBlob);
-        if (parsed.common) {
-          const meta: Mp3ID3Metadata = {
-            title: parsed.common.title || undefined,
-            artist: parsed.common.artist || undefined,
-            albumArtist: parsed.common.albumartist || parsed.common.artist || undefined,
-            album: parsed.common.album || undefined
-          };
-          if (meta.title || meta.artist || meta.albumArtist || meta.album) {
-            mp3MetadataCache.set(url, meta);
-            return meta;
-          }
+        const arrayBuf = await cachedBlob.arrayBuffer();
+        const meta = parseID3Bytes(new Uint8Array(arrayBuf));
+        if (meta && (meta.title || meta.artist || meta.albumArtist || meta.album)) {
+          mp3MetadataCache.set(url, meta);
+          return meta;
         }
       } catch (e) {}
     }
@@ -160,21 +152,15 @@ export async function readMp3ID3Metadata(url: string, authToken?: string): Promi
       headers['Authorization'] = `Bearer ${authToken}`;
     }
 
-    // Try music-metadata-browser parsing directly on fetch
+    // Parse directly on fetch using pure-JS byte parser
     try {
       const response = await fetch(url, { headers });
       if (response.ok) {
         const blob = await response.blob();
         rawBlobCache.set(url, blob);
-        const parsed = await mmb.parseBlob(blob);
-        const common = parsed.common;
-        if (common.title || common.artist || common.albumartist || common.album) {
-          const meta: Mp3ID3Metadata = {
-            title: common.title || undefined,
-            artist: common.artist || undefined,
-            albumArtist: common.albumartist || common.artist || undefined,
-            album: common.album || undefined
-          };
+        const arrayBuf = await blob.arrayBuffer();
+        const meta = parseID3Bytes(new Uint8Array(arrayBuf));
+        if (meta && (meta.title || meta.artist || meta.albumArtist || meta.album)) {
           mp3MetadataCache.set(url, meta);
           return meta;
         }

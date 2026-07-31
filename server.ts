@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { parseFile } from 'music-metadata';
 import { Interstitial, LogEntry, Show } from './src/types';
 
 // Detect safe persistent directory for packaged desktop apps
@@ -113,7 +112,7 @@ let registeredOAuthToken: string | null = null;
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
 
   app.use(express.json());
 
@@ -1030,19 +1029,102 @@ async function startServer() {
     return 180;
   }
 
-  // Helper for pure JS reading of MP3 ID3 metadata on server side using music-metadata
+  function parseID3Buffer(bytes: Uint8Array): { title?: string; artist?: string; albumArtist?: string; album?: string } | null {
+    if (!bytes || bytes.length < 10) return null;
+    if (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) {
+      const majorVersion = bytes[3];
+      if (majorVersion === 2 || majorVersion === 3 || majorVersion === 4) {
+        const tagSize = ((bytes[6] & 0x7f) << 21) |
+                        ((bytes[7] & 0x7f) << 14) |
+                        ((bytes[8] & 0x7f) << 7) |
+                        (bytes[9] & 0x7f);
+        const limit = Math.min(bytes.length, tagSize + 10);
+        let offset = 10;
+        const parsed: { title?: string; artist?: string; albumArtist?: string; album?: string } = {};
+
+        const textDecode = (data: Uint8Array): string => {
+          try {
+            const encoding = data[0];
+            const content = data.subarray(1);
+            let str = '';
+            if (encoding === 0 || encoding === 3) {
+              str = Buffer.from(content).toString(encoding === 3 ? 'utf-8' : 'latin1');
+            } else if (encoding === 1 || encoding === 2) {
+              str = Buffer.from(content).toString('utf16le');
+            }
+            return str.replace(/^[\s\uFEFF\0]+|[\s\uFEFF\0]+$/g, '').replace(/\0.*$/g, '').trim();
+          } catch (e) {
+            return '';
+          }
+        };
+
+        if (majorVersion === 2) {
+          while (offset + 6 < limit) {
+            const frameId = String.fromCharCode(bytes[offset], bytes[offset+1], bytes[offset+2]);
+            const frameSize = (bytes[offset+3] << 16) | (bytes[offset+4] << 8) | bytes[offset+5];
+            offset += 6;
+            if (frameSize <= 0 || offset + frameSize > limit) break;
+            const frameData = bytes.subarray(offset, offset + frameSize);
+            if (frameId === "TT2" || frameId === "TP1" || frameId === "TP2" || frameId === "TAL") {
+              const text = textDecode(frameData);
+              if (text) {
+                if (frameId === "TT2") parsed.title = text;
+                if (frameId === "TP1") parsed.artist = text;
+                if (frameId === "TP2") parsed.albumArtist = text;
+                if (frameId === "TAL") parsed.album = text;
+              }
+            }
+            offset += frameSize;
+          }
+        } else {
+          while (offset + 10 < limit) {
+            const frameId = String.fromCharCode(bytes[offset], bytes[offset+1], bytes[offset+2], bytes[offset+3]);
+            let frameSize = 0;
+            if (majorVersion === 4) {
+              frameSize = ((bytes[offset+4] & 0x7f) << 21) |
+                          ((bytes[offset+5] & 0x7f) << 14) |
+                          ((bytes[offset+6] & 0x7f) << 7) |
+                          (bytes[offset+7] & 0x7f);
+            } else {
+              frameSize = (bytes[offset+4] << 24) |
+                          (bytes[offset+5] << 16) |
+                          (bytes[offset+6] << 8) |
+                          bytes[offset+7];
+            }
+            offset += 10;
+            if (frameSize <= 0 || offset + frameSize > limit) break;
+            const frameData = bytes.subarray(offset, offset + frameSize);
+            if (frameId === "TIT2" || frameId === "TPE1" || frameId === "TPE2" || frameId === "TALB") {
+              const text = textDecode(frameData);
+              if (text) {
+                if (frameId === "TIT2") parsed.title = text;
+                if (frameId === "TPE1") parsed.artist = text;
+                if (frameId === "TPE2") parsed.albumArtist = text;
+                if (frameId === "TALB") parsed.album = text;
+              }
+            }
+            offset += frameSize;
+          }
+        }
+        if (parsed.title || parsed.artist || parsed.albumArtist || parsed.album) {
+          return parsed;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Helper for pure JS reading of MP3 ID3 metadata on server side
   async function getMp3ServerMetadata(filePath: string): Promise<{ title?: string; artist?: string; albumArtist?: string; album?: string } | null> {
     try {
       if (!fs.existsSync(filePath)) return null;
-      const parsed = await parseFile(filePath, { skipCovers: true });
-      const common = parsed.common;
-      if (common.title || common.artist || common.albumartist || common.album) {
-        return {
-          title: common.title || undefined,
-          artist: common.artist || undefined,
-          albumArtist: common.albumartist || common.artist || undefined,
-          album: common.album || undefined
-        };
+      const fd = fs.openSync(filePath, 'r');
+      const buffer = Buffer.alloc(65536);
+      const bytesRead = fs.readSync(fd, buffer, 0, 65536, 0);
+      fs.closeSync(fd);
+      if (bytesRead > 0) {
+        const meta = parseID3Buffer(new Uint8Array(buffer.subarray(0, bytesRead)));
+        if (meta) return meta;
       }
       return null;
     } catch (e) {
@@ -1991,7 +2073,9 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = __dirname;
+    const distPath = fs.existsSync(path.join(__dirname, 'index.html'))
+      ? __dirname
+      : path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));

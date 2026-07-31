@@ -1,8 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
-import * as mmb from 'music-metadata-browser';
 import { Interstitial, LogEntry, Show } from '../types';
-import { Mp3ID3Metadata } from './utils';
+import { Mp3ID3Metadata, parseID3Bytes } from './utils';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App & Auth
@@ -274,22 +273,15 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
 
       // Parse ID3 metadata directly from the downloaded blob in RAM
       try {
-        const parsed = await mmb.parseBlob(blob);
-        if (parsed.common) {
-          const meta: Mp3ID3Metadata = {
-            title: parsed.common.title || undefined,
-            artist: parsed.common.artist || undefined,
-            albumArtist: parsed.common.albumartist || parsed.common.artist || undefined,
-            album: parsed.common.album || undefined
-          };
-          if (meta.title || meta.artist || meta.albumArtist || meta.album) {
-            mp3MetadataCache.set(resolvedUrl, meta);
-            mp3MetadataCache.set(url, meta);
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('mp3-metadata-loaded', { 
-                detail: { url, resolvedUrl, meta } 
-              }));
-            }
+        const arrayBuf = await blob.arrayBuffer();
+        const meta = parseID3Bytes(new Uint8Array(arrayBuf));
+        if (meta && (meta.title || meta.artist || meta.albumArtist || meta.album)) {
+          mp3MetadataCache.set(resolvedUrl, meta);
+          mp3MetadataCache.set(url, meta);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('mp3-metadata-loaded', { 
+              detail: { url, resolvedUrl, meta } 
+            }));
           }
         }
       } catch (e) {
