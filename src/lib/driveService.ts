@@ -182,9 +182,71 @@ export const mp3BlobCache = new Map<string, string>(); // Maps raw URL (e.g. goo
 export const rawBlobCache = new Map<string, Blob>(); // Maps raw URL to binary Blob
 export const mp3MetadataCache = new Map<string, Mp3ID3Metadata>(); // Maps raw URL to parsed ID3 metadata
 export const mp3DurationCache = new Map<string, string>(); // Maps raw URL to calculated duration "m:ss"
+export const mp3WaveformCache = new Map<string, number[]>(); // Maps raw URL or path to normalized waveform peaks
 export const availableFilesCache = new Map<string, { path: string; size: string; duration: string }>();
 
 const pendingFetches = new Map<string, Promise<string>>();
+
+export const extractWaveformForUrl = async (url: string, sourceUrlOrBlob?: string | Blob): Promise<number[]> => {
+  if (mp3WaveformCache.has(url)) return mp3WaveformCache.get(url)!;
+  if (typeof window === 'undefined') return [];
+
+  try {
+    let arrayBuffer: ArrayBuffer | null = null;
+    const cachedBlob = rawBlobCache.get(url);
+    if (cachedBlob) {
+      arrayBuffer = await cachedBlob.arrayBuffer();
+    } else if (sourceUrlOrBlob instanceof Blob) {
+      arrayBuffer = await sourceUrlOrBlob.arrayBuffer();
+    } else if (typeof sourceUrlOrBlob === 'string') {
+      const targetUrl = mp3BlobCache.get(sourceUrlOrBlob) || sourceUrlOrBlob;
+      const resp = await fetch(targetUrl);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        arrayBuffer = await blob.arrayBuffer();
+      }
+    }
+
+    if (!arrayBuffer) return [];
+
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return [];
+    const audioCtx = new AudioCtx();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    const channelData = audioBuffer.getChannelData(0);
+    const totalSamples = channelData.length;
+    const numBars = 60;
+    const samplesPerBar = Math.floor(totalSamples / numBars);
+    const peaks: number[] = [];
+
+    for (let i = 0; i < numBars; i++) {
+      let max = 0;
+      const start = i * samplesPerBar;
+      const end = Math.min(start + samplesPerBar, totalSamples);
+      const step = Math.max(1, Math.floor((end - start) / 80));
+      for (let j = start; j < end; j += step) {
+        const val = Math.abs(channelData[j]);
+        if (val > max) max = val;
+      }
+      peaks.push(max);
+    }
+
+    const maxPeak = Math.max(...peaks, 0.001);
+    const normalized = peaks.map(p => Math.max(0.15, Math.min(1.0, p / maxPeak)));
+
+    mp3WaveformCache.set(url, normalized);
+    try { audioCtx.close(); } catch (e) {}
+
+    window.dispatchEvent(new CustomEvent('mp3-waveform-cached', { 
+      detail: { url, peaks: normalized } 
+    }));
+
+    return normalized;
+  } catch (err) {
+    console.warn(`Could not extract waveform for ${url}:`, err);
+    return [];
+  }
+};
 
 export const calculateDurationForUrl = (url: string, sourceUrl: string) => {
   if (mp3DurationCache.has(url)) return;
@@ -223,6 +285,7 @@ export const clearAudioCache = () => {
   rawBlobCache.clear();
   mp3MetadataCache.clear();
   mp3DurationCache.clear();
+  mp3WaveformCache.clear();
   pendingFetches.clear();
 };
 
@@ -271,6 +334,14 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
       calculateDurationForUrl(url, blobUrl);
       calculateDurationForUrl(resolvedUrl, blobUrl);
 
+      // Extract audio waveform peaks as part of caching process
+      try {
+        await extractWaveformForUrl(url, blob);
+        await extractWaveformForUrl(resolvedUrl, blob);
+      } catch (e) {
+        console.warn('Waveform analysis failed during caching', e);
+      }
+
       // Parse ID3 metadata directly from the downloaded blob in RAM
       try {
         const arrayBuf = await blob.arrayBuffer();
@@ -305,17 +376,30 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
   return fetchPromise;
 };
 
+export interface CachingProgressReport {
+  total: number;
+  completed: number;
+  failed: number;
+  errors: Array<{ url: string; fileName?: string; error: string }>;
+  isComplete: boolean;
+}
+
 /**
- * Clean up the audio memory cache by revoking files that are no longer part of active schedules.
+ * Clean up the audio memory cache by revoking files that are no longer part of active schedules,
+ * and pre-cache new URLs with detailed progress reporting.
  */
-export const updateAudioCache = async (activeUrls: string[], token: string | null) => {
+export const updateAudioCacheWithProgress = async (
+  activeUrls: string[],
+  token: string | null,
+  onProgress?: (report: CachingProgressReport) => void
+): Promise<CachingProgressReport> => {
   const resolvedActiveUrls = activeUrls.map(url => {
     const file = availableFilesCache.get(url);
     return file ? file.path : url;
   });
 
   // 1. Purge urls no longer needed
-  const activeSet = new Set(resolvedActiveUrls);
+  const activeSet = new Set([...activeUrls, ...resolvedActiveUrls]);
   for (const cachedUrl of Array.from(mp3BlobCache.keys())) {
     if (!activeSet.has(cachedUrl)) {
       const blobUrl = mp3BlobCache.get(cachedUrl);
@@ -330,17 +414,71 @@ export const updateAudioCache = async (activeUrls: string[], token: string | nul
     }
   }
 
-  // 2. Pre-cache newly active urls (both local and Drive)
-  await Promise.allSettled(
-    activeUrls.map(url => {
+  const uniqueActiveUrls = Array.from(new Set(activeUrls));
+  let completed = 0;
+  let failed = 0;
+  const errors: Array<{ url: string; fileName?: string; error: string }> = [];
+
+  const reportProgress = (isComplete = false) => {
+    if (onProgress) {
+      onProgress({
+        total: uniqueActiveUrls.length,
+        completed,
+        failed,
+        errors,
+        isComplete
+      });
+    }
+  };
+
+  reportProgress(false);
+
+  if (uniqueActiveUrls.length === 0) {
+    const finalReport = { total: 0, completed: 0, failed: 0, errors: [], isComplete: true };
+    reportProgress(true);
+    return finalReport;
+  }
+
+  await Promise.all(
+    uniqueActiveUrls.map(async (url) => {
       const file = availableFilesCache.get(url);
       const resolvedUrl = file ? file.path : url;
-      if (!mp3BlobCache.has(resolvedUrl)) {
-        return cacheMP3(url, token || '');
+      const fileName = file ? file.path : (driveFileNameCache.get(url) || url.split('/').pop() || url);
+
+      if (mp3BlobCache.has(resolvedUrl)) {
+        completed++;
+        reportProgress(false);
+        return;
       }
-      return Promise.resolve();
+
+      try {
+        await cacheMP3(url, token || '');
+        completed++;
+      } catch (err: any) {
+        failed++;
+        errors.push({
+          url,
+          fileName,
+          error: err?.message || 'Failed to download audio file'
+        });
+      }
+      reportProgress(false);
     })
   );
+
+  const finalReport = {
+    total: uniqueActiveUrls.length,
+    completed,
+    failed,
+    errors,
+    isComplete: true
+  };
+  reportProgress(true);
+  return finalReport;
+};
+
+export const updateAudioCache = async (activeUrls: string[], token: string | null) => {
+  return updateAudioCacheWithProgress(activeUrls, token);
 };
 
 // General Google Drive Helpers

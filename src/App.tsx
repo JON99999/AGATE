@@ -23,6 +23,8 @@ import {
   History,
   Folder,
   HardDrive,
+  HardDriveDownload,
+  RotateCcw,
   Wifi,
   WifiOff,
   ShieldCheck,
@@ -44,6 +46,7 @@ import {
   Undo2,
   Zap,
   ZapOff,
+  Square,
   X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -83,6 +86,8 @@ import {
   appendLogToDrive,
   listMP3sFromDrive,
   updateAudioCache,
+  updateAudioCacheWithProgress,
+  CachingProgressReport,
   DRIVE_FOLDERS,
   mp3BlobCache,
   mp3DurationCache,
@@ -306,6 +311,80 @@ export default function App() {
   const [isOptimizationConfigOpen, setIsOptimizationConfigOpen] = useState(false);
   const [tempOptimizations, setTempOptimizations] = useState<OptimizationConfig>(DEFAULT_OPTIMIZATIONS);
 
+  // Caching Progress Modal State
+  const [showCachingModal, setShowCachingModal] = useState(false);
+  const [cachingTargetMode, setCachingTargetMode] = useState<"Live" | "Prerecord" | "Export" | "Playlist" | null>(null);
+  const [currentPlaylistTrackUrls, setCurrentPlaylistTrackUrls] = useState<string[]>([]);
+  const [cachingProgress, setCachingProgress] = useState<CachingProgressReport>({
+    total: 0,
+    completed: 0,
+    failed: 0,
+    errors: [],
+    isComplete: false
+  });
+
+  const triggerCachingForMode = async (
+    targetMode: "Live" | "Prerecord" | "Export" | "Playlist",
+    additionalUrls?: string[]
+  ) => {
+    if (additionalUrls && additionalUrls.length > 0) {
+      setCurrentPlaylistTrackUrls(additionalUrls);
+    }
+
+    const interstitialUrls = interstitials
+      .filter((s) => s.enabled && s.mp3Url)
+      .map((s) => s.mp3Url);
+
+    const playlistUrls = (additionalUrls && additionalUrls.length > 0)
+      ? additionalUrls
+      : currentPlaylistTrackUrls;
+
+    let activeUrls: string[] = [];
+    if (targetMode === "Playlist" || (playlistUrls && playlistUrls.length > 0)) {
+      activeUrls = Array.from(new Set([...interstitialUrls, ...playlistUrls]));
+    } else {
+      activeUrls = Array.from(new Set(interstitialUrls));
+    }
+
+    activeUrls = activeUrls.filter(Boolean);
+
+    if (activeUrls.length === 0) {
+      return;
+    }
+
+    const allAlreadyCached = activeUrls.length > 0 && activeUrls.every(url => mp3BlobCache.has(url));
+
+    setCachingTargetMode(targetMode);
+    if (!allAlreadyCached) {
+      setShowCachingModal(true);
+      setCachingProgress({
+        total: activeUrls.length,
+        completed: 0,
+        failed: 0,
+        errors: [],
+        isComplete: false
+      });
+    }
+
+    const report = await updateAudioCacheWithProgress(
+      activeUrls,
+      getAccessToken() || token,
+      (currentReport) => {
+        if (!allAlreadyCached) {
+          setCachingProgress(currentReport);
+        }
+      }
+    );
+
+    if (report.isComplete) {
+      if (report.failed === 0 && !allAlreadyCached) {
+        setTimeout(() => {
+          setShowCachingModal(false);
+        }, 1200);
+      }
+    }
+  };
+
   useEffect(() => {
     if (isOptimizationConfigOpen) {
       setTempOptimizations(activeOptimizations);
@@ -323,6 +402,22 @@ export default function App() {
     }
   };
   // === DEBUG ANIMATION SWITCH END ===
+
+  // Audio playing navigation guard
+  const [showAudioPlayingNavModal, setShowAudioPlayingNavModal] = useState(false);
+  const pendingNavActionRef = useRef<(() => void) | null>(null);
+
+  const confirmNavAction = (action: () => void) => {
+    if (
+      typeof (window as any).interstitialerIsAudioPlaying === "function" &&
+      (window as any).interstitialerIsAudioPlaying()
+    ) {
+      pendingNavActionRef.current = action;
+      setShowAudioPlayingNavModal(true);
+    } else {
+      action();
+    }
+  };
 
   const [isWindowFocused, setIsWindowFocused] = useState(true);
 
@@ -1191,10 +1286,12 @@ export default function App() {
   // Background Cache Synchronization Logic (Pre-loading Audio into memory)
   useEffect(() => {
     const syncCache = async () => {
-      // Find all MP3 files used in active interstitials
-      const activeUrls = interstitials
+      // Find all MP3 files used in active interstitials and loaded playlist tracks
+      const interstitialUrls = interstitials
         .filter((s) => s.enabled && s.mp3Url)
         .map((s) => s.mp3Url);
+
+      const activeUrls = Array.from(new Set([...interstitialUrls, ...currentPlaylistTrackUrls])).filter(Boolean);
 
       try {
         await updateAudioCache(activeUrls, getAccessToken() || token);
@@ -1205,10 +1302,10 @@ export default function App() {
       }
     };
 
-    if (interstitials.length > 0) {
+    if (interstitials.length > 0 || currentPlaylistTrackUrls.length > 0) {
       syncCache();
     }
-  }, [interstitials, token]);
+  }, [interstitials, currentPlaylistTrackUrls, token]);
 
   const formatCountdown = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -1529,12 +1626,14 @@ export default function App() {
     setSelectedPlaylistShow(targetShow);
     setPlayMode("Playlist");
     setShowPlaylistModal(false);
+    triggerCachingForMode("Playlist");
   };
 
   const handleSelectAndConfirmShow = (targetShow: Show) => {
     setSelectedPlaylistShow(targetShow);
     setPlayMode("Playlist");
     setShowPlaylistModal(false);
+    triggerCachingForMode("Playlist");
   };
 
   const handleEditTimeframeModal = () => {
@@ -1630,6 +1729,7 @@ export default function App() {
       setShowPrerecordModal(false);
       setPrerecordConfirmDetails(null);
       handleRefresh();
+      triggerCachingForMode(prerecordModalTarget);
     } catch (err: any) {
       setPrerecordError(
         err.message || "Error occurred while validating date and time.",
@@ -2380,7 +2480,7 @@ export default function App() {
           </div>
           <div className="flex gap-1">
             <button
-              onClick={() => setActiveTab("player")}
+              onClick={() => confirmNavAction(() => setActiveTab("player"))}
               className={cn(
                 "flex items-center gap-1.5 px-2 py-1 rounded transition-colors cursor-pointer",
                 activeTab === "player"
@@ -2399,7 +2499,7 @@ export default function App() {
             </button>
             {!isPlayerMode && (
               <button
-                onClick={() => setActiveTab("calendar")}
+                onClick={() => confirmNavAction(() => setActiveTab("calendar"))}
                 className={cn(
                   "flex items-center gap-1.5 px-2 py-1 rounded transition-colors cursor-pointer",
                   activeTab === "calendar"
@@ -2418,7 +2518,7 @@ export default function App() {
               </button>
             )}
             <button
-              onClick={() => setActiveTab("log")}
+              onClick={() => confirmNavAction(() => setActiveTab("log"))}
               className={cn(
                 "flex items-center gap-1.5 px-2 py-1 rounded transition-colors cursor-pointer",
                 activeTab === "log"
@@ -2668,6 +2768,7 @@ export default function App() {
                   isAdmin={isAdmin}
                   onRefresh={handleRefresh}
                   shows={shows}
+                  onTriggerCaching={(mode, urls) => triggerCachingForMode(mode, urls)}
                 />
               </motion.div>
             ) : activeTab === "calendar" ? (
@@ -2898,11 +2999,14 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (playMode !== "Live") {
-                        setPlayMode("Live");
-                        setPrerecordDate(null);
-                        handleRefresh();
-                      }
+                      confirmNavAction(() => {
+                        if (playMode !== "Live") {
+                          setPlayMode("Live");
+                          setPrerecordDate(null);
+                          handleRefresh();
+                          triggerCachingForMode("Live");
+                        }
+                      });
                     }}
                     title="Live Mode"
                     aria-label="Live Mode"
@@ -2926,9 +3030,11 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (playMode !== "Prerecord") {
-                        handleOpenTimeframeModal("Prerecord");
-                      }
+                      confirmNavAction(() => {
+                        if (playMode !== "Prerecord") {
+                          handleOpenTimeframeModal("Prerecord");
+                        }
+                      });
                     }}
                     title="Prerecord Mode"
                     aria-label="Prerecord Mode"
@@ -2952,9 +3058,11 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (playMode !== "Export") {
-                        handleOpenTimeframeModal("Export");
-                      }
+                      confirmNavAction(() => {
+                        if (playMode !== "Export") {
+                          handleOpenTimeframeModal("Export");
+                        }
+                      });
                     }}
                     title="Export Mode"
                     aria-label="Export Mode"
@@ -2978,7 +3086,9 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
-                      handleOpenPlaylistModal();
+                      confirmNavAction(() => {
+                        handleOpenPlaylistModal();
+                      });
                     }}
                     title="Playlist Mode"
                     aria-label="Playlist Mode"
@@ -3019,11 +3129,13 @@ export default function App() {
                         label: "Live Mode",
                         Icon: RadioTower,
                         onClick: () => {
-                          if (playMode !== "Live") {
-                            setPlayMode("Live");
-                            setPrerecordDate(null);
-                            handleRefresh();
-                          }
+                          confirmNavAction(() => {
+                            if (playMode !== "Live") {
+                              setPlayMode("Live");
+                              setPrerecordDate(null);
+                              handleRefresh();
+                            }
+                          });
                         },
                         activeClass: "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]",
                         inactiveClass: "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
@@ -3033,9 +3145,11 @@ export default function App() {
                         label: "Prerecord Mode",
                         Icon: CassetteTape,
                         onClick: () => {
-                          if (playMode !== "Prerecord") {
-                            handleOpenTimeframeModal("Prerecord");
-                          }
+                          confirmNavAction(() => {
+                            if (playMode !== "Prerecord") {
+                              handleOpenTimeframeModal("Prerecord");
+                            }
+                          });
                         },
                         activeClass: "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
                         inactiveClass: "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
@@ -3045,9 +3159,11 @@ export default function App() {
                         label: "Export Mode",
                         Icon: ListOrdered,
                         onClick: () => {
-                          if (playMode !== "Export") {
-                            handleOpenTimeframeModal("Export");
-                          }
+                          confirmNavAction(() => {
+                            if (playMode !== "Export") {
+                              handleOpenTimeframeModal("Export");
+                            }
+                          });
                         },
                         activeClass: "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
                         inactiveClass: "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
@@ -3057,7 +3173,9 @@ export default function App() {
                         label: "Playlist Mode",
                         Icon: ListMusic,
                         onClick: () => {
-                          handleOpenPlaylistModal();
+                          confirmNavAction(() => {
+                            handleOpenPlaylistModal();
+                          });
                         },
                         activeClass: "bg-gradient-to-b from-purple-600 to-purple-700 border-t-purple-400 border-b-purple-900 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
                         inactiveClass: "bg-purple-950/30 border-purple-900/30 text-purple-400/70 hover:text-purple-300 hover:bg-purple-950/45",
@@ -5183,6 +5301,178 @@ export default function App() {
                   className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase rounded shadow-md transition cursor-pointer active:translate-y-px"
                 >
                   Apply Selected Overrides
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Caching Progress Modal */}
+      <AnimatePresence>
+        {showCachingModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl max-w-lg w-full overflow-hidden text-slate-100 flex flex-col"
+            >
+              {/* Modal Header */}
+              <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+                <div className="flex items-center gap-2 text-purple-400">
+                  <HardDriveDownload className={`w-5 h-5 ${!cachingProgress.isComplete ? 'animate-bounce text-purple-400' : 'text-purple-400'}`} />
+                  <h3 className="text-sm font-black uppercase tracking-wider text-white">
+                    Caching {cachingTargetMode} Audio Assets
+                  </h3>
+                </div>
+              </div>
+
+              {/* Modal Content */}
+              <div className="p-5 space-y-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <span className="text-slate-300">
+                      {cachingProgress.isComplete 
+                        ? (cachingProgress.failed > 0 ? 'Caching Completed with Errors' : 'Caching Complete!') 
+                        : `Caching audio files (${cachingProgress.completed + cachingProgress.failed} / ${cachingProgress.total})`}
+                    </span>
+                    <span className="text-purple-400 font-mono">
+                      {cachingProgress.total > 0 
+                        ? `${Math.round(((cachingProgress.completed + cachingProgress.failed) / cachingProgress.total) * 100)}%`
+                        : '0%'}
+                    </span>
+                  </div>
+                  {/* Progress Bar */}
+                  <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                    <div 
+                      className={`h-full transition-all duration-200 ${cachingProgress.failed > 0 ? 'bg-amber-500' : 'bg-purple-500'}`}
+                      style={{ 
+                        width: cachingProgress.total > 0 
+                          ? `${Math.round(((cachingProgress.completed + cachingProgress.failed) / cachingProgress.total) * 100)}%` 
+                          : '0%' 
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* 2.b. Errors List if any */}
+                {cachingProgress.errors.length > 0 && (
+                  <div className="space-y-2 bg-red-950/40 border border-red-800/60 rounded-lg p-3 max-h-36 overflow-y-auto custom-scrollbar">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-red-400">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{cachingProgress.errors.length} Caching Error{cachingProgress.errors.length > 1 ? 's' : ''} Detected</span>
+                    </div>
+                    <ul className="space-y-1 text-xs text-red-300/90 font-mono">
+                      {cachingProgress.errors.map((err, idx) => (
+                        <li key={idx} className="flex flex-col border-b border-red-900/30 pb-1 last:border-b-0">
+                          <span className="font-semibold text-slate-200">{err.fileName}</span>
+                          <span className="text-[10px] text-red-400">{err.error}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer Controls */}
+              <div className="px-4 py-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-end gap-2">
+                {!cachingProgress.isComplete ? (
+                  /* 2.a. Allow user to click "View while Caching" to close the in progress view */
+                  <button
+                    type="button"
+                    onClick={() => setShowCachingModal(false)}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                  >
+                    View while Caching
+                  </button>
+                ) : cachingProgress.failed > 0 ? (
+                  /* 2.d. If errors still exist: "View as-is" or "Try Again" */
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowCachingModal(false)}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer"
+                    >
+                      View as-is
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (cachingTargetMode) {
+                          triggerCachingForMode(cachingTargetMode);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold uppercase rounded shadow transition cursor-pointer flex items-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Try Again</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowCachingModal(false)}
+                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold uppercase rounded shadow transition cursor-pointer"
+                  >
+                    Close
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Audio Playing Navigation Confirmation Modal */}
+      <AnimatePresence>
+        {showAudioPlayingNavModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[9999] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl flex flex-col items-center text-center space-y-4"
+            >
+              <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-purple-950/60 border border-purple-500/30 text-purple-400">
+                <Square className="w-4 h-4 fill-current" />
+                <span className="text-xs font-black uppercase tracking-wider text-purple-300">Stop?</span>
+              </div>
+
+              <div className="space-y-1.5">
+                <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                  Audio is currently playing. Do you want to stop playback before switching views, or leave it playing?
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 w-full pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof (window as any).interstitialerStopAllAudio === "function") {
+                      (window as any).interstitialerStopAllAudio();
+                    }
+                    setShowAudioPlayingNavModal(false);
+                    if (pendingNavActionRef.current) {
+                      pendingNavActionRef.current();
+                      pendingNavActionRef.current = null;
+                    }
+                  }}
+                  className="w-full py-2 px-4 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs uppercase tracking-wider rounded-xl border border-purple-500 shadow-md transition cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                  <span>Stop and Switch</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAudioPlayingNavModal(false);
+                    pendingNavActionRef.current = null;
+                  }}
+                  className="w-full py-2 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase tracking-wider rounded-xl border border-slate-700 transition cursor-pointer"
+                >
+                  Stay and Play
                 </button>
               </div>
             </motion.div>

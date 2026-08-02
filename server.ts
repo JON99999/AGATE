@@ -112,7 +112,7 @@ let registeredOAuthToken: string | null = null;
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(express.json());
 
@@ -1114,18 +1114,65 @@ async function startServer() {
     return null;
   }
 
+  function parseID3v1Buffer(bytes: Uint8Array): { title?: string; artist?: string; albumArtist?: string; album?: string } | null {
+    if (!bytes || bytes.length < 128) return null;
+    const tagOffset = bytes.length - 128;
+    if (bytes[tagOffset] === 0x54 && bytes[tagOffset + 1] === 0x41 && bytes[tagOffset + 2] === 0x47) { // "TAG"
+      const cleanStr = (buf: Uint8Array) => {
+        const decoded = Buffer.from(buf).toString('latin1');
+        const nullIdx = decoded.indexOf('\0');
+        const clean = nullIdx !== -1 ? decoded.substring(0, nullIdx) : decoded;
+        return clean.trim();
+      };
+      const title = cleanStr(bytes.subarray(tagOffset + 3, tagOffset + 33));
+      const artist = cleanStr(bytes.subarray(tagOffset + 33, tagOffset + 63));
+      const album = cleanStr(bytes.subarray(tagOffset + 63, tagOffset + 93));
+      if (title || artist || album) {
+        return {
+          title: title || undefined,
+          artist: artist || undefined,
+          albumArtist: artist || undefined,
+          album: album || undefined
+        };
+      }
+    }
+    return null;
+  }
+
   // Helper for pure JS reading of MP3 ID3 metadata on server side
   async function getMp3ServerMetadata(filePath: string): Promise<{ title?: string; artist?: string; albumArtist?: string; album?: string } | null> {
     try {
       if (!fs.existsSync(filePath)) return null;
+      const stats = fs.statSync(filePath);
       const fd = fs.openSync(filePath, 'r');
+      
+      // Read first 64KB for ID3v2
       const buffer = Buffer.alloc(65536);
       const bytesRead = fs.readSync(fd, buffer, 0, 65536, 0);
-      fs.closeSync(fd);
+      let v2Meta: { title?: string; artist?: string; albumArtist?: string; album?: string } | null = null;
       if (bytesRead > 0) {
-        const meta = parseID3Buffer(new Uint8Array(buffer.subarray(0, bytesRead)));
-        if (meta) return meta;
+        v2Meta = parseID3Buffer(new Uint8Array(buffer.subarray(0, bytesRead)));
       }
+
+      // Check ID3v1 trailing tag if file is at least 128 bytes
+      let v1Meta: { title?: string; artist?: string; albumArtist?: string; album?: string } | null = null;
+      if (stats.size >= 128) {
+        const tailBuf = Buffer.alloc(128);
+        fs.readSync(fd, tailBuf, 0, 128, stats.size - 128);
+        v1Meta = parseID3v1Buffer(new Uint8Array(tailBuf));
+      }
+
+      fs.closeSync(fd);
+
+      if (v2Meta || v1Meta) {
+        return {
+          title: v2Meta?.title || v1Meta?.title,
+          artist: v2Meta?.artist || v1Meta?.artist,
+          albumArtist: v2Meta?.albumArtist || v1Meta?.albumArtist || v1Meta?.artist,
+          album: v2Meta?.album || v1Meta?.album
+        };
+      }
+
       return null;
     } catch (e) {
       return null;
@@ -2082,8 +2129,15 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const serverInstance = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://localhost:${PORT}`);
+  });
+  serverInstance.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[Server] Port ${PORT} already in use. Existing process or shared port active.`);
+    } else {
+      console.error('[Server] Express server error:', err);
+    }
   });
 }
 

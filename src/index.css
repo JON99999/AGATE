@@ -48,6 +48,12 @@
   --show-shade-odd-border: #D1B443;
   --show-shade-even-bg: #FFF6BC;
   --show-shade-even-border: #EADA76;
+
+  /* Waveform Theme Variables */
+  --waveform-unplayed: #cbd5e1;
+  --waveform-played: #9333ea;
+  --waveform-played-subdued: #059669;
+  --waveform-bg: #f8fafc;
 }
 
 [data-theme="dark"], .dark {
@@ -78,6 +84,12 @@
   --show-shade-even-border: #524011;
   --show-shade-none-bg: #1e293b;
   --show-shade-none-border: #475569;
+
+  /* Waveform Theme Variables */
+  --waveform-unplayed: #475569;
+  --waveform-played: #c084fc;
+  --waveform-played-subdued: #34d399;
+  --waveform-bg: #0f172a;
 
   color-scheme: dark;
 }

@@ -4,6 +4,7 @@ import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Cop
 import { Interstitial, InterstitialType, LogEntry, Show } from '../types';
 import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getSortedShows, getShowShade, readMp3ID3Metadata, Mp3ID3Metadata } from '../lib/utils';
 import LiveReadPopout from './LiveReadPopout';
+import { WaveformVisualizer } from './WaveformVisualizer';
 import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache, updateAudioCache, getAccessToken, driveFileNameCache, loadPlaylistTracksFromDrive, getSavedSettings } from '../lib/driveService';
 
 interface PlayerTabProps {
@@ -22,6 +23,7 @@ interface PlayerTabProps {
   isAdmin?: boolean;
   onRefresh?: () => Promise<any> | void;
   shows?: Show[];
+  onTriggerCaching?: (targetMode: 'Live' | 'Prerecord' | 'Export' | 'Playlist', additionalUrls?: string[]) => void;
 }
 
 export default function PlayerTab({ 
@@ -39,8 +41,11 @@ export default function PlayerTab({
   onExecuteExport,
   isAdmin = false,
   onRefresh,
-  shows = []
+  shows = [],
+  onTriggerCaching
 }: PlayerTabProps) {
+  const playingAudiosRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const [playingStates, setPlayingStates] = useState<Record<string, { currentTime: number; duration: number }>>({});
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
   const playingAudioRef = useRef<HTMLAudioElement | null>(null);
   const [playingSlotKey, setPlayingSlotKey] = useState<string | null>(null);
@@ -51,13 +56,34 @@ export default function PlayerTab({
   const [customScriptTimes, setCustomScriptTimes] = useState<Record<string, string>>({});
   const [nowClock, setNowClock] = useState(new Date());
   const [cardRotateStep, setCardRotateStep] = useState<number>(0);
+  const pendingPlayedPlaylistTracksRef = useRef<Record<string, { playedAt: string; fileName: string; title: string }>>({});
+  const cardRotateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTriggeredCacheHashRef = useRef<string>('');
 
   // Synchronized 4-second rotation interval for playlist song cards
-  useEffect(() => {
-    const rotateTimer = setInterval(() => {
+  const startCardRotateTimer = () => {
+    if (cardRotateTimerRef.current) {
+      clearInterval(cardRotateTimerRef.current);
+    }
+    cardRotateTimerRef.current = setInterval(() => {
       setCardRotateStep(prev => prev + 1);
+      if (Object.keys(pendingPlayedPlaylistTracksRef.current).length > 0) {
+        setPlayedPlaylistTracks(prev => ({
+          ...prev,
+          ...pendingPlayedPlaylistTracksRef.current
+        }));
+        pendingPlayedPlaylistTracksRef.current = {};
+      }
     }, 4000);
-    return () => clearInterval(rotateTimer);
+  };
+
+  useEffect(() => {
+    startCardRotateTimer();
+    return () => {
+      if (cardRotateTimerRef.current) {
+        clearInterval(cardRotateTimerRef.current);
+      }
+    };
   }, []);
 
   // Playlist Mode State
@@ -87,6 +113,13 @@ export default function PlayerTab({
 
   const [, setPlaylistDurationUpdates] = useState(0);
 
+  /*
+   * PROPOSED SOLUTION 3 (Reference if loop behavior recurs under edge cases):
+   * If periodic background syncs (e.g., syncTime/scrollTrigger) or caching completion callbacks trigger parent state re-renders
+   * that re-instantiate or re-execute track fetching in PlayerTab, isolate loadPlaylistTracksFromDrive calls behind a dedicated
+   * loading/in-progress ref lock (e.g. isSyncingRef.current) and ensure PlayerTab track-fetching effects do not include volatile 
+   * parent clock/scroll states in their dependency array unless new track discovery is strictly required.
+   */
   // Sync playlist tracks from server, update caches, and detect newly added files in folder
   const syncPlaylistTracks = async (isInitial = false) => {
     if (playMode !== 'Playlist' || !playlistShow) return;
@@ -156,9 +189,17 @@ export default function PlayerTab({
       });
 
       // Trigger pre-caching & browser duration calculation matching regular interstitials
-      const trackUrls = serverTracks.map((t: any) => t.streamUrl);
+      const trackUrls = serverTracks.map((t: any) => t.streamUrl).filter(Boolean);
+      const trackUrlsHash = trackUrls.join(',');
       const token = getAccessToken();
-      updateAudioCache(trackUrls, token).catch(e => console.warn('Playlist track pre-caching error:', e));
+      if (trackUrls.length > 0 && lastTriggeredCacheHashRef.current !== trackUrlsHash) {
+        lastTriggeredCacheHashRef.current = trackUrlsHash;
+        if (onTriggerCaching) {
+          onTriggerCaching('Playlist', trackUrls);
+        } else {
+          updateAudioCache(trackUrls, token).catch(e => console.warn('Playlist track pre-caching error:', e));
+        }
+      }
 
       // Asynchronously load ID3 metadata for tooltips
       serverTracks.forEach((t: any) => {
@@ -226,12 +267,14 @@ export default function PlayerTab({
       setCancelledTrackIds([]);
       setPushedBeforeBreakTrackIds([]);
       setPlayedPlaylistTracks({});
+      lastTriggeredCacheHashRef.current = '';
       return;
     }
 
     setCancelledTrackIds([]);
     setPushedBeforeBreakTrackIds([]);
     setPlayedPlaylistTracks({});
+    lastTriggeredCacheHashRef.current = '';
     syncPlaylistTracks(true);
   }, [playMode, playlistShow]);
 
@@ -331,8 +374,13 @@ export default function PlayerTab({
   }, [interstitials]);
 
   const activeMp3Urls = useMemo(() => {
-    return activeVerifiedInterstitials.map(s => s.mp3Url);
-  }, [activeVerifiedInterstitials]);
+    const interstitialUrls = activeVerifiedInterstitials.map(s => s.mp3Url);
+    if (playMode === 'Playlist' && playlistTracks.length > 0) {
+      const trackUrls = playlistTracks.map(t => t.streamUrl).filter(Boolean);
+      return Array.from(new Set([...interstitialUrls, ...trackUrls]));
+    }
+    return interstitialUrls;
+  }, [activeVerifiedInterstitials, playMode, playlistTracks]);
 
   useEffect(() => {
     const hash = activeMp3Urls.join(',');
@@ -425,18 +473,39 @@ export default function PlayerTab({
     return null;
   };
 
-  // Sync ref with state
+  const stopAllAudios = () => {
+    for (const a of playingAudiosRef.current.values()) {
+      try {
+        a.pause();
+        a.src = "";
+      } catch (e) {}
+    }
+    playingAudiosRef.current.clear();
+    setPlayingStates({});
+    if (playingAudioRef.current) {
+      playingAudioRef.current.pause();
+      playingAudioRef.current.src = "";
+    }
+    setPlayingAudio(null);
+    setPlayingSlotKey(null);
+  };
+
+  // Sync window methods for global navigation check
   useEffect(() => {
-    playingAudioRef.current = playingAudio;
-  }, [playingAudio]);
+    (window as any).interstitialerIsAudioPlaying = () => {
+      return playingAudiosRef.current.size > 0 || (playingAudioRef.current && !playingAudioRef.current.paused);
+    };
+    (window as any).interstitialerStopAllAudio = () => stopAllAudios();
+    return () => {
+      delete (window as any).interstitialerIsAudioPlaying;
+      delete (window as any).interstitialerStopAllAudio;
+    };
+  }, []);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (playingAudioRef.current) {
-        playingAudioRef.current.pause();
-        playingAudioRef.current.src = "";
-      }
+      stopAllAudios();
     };
   }, []);
 
@@ -739,6 +808,7 @@ export default function PlayerTab({
     const showDurationMinutes = (playlistShow.durationHours * 60) + playlistShow.durationMinutes;
     const showEnd = addMinutes(showStart, showDurationMinutes);
 
+    // 1. Collect all scheduled Interstitial Breaks in the show window
     const scheduledBreaks: Array<{
       slotTime: Date;
       interstitials: Interstitial[];
@@ -808,16 +878,11 @@ export default function PlayerTab({
       }
     ];
 
-    let currentTime = new Date(showStart);
-    let remainingBreaks = [...scheduledBreaks];
+    let maxPlayedEnd = new Date(showStart);
 
-    const activeAndPlayedTracks = playlistTracks.filter(t => !cancelledTrackIds.includes(t.id));
-    const cancelledTracks = playlistTracks.filter(t => !playedPlaylistTracks[t.id] && cancelledTrackIds.includes(t.id));
-
-    let activeTrackCounter = 1;
-
-    for (let i = 0; i < activeAndPlayedTracks.length; i++) {
-      const track = activeAndPlayedTracks[i];
+    // 2. Add Played Tracks at their actual playedAt timestamp (4.b)
+    const playedTracks = playlistTracks.filter(t => !!playedPlaylistTracks[t.id]);
+    for (const track of playedTracks) {
       const exactCachedDurationStr = mp3DurationCache.get(track.streamUrl) || availableFilesCache.get(track.fileName)?.duration;
       let trackDur = track.durationSeconds || 180;
       if (exactCachedDurationStr) {
@@ -831,144 +896,103 @@ export default function PlayerTab({
         }
       }
       const playedInfo = playedPlaylistTracks[track.id];
-
-      if (playedInfo) {
-        const playedDate = new Date(playedInfo.playedAt);
-        const playedEnd = new Date(playedDate.getTime() + trackDur * 1000);
-        items.push({
-          type: 'track',
-          id: track.id,
-          track,
-          trackNumber: activeTrackCounter++,
-          startTime: playedDate,
-          endTime: playedEnd,
-          played: true,
-          playedAt: playedInfo.playedAt,
-          cancelled: false
-        });
-        if (playedEnd.getTime() > currentTime.getTime()) {
-          currentTime = new Date(playedEnd);
-        }
-        continue;
-      }
-
-      // Check if unplayed track is behind schedule relative to nowClock
-      if (currentTime.getTime() < nowClock.getTime()) {
-        currentTime = new Date(nowClock);
-      }
-
-      const tentativeStart = new Date(currentTime);
-      const tentativeEnd = new Date(tentativeStart.getTime() + trackDur * 1000);
-      const midpoint = new Date(tentativeStart.getTime() + Math.floor(trackDur / 2) * 1000);
-
-      const matchingBreakIndex = remainingBreaks.findIndex(
-        b => b.slotTime.getTime() >= tentativeStart.getTime() && b.slotTime.getTime() < tentativeEnd.getTime()
-      );
-
-      if (matchingBreakIndex === -1) {
-        while (remainingBreaks.length > 0 && remainingBreaks[0].slotTime.getTime() <= currentTime.getTime()) {
-          const b = remainingBreaks.shift()!;
-          items.push({
-            type: 'break',
-            id: `break-${b.slotTime.toISOString()}`,
-            slotTime: b.slotTime,
-            startTime: new Date(currentTime),
-            interstitials: b.interstitials
-          });
-          currentTime = new Date(currentTime.getTime() + b.totalDurationSec * 1000);
-        }
-
-        const trackStart = new Date(currentTime);
-        const trackEnd = new Date(trackStart.getTime() + trackDur * 1000);
-        items.push({
-          type: 'track',
-          id: track.id,
-          track,
-          trackNumber: activeTrackCounter++,
-          startTime: trackStart,
-          endTime: trackEnd,
-          played: false,
-          cancelled: false
-        });
-        currentTime = trackEnd;
-      } else {
-        const targetBreak = remainingBreaks[matchingBreakIndex];
-        const isPushedBeforeBreak = pushedBeforeBreakTrackIds.includes(track.id);
-
-        if (!isPushedBeforeBreak && targetBreak.slotTime.getTime() < midpoint.getTime()) {
-          // FIRST HALF: Place song card AFTER the interstitial break
-          const breaksToInsert = remainingBreaks.splice(0, matchingBreakIndex + 1);
-          for (const b of breaksToInsert) {
-            items.push({
-              type: 'break',
-              id: `break-${b.slotTime.toISOString()}`,
-              slotTime: b.slotTime,
-              startTime: new Date(currentTime),
-              interstitials: b.interstitials
-            });
-            currentTime = new Date(currentTime.getTime() + b.totalDurationSec * 1000);
-          }
-
-          const trackStart = new Date(currentTime);
-          const trackEnd = new Date(trackStart.getTime() + trackDur * 1000);
-          items.push({
-            type: 'track',
-            id: track.id,
-            track,
-            trackNumber: activeTrackCounter++,
-            startTime: trackStart,
-            endTime: trackEnd,
-            played: false,
-            cancelled: false
-          });
-          currentTime = trackEnd;
-        } else {
-          // SECOND HALF (or forced before break): Place song card BEFORE the interstitial break
-          const trackStart = new Date(currentTime);
-          const trackEnd = new Date(trackStart.getTime() + trackDur * 1000);
-          items.push({
-            type: 'track',
-            id: track.id,
-            track,
-            trackNumber: activeTrackCounter++,
-            startTime: trackStart,
-            endTime: trackEnd,
-            played: false,
-            cancelled: false
-          });
-          currentTime = trackEnd;
-
-          const breaksToInsert = remainingBreaks.splice(0, matchingBreakIndex + 1);
-          for (const b of breaksToInsert) {
-            items.push({
-              type: 'break',
-              id: `break-${b.slotTime.toISOString()}`,
-              slotTime: b.slotTime,
-              startTime: new Date(currentTime),
-              interstitials: b.interstitials
-            });
-            currentTime = new Date(currentTime.getTime() + b.totalDurationSec * 1000);
-          }
-        }
+      const playedDate = new Date(playedInfo.playedAt);
+      const playedEnd = new Date(playedDate.getTime() + trackDur * 1000);
+      items.push({
+        type: 'track',
+        id: track.id,
+        track,
+        trackNumber: 0,
+        startTime: playedDate,
+        endTime: playedEnd,
+        played: true,
+        playedAt: playedInfo.playedAt,
+        cancelled: false
+      });
+      if (playedEnd.getTime() > maxPlayedEnd.getTime()) {
+        maxPlayedEnd = new Date(playedEnd);
       }
     }
 
-    while (remainingBreaks.length > 0) {
-      const b = remainingBreaks.shift()!;
+    // 3. Add Interstitial Break cards at their exact scheduled slotTime (4.g)
+    for (const b of scheduledBreaks) {
       items.push({
         type: 'break',
         id: `break-${b.slotTime.toISOString()}`,
         slotTime: b.slotTime,
-        startTime: new Date(currentTime),
+        startTime: new Date(b.slotTime),
         interstitials: b.interstitials
       });
-      currentTime = new Date(currentTime.getTime() + b.totalDurationSec * 1000);
     }
 
-    // Append Cancelled Tracks at the bottom
+    // 4. Calculate schedule times for unplayed & uncancelled playlist MP3s starting from now cursor (4.a, 4.e, 4.h, 4.i)
+    const activeUnplayedTracks = playlistTracks.filter(t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id));
+
+    const nowRef = nowClock || syncTime || new Date();
+    let cursorTime = new Date(Math.max(nowRef.getTime(), showStart.getTime(), maxPlayedEnd.getTime()));
+
+    let activeTrackCounter = 1;
+    let lastActiveTrackEnd = new Date(cursorTime);
+
+    for (let i = 0; i < activeUnplayedTracks.length; i++) {
+      const track = activeUnplayedTracks[i];
+      const exactCachedDurationStr = mp3DurationCache.get(track.streamUrl) || availableFilesCache.get(track.fileName)?.duration;
+      let trackDur = track.durationSeconds || 180;
+      if (exactCachedDurationStr) {
+        const parts = exactCachedDurationStr.split(':');
+        if (parts.length === 2) {
+          const mins = parseInt(parts[0], 10);
+          const secs = parseInt(parts[1], 10);
+          if (!isNaN(mins) && !isNaN(secs)) {
+            trackDur = (mins * 60) + secs;
+          }
+        }
+      }
+
+      const trackStart = new Date(cursorTime);
+      const nominalEnd = new Date(trackStart.getTime() + trackDur * 1000);
+
+      // Check if any scheduled interstitial breaks fall inside [trackStart, nominalEnd) (Rule 4.i.i & 4.i.ii)
+      const breaksInWindow = scheduledBreaks.filter(b =>
+        b.slotTime.getTime() >= trackStart.getTime() && b.slotTime.getTime() < nominalEnd.getTime()
+      );
+
+      const totalBreakSec = breaksInWindow.reduce((sum, b) => sum + b.totalDurationSec, 0);
+      const trackEnd = new Date(nominalEnd.getTime() + totalBreakSec * 1000);
+
+      items.push({
+        type: 'track',
+        id: track.id,
+        track,
+        trackNumber: activeTrackCounter++,
+        startTime: trackStart,
+        endTime: trackEnd,
+        played: false,
+        cancelled: false
+      });
+
+      cursorTime = new Date(trackEnd);
+      lastActiveTrackEnd = new Date(trackEnd);
+    }
+
+    // 5. Cancelled Playlist Tracks positioned at the bottom of the view (4.c)
+    const cancelledTracks = playlistTracks.filter(t => !playedPlaylistTracks[t.id] && cancelledTrackIds.includes(t.id));
+    let bottomCursor = new Date(Math.max(lastActiveTrackEnd.getTime(), showEnd.getTime()) + 60000);
+
     for (const track of cancelledTracks) {
-      const trackDur = track.durationSeconds || 180;
-      const trackStart = new Date(currentTime);
+      const exactCachedDurationStr = mp3DurationCache.get(track.streamUrl) || availableFilesCache.get(track.fileName)?.duration;
+      let trackDur = track.durationSeconds || 180;
+      if (exactCachedDurationStr) {
+        const parts = exactCachedDurationStr.split(':');
+        if (parts.length === 2) {
+          const mins = parseInt(parts[0], 10);
+          const secs = parseInt(parts[1], 10);
+          if (!isNaN(mins) && !isNaN(secs)) {
+            trackDur = (mins * 60) + secs;
+          }
+        }
+      }
+      const trackStart = new Date(bottomCursor);
       const trackEnd = new Date(trackStart.getTime() + trackDur * 1000);
       items.push({
         type: 'track',
@@ -980,21 +1004,50 @@ export default function PlayerTab({
         played: false,
         cancelled: true
       });
-      currentTime = trackEnd;
+      bottomCursor = new Date(trackEnd.getTime() + 1000);
     }
 
+    // Sort items chronologically (Header at start, then non-cancelled by startTime ascending, cancelled at bottom)
+    items.sort((a, b) => {
+      if (a.type === 'header') return -1;
+      if (b.type === 'header') return 1;
+      const aIsCancelled = a.type === 'track' && a.cancelled;
+      const bIsCancelled = b.type === 'track' && b.cancelled;
+      if (aIsCancelled && !bIsCancelled) return 1;
+      if (!aIsCancelled && bIsCancelled) return -1;
+      return a.startTime.getTime() - b.startTime.getTime();
+    });
+
     return items;
-  }, [playMode, playlistShow, playlistTracks, playlistFile, syncTime, interstitials, playedPlaylistTracks, cancelledTrackIds, pushedBeforeBreakTrackIds, nowClock]);
+  }, [playMode, playlistShow, playlistTracks, playlistFile, syncTime, interstitials, playedPlaylistTracks, cancelledTrackIds, nowClock]);
 
   const handleMoveTrackUp = (trackId: string) => {
     setPlaylistTracks(prev => {
-      const activeUnplayed = prev.filter(t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id));
-      const idx = activeUnplayed.findIndex(t => t.id === trackId);
-      if (idx === 0) {
-        setPushedBeforeBreakTrackIds(pushed => pushed.includes(trackId) ? pushed : [...pushed, trackId]);
+      const isCancelled = cancelledTrackIds.includes(trackId);
+      if (isCancelled) {
+        const cancelledTracks = prev.filter(t => !playedPlaylistTracks[t.id] && cancelledTrackIds.includes(t.id));
+        const idxInCancelled = cancelledTracks.findIndex(t => t.id === trackId);
+        if (idxInCancelled === 0) {
+          // Reactivate track when moved above top cancelled item (4.c.1)
+          setCancelledTrackIds(c => c.filter(id => id !== trackId));
+          return prev;
+        } else if (idxInCancelled > 0) {
+          const prevTrack = cancelledTracks[idxInCancelled - 1];
+          const newTracks = [...prev];
+          const pos1 = newTracks.findIndex(t => t.id === trackId);
+          const pos2 = newTracks.findIndex(t => t.id === prevTrack.id);
+          if (pos1 !== -1 && pos2 !== -1) {
+            newTracks[pos1] = prevTrack;
+            newTracks[pos2] = trackId ? prev.find(t => t.id === trackId)! : prevTrack;
+          }
+          return newTracks;
+        }
         return prev;
       }
-      if (idx < 0) return prev;
+
+      const activeUnplayed = prev.filter(t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id));
+      const idx = activeUnplayed.findIndex(t => t.id === trackId);
+      if (idx <= 0) return prev;
 
       const currentTrack = activeUnplayed[idx];
       const prevTrack = activeUnplayed[idx - 1];
@@ -1011,11 +1064,23 @@ export default function PlayerTab({
   };
 
   const handleMoveTrackDown = (trackId: string) => {
-    if (pushedBeforeBreakTrackIds.includes(trackId)) {
-      setPushedBeforeBreakTrackIds(pushed => pushed.filter(id => id !== trackId));
-      return;
-    }
     setPlaylistTracks(prev => {
+      const isCancelled = cancelledTrackIds.includes(trackId);
+      if (isCancelled) {
+        const cancelledTracks = prev.filter(t => !playedPlaylistTracks[t.id] && cancelledTrackIds.includes(t.id));
+        const idxInCancelled = cancelledTracks.findIndex(t => t.id === trackId);
+        if (idxInCancelled < 0 || idxInCancelled >= cancelledTracks.length - 1) return prev;
+        const nextTrack = cancelledTracks[idxInCancelled + 1];
+        const newTracks = [...prev];
+        const pos1 = newTracks.findIndex(t => t.id === trackId);
+        const pos2 = newTracks.findIndex(t => t.id === nextTrack.id);
+        if (pos1 !== -1 && pos2 !== -1) {
+          newTracks[pos1] = nextTrack;
+          newTracks[pos2] = prev.find(t => t.id === trackId)!;
+        }
+        return newTracks;
+      }
+
       const activeUnplayed = prev.filter(t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id));
       const idx = activeUnplayed.findIndex(t => t.id === trackId);
       if (idx === -1 || idx >= activeUnplayed.length - 1) return prev;
@@ -1040,16 +1105,6 @@ export default function PlayerTab({
 
   const handleReactivateTrack = (trackId: string) => {
     setCancelledTrackIds(prev => prev.filter(id => id !== trackId));
-    setPlaylistTracks(prev => {
-      const target = prev.find(t => t.id === trackId);
-      if (!target) return prev;
-      const remaining = prev.filter(t => t.id !== trackId);
-      const activeUnplayed = remaining.filter(t => !playedPlaylistTracks[t.id] && !cancelledTrackIds.includes(t.id));
-      const cancelled = remaining.filter(t => !playedPlaylistTracks[t.id] && cancelledTrackIds.includes(t.id));
-      const played = remaining.filter(t => !!playedPlaylistTracks[t.id]);
-
-      return [...played, ...activeUnplayed, target, ...cancelled];
-    });
   };
 
   const handleTogglePlayTrack = (track: {
@@ -1060,31 +1115,66 @@ export default function PlayerTab({
     durationFormatted: string;
     streamUrl: string;
   }) => {
-    if (playingSlotKey === track.id) {
-      if (playingAudio) {
-        playingAudio.pause();
-        setPlayingAudio(null);
-        setPlayingSlotKey(null);
+    const slotKey = track.id;
+    if (playingAudiosRef.current.has(slotKey)) {
+      const a = playingAudiosRef.current.get(slotKey);
+      if (a) {
+        a.pause();
+        a.src = "";
       }
+      playingAudiosRef.current.delete(slotKey);
+      setPlayingStates(prev => {
+        const copy = { ...prev };
+        delete copy[slotKey];
+        return copy;
+      });
     } else {
-      if (playingAudio) {
-        playingAudio.pause();
-      }
       const playableUrl = getPlayableUrl(track.streamUrl);
       const audio = new Audio(playableUrl);
       const playedAt = new Date().toISOString();
-      audio.play().then(() => {
-        setPlayingAudio(audio);
-        setPlayingSlotKey(track.id);
 
-        setPlayedPlaylistTracks(prev => ({
+      const updateProgress = () => {
+        setPlayingStates(prev => ({
           ...prev,
-          [track.id]: {
-            playedAt,
-            fileName: track.fileName,
-            title: track.title
-          }
+          [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
         }));
+      };
+
+      audio.addEventListener('loadedmetadata', updateProgress);
+      audio.addEventListener('timeupdate', updateProgress);
+
+      audio.addEventListener('ended', () => {
+        playingAudiosRef.current.delete(slotKey);
+        setPlayingStates(prev => {
+          const copy = { ...prev };
+          delete copy[slotKey];
+          return copy;
+        });
+      });
+
+      audio.addEventListener('error', () => {
+        playingAudiosRef.current.delete(slotKey);
+        setPlayingStates(prev => {
+          const copy = { ...prev };
+          delete copy[slotKey];
+          return copy;
+        });
+      });
+
+      audio.play().then(() => {
+        playingAudiosRef.current.set(slotKey, audio);
+        setPlayingStates(prev => ({
+          ...prev,
+          [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || track.durationSeconds || 0 }
+        }));
+        // Defer moving played card above NOW bar until next regular redraw tick
+        pendingPlayedPlaylistTracksRef.current[track.id] = {
+          playedAt,
+          fileName: track.fileName,
+          title: track.title
+        };
+        // Reset card redraw timer when play is started
+        startCardRotateTimer();
 
         if (playlistShow) {
           const showNameShort = playlistShow.nameShort || playlistShow.name;
@@ -1187,25 +1277,58 @@ export default function PlayerTab({
       return;
     }
     
-    if (playingAudio && playingSlotKey === slotKey) {
-      playingAudio.pause();
-      playingAudio.src = "";
-      setPlayingAudio(null);
-      setPlayingSlotKey(null);
+    if (playingAudiosRef.current.has(slotKey)) {
+      const a = playingAudiosRef.current.get(slotKey);
+      if (a) {
+        a.pause();
+        a.src = "";
+      }
+      playingAudiosRef.current.delete(slotKey);
+      setPlayingStates(prev => {
+        const copy = { ...prev };
+        delete copy[slotKey];
+        return copy;
+      });
       return;
-    }
-
-    if (playingAudio) {
-      playingAudio.pause();
-      playingAudio.src = "";
     }
 
     const playableUrl = getPlayableUrl(s.mp3Url);
     const audio = new Audio(playableUrl);
-    
+
+    const updateProgress = () => {
+      setPlayingStates(prev => ({
+        ...prev,
+        [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
+      }));
+    };
+
+    audio.addEventListener('loadedmetadata', updateProgress);
+    audio.addEventListener('timeupdate', updateProgress);
+
+    audio.addEventListener('ended', () => {
+      playingAudiosRef.current.delete(slotKey);
+      setPlayingStates(prev => {
+        const copy = { ...prev };
+        delete copy[slotKey];
+        return copy;
+      });
+    });
+
+    audio.addEventListener('error', () => {
+      playingAudiosRef.current.delete(slotKey);
+      setPlayingStates(prev => {
+        const copy = { ...prev };
+        delete copy[slotKey];
+        return copy;
+      });
+    });
+
     audio.play().then(() => {
-      setPlayingAudio(audio);
-      setPlayingSlotKey(slotKey);
+      playingAudiosRef.current.set(slotKey, audio);
+      setPlayingStates(prev => ({
+        ...prev,
+        [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
+      }));
       onLog({
         timestamp: new Date().toISOString(), 
         interstitialTime: slot.toISOString(),
@@ -1689,6 +1812,7 @@ export default function PlayerTab({
                       title={`MP3: ${item.fileName || ""}\nAs: ${item.targetFileName || ""}`}
                       className={cn(
                         "rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 mx-1 text-left select-none relative",
+                        item.assetType !== 'script' && item.exists ? "pb-[1px]" : "",
                         bgClass,
                       )}
                       style={{
@@ -1710,7 +1834,7 @@ export default function PlayerTab({
                       </div>
                       
                       <div className="flex items-center gap-2">
-                        {playingSlotKey === `export-preview-${key}` ? (
+                        {!!playingStates[`export-preview-${key}`] ? (
                           <div className="flex items-center gap-1 text-xs font-black uppercase text-blue-700">
                             <div className="w-1.5 h-1.5 rounded-full bg-blue-600"></div>
                             Preview
@@ -1727,7 +1851,7 @@ export default function PlayerTab({
                     <div className="flex items-center justify-between gap-2">
                       <div className={cn(
                         "text-xs font-bold leading-tight break-words line-clamp-2 flex-1",
-                        playingSlotKey === `export-preview-${key}` ? "text-blue-700" : "text-slate-800"
+                        !!playingStates[`export-preview-${key}`] ? "text-blue-700" : "text-slate-800"
                       )}>
                         {item.interstitialName}
                       </div>
@@ -1780,24 +1904,45 @@ export default function PlayerTab({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              const isPlaying = playingSlotKey === `export-preview-${key}`;
+                              const previewKey = `export-preview-${key}`;
+                              const isPlaying = playingAudiosRef.current.has(previewKey);
                               if (isPlaying) {
-                                playingAudio?.pause();
-                                if (playingAudio) {
-                                  playingAudio.src = "";
+                                const a = playingAudiosRef.current.get(previewKey);
+                                if (a) {
+                                  a.pause();
+                                  a.src = "";
                                 }
-                                setPlayingAudio(null);
-                                setPlayingSlotKey(null);
+                                playingAudiosRef.current.delete(previewKey);
+                                setPlayingStates(prev => {
+                                  const copy = { ...prev };
+                                  delete copy[previewKey];
+                                  return copy;
+                                });
                               } else {
-                                if (playingAudio) {
-                                  playingAudio.pause();
-                                  playingAudio.src = "";
-                                }
                                 const playableUrl = getPlayableUrl(item.fileName);
                                 const audio = new Audio(playableUrl);
+
+                                const updateProgress = () => {
+                                  setPlayingStates(prev => ({
+                                    ...prev,
+                                    [previewKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
+                                  }));
+                                };
+
+                                audio.addEventListener('loadedmetadata', updateProgress);
+                                audio.addEventListener('timeupdate', updateProgress);
+
+                                audio.addEventListener('ended', () => {
+                                  playingAudiosRef.current.delete(previewKey);
+                                  setPlayingStates(prev => {
+                                    const copy = { ...prev };
+                                    delete copy[previewKey];
+                                    return copy;
+                                  });
+                                });
+
                                 audio.play().then(() => {
-                                  setPlayingAudio(audio);
-                                  setPlayingSlotKey(`export-preview-${key}`);
+                                  playingAudiosRef.current.set(previewKey, audio);
                                 }).catch(err => {
                                   console.error("Preview playback failed", err);
                                 });
@@ -1805,13 +1950,13 @@ export default function PlayerTab({
                             }}
                             className={cn(
                               "p-1 rounded-full transition-all shadow-sm flex items-center justify-center cursor-pointer active:scale-95 border",
-                              playingSlotKey === `export-preview-${key}`
+                              playingAudiosRef.current.has(`export-preview-${key}`)
                                 ? "bg-blue-100 border-blue-300 text-blue-700"
                                 : "bg-slate-200 hover:bg-slate-300 text-slate-700 border-transparent"
                             )}
                             title="Preview Audio"
                           >
-                            {playingSlotKey === `export-preview-${key}` ? (
+                            {playingAudiosRef.current.has(`export-preview-${key}`) ? (
                               <Square className="w-2.5 h-2.5 fill-current" />
                             ) : (
                               <Ear className="w-3 h-3" />
@@ -1829,59 +1974,78 @@ export default function PlayerTab({
                     </div>
 
                     {/* Status & Details Footer */}
-                    <div className="flex items-center justify-between mt-1">
-                      {item.exists ? (
-                        <div className="flex items-center gap-1.5">
-                          {exported ? (
-                            <>
-                              <CheckCircle className="w-3 h-3 text-blue-600" />
-                              <span className="text-xs font-bold text-blue-700 uppercase tracking-tighter">
-                                Exported
-                              </span>
-                            </>
-                          ) : played ? (
-                            <>
-                              <CheckCircle className="w-3 h-3 text-green-600" />
-                              <span className="text-xs font-bold text-green-700 uppercase tracking-tighter">
-                                {item.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : ''}
-                              </span>
-                            </>
-                          ) : isMissedRecent || isMissedOld ? (
-                            <>
-                              <AlertCircle className="w-3 h-3 text-amber-600" />
-                              <span className="text-xs font-bold text-amber-700 uppercase tracking-tighter">
-                                Missed
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <Clock className="w-3 h-3 text-slate-500" />
-                              <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">
-                                {`Break ${idx + 1}`}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5">
-                          <AlertCircle className="w-3 h-3 text-red-600" />
-                          <span className="text-xs font-bold text-red-600 uppercase tracking-tighter">
-                            Missing File
-                          </span>
-                        </div>
-                      )}
+                    <div className="flex flex-col gap-[1px] mt-1">
+                      <div className="flex items-center justify-between">
+                        {item.exists ? (
+                          <div className="flex items-center gap-1.5">
+                            {(!!playingStates[`export-preview-${key}`] || playingAudiosRef.current.has(`export-preview-${key}`)) ? (
+                              <>
+                                <Volume2 className="w-3 h-3 text-purple-600 animate-pulse" />
+                                <span className="text-xs font-bold text-purple-700 uppercase tracking-tighter">
+                                  Playing
+                                </span>
+                              </>
+                            ) : exported ? (
+                              <>
+                                <CheckCircle className="w-3 h-3 text-blue-600" />
+                                <span className="text-xs font-bold text-blue-700 uppercase tracking-tighter">
+                                  Exported
+                                </span>
+                              </>
+                            ) : played ? (
+                              <>
+                                <CheckCircle className="w-3 h-3 text-green-600" />
+                                <span className="text-xs font-bold text-green-700 uppercase tracking-tighter">
+                                  {item.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : ''}
+                                </span>
+                              </>
+                            ) : isMissedRecent || isMissedOld ? (
+                              <>
+                                <AlertCircle className="w-3 h-3 text-amber-600" />
+                                <span className="text-xs font-bold text-amber-700 uppercase tracking-tighter">
+                                  Missed
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="w-3 h-3 text-slate-500" />
+                                <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">
+                                  {`Break ${idx + 1}`}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <AlertCircle className="w-3 h-3 text-red-600" />
+                            <span className="text-xs font-bold text-red-600 uppercase tracking-tighter">
+                              Missing File
+                            </span>
+                          </div>
+                        )}
 
-                      {playingSlotKey === `export-preview-${key}` ? (
-                        <div className="flex items-center gap-1 text-xs font-mono font-bold leading-none text-emerald-700">
-                          <span>{formatTime(currentTime)}</span>
-                          <span className="opacity-40">/</span>
-                          <span>{formatTime(duration)}</span>
-                        </div>
-                      ) : item.exists ? (
-                        <span className="text-xs font-mono font-bold text-slate-500 leading-none">
-                          {item.assetType === 'script' ? (item.approximateReadTime ? (item.approximateReadTime.startsWith('~') ? item.approximateReadTime : `~${item.approximateReadTime}`) : '-:--') : (mp3DurationCache.get(item.fileName) || item.duration || '--:--')}
-                        </span>
-                      ) : null}
+                        {playingStates[`export-preview-${key}`] ? (
+                          <div className="flex items-center gap-1 text-xs font-mono font-bold leading-none text-emerald-700">
+                            <span>{formatTime(playingStates[`export-preview-${key}`].currentTime)}</span>
+                            <span className="opacity-40">/</span>
+                            <span>{formatTime(playingStates[`export-preview-${key}`].duration)}</span>
+                          </div>
+                        ) : item.exists ? (
+                          <span className="text-xs font-mono font-bold text-slate-500 leading-none">
+                            {item.assetType === 'script' ? (item.approximateReadTime ? (item.approximateReadTime.startsWith('~') ? item.approximateReadTime : `~${item.approximateReadTime}`) : '-:--') : (mp3DurationCache.get(item.fileName) || item.duration || '--:--')}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {item.assetType !== 'script' && item.exists && (
+                        <WaveformVisualizer 
+                          url={item.fileName}
+                          currentTime={playingStates[`export-preview-${key}`]?.currentTime || 0}
+                          duration={playingStates[`export-preview-${key}`]?.duration || 0}
+                          isPlaying={!!playingStates[`export-preview-${key}`]}
+                          isPlayed={played || exported}
+                        />
+                      )}
                     </div>
                   </div>
                 </Fragment>
@@ -2047,8 +2211,10 @@ export default function PlayerTab({
                   ) : null;
 
                   if (item.type === 'track') {
-                    const isCurrentlyPlaying = playingSlotKey === item.track.id;
-                    const isPlayedTrack = !!item.played;
+                    const isCurrentlyPlaying = !!playingStates[item.track.id] || playingAudiosRef.current.has(item.track.id);
+                    const isPlayedTrack = !!item.played || !!playedPlaylistTracks[item.track.id] || !!pendingPlayedPlaylistTracksRef.current[item.track.id];
+                    const playedAtTime = item.playedAt || playedPlaylistTracks[item.track.id]?.playedAt || pendingPlayedPlaylistTracksRef.current[item.track.id]?.playedAt;
+                    const formattedPlayedAt = playedAtTime ? format(parseISO(playedAtTime), 'HH:mm') : format(new Date(), 'HH:mm');
                     const isCancelledTrack = !!item.cancelled;
 
                     const timelineCardIdx = unplayedTimelineCards.findIndex(c => c.id === item.id);
@@ -2111,7 +2277,8 @@ export default function PlayerTab({
                         {nowCard}
                         <div 
                           className={cn(
-                            "rounded border shadow-xs p-2 my-1.5 transition-all flex flex-col gap-1.5 select-none text-left border-l-[4px]",
+                            "rounded border shadow-xs p-2 my-1.5 transition-all flex flex-col gap-0 select-none text-left border-l-[4px]",
+                            item.type !== 'break' && item.track ? "pb-[1px]" : "",
                             isCurrentlyPlaying 
                               ? "ring-1 ring-purple-500/40" 
                               : isPlayedTrack
@@ -2187,15 +2354,8 @@ export default function PlayerTab({
                               </div>
                             </div>
 
-                            {/* Right side: Playing badge + Right-justified circular Play / Pause / Check button */}
+                            {/* Right side: Right-justified circular Play / Pause / Check button */}
                             <div className="flex items-center gap-1.5 ml-auto">
-                              {isCurrentlyPlaying && (
-                                <span className="text-[10px] font-black uppercase text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-purple-600 dark:bg-purple-400 animate-pulse" />
-                                  Playing
-                                </span>
-                              )}
-
                               <button
                                 onClick={() => handleTogglePlayTrack(item.track)}
                                 className={cn(
@@ -2208,10 +2368,10 @@ export default function PlayerTab({
                                         ? "bg-slate-400 dark:bg-slate-700 hover:bg-slate-500 text-white"
                                         : "bg-purple-600 hover:bg-purple-500 text-white"
                                 )}
-                                title={isCurrentlyPlaying ? "Pause track" : isPlayedTrack ? "Replay playlist track" : "Play track"}
+                                title={isCurrentlyPlaying ? "Stop track" : isPlayedTrack ? "Replay playlist track" : "Play track"}
                               >
                                 {isCurrentlyPlaying ? (
-                                  <Pause className="w-2.5 h-2.5 fill-current" />
+                                  <Square className="w-2.5 h-2.5 fill-current" />
                                 ) : isPlayedTrack ? (
                                   <CheckCircle className="w-2.5 h-2.5 text-white" />
                                 ) : (
@@ -2224,7 +2384,7 @@ export default function PlayerTab({
                           {/* MP3 Information: Top justified, 3 rows fixed min-height for uniform card size */}
                           <div 
                             className={cn(
-                              "flex flex-col justify-start items-start text-left w-full font-sans font-normal text-xs leading-snug gap-0.5 pt-0.5 min-h-[3.6rem]",
+                              "flex flex-col justify-start items-start text-left w-full font-sans font-normal text-xs leading-snug gap-0.5 pt-[3px] pb-[3px]",
                               isCurrentlyPlaying ? "text-purple-800 dark:text-purple-200" :
                               isPlayedTrack ? "text-emerald-950 dark:text-emerald-100" :
                               isCancelledTrack ? "text-slate-500 dark:text-slate-400 line-through decoration-slate-400/60" :
@@ -2250,36 +2410,61 @@ export default function PlayerTab({
                             )}
                           </div>
 
-                          {/* Status & Duration row */}
-                          <div className="flex items-center justify-between gap-1 pt-0.5">
-                            <div className="flex items-center gap-1">
-                              {isPlayedTrack ? (
-                                <>
-                                  <CheckCircle className="w-2.5 h-2.5 text-green-500" />
-                                  <span className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-tighter">
-                                    Played
-                                  </span>
-                                </>
-                              ) : isCancelledTrack ? (
-                                <>
-                                  <AlertCircle className="w-2.5 h-2.5 text-slate-400" />
-                                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
-                                    Cancelled
-                                  </span>
-                                </>
+                          {/* Status & Duration row + Waveform visualizer */}
+                          <div className="flex flex-col gap-[1px] pt-0.5">
+                            <div className="flex items-center justify-between gap-1">
+                              <div className="flex items-center gap-1">
+                                {isCurrentlyPlaying ? (
+                                  <>
+                                    <Volume2 className="w-2.5 h-2.5 text-purple-600 animate-pulse" />
+                                    <span className="text-xs font-bold text-purple-600 dark:text-purple-400 uppercase tracking-tighter">
+                                      Playing
+                                    </span>
+                                  </>
+                                ) : isPlayedTrack ? (
+                                  <>
+                                    <CheckCircle className="w-2.5 h-2.5 text-green-500" />
+                                    <span className="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-tighter">
+                                      Played {formattedPlayedAt}
+                                    </span>
+                                  </>
+                                ) : isCancelledTrack ? (
+                                  <>
+                                    <AlertCircle className="w-2.5 h-2.5 text-slate-400" />
+                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
+                                      Cancelled
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Clock className="w-2.5 h-2.5 text-slate-500" />
+                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
+                                      To be played
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+
+                              {isCurrentlyPlaying ? (
+                                <div className="flex items-center gap-1 text-xs font-mono font-bold leading-none text-purple-600 dark:text-purple-400">
+                                  <span>{formatTime(playingStates[item.track.id]?.currentTime || 0)}</span>
+                                  <span className="opacity-30">/</span>
+                                  <span>{formatTime(playingStates[item.track.id]?.duration || item.track.durationSeconds || 0)}</span>
+                                </div>
                               ) : (
-                                <>
-                                  <Clock className="w-2.5 h-2.5 text-slate-500" />
-                                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-tighter">
-                                    To be played
-                                  </span>
-                                </>
+                                <span className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 leading-none">
+                                  {mp3DurationCache.get(item.track.streamUrl) || availableFilesCache.get(item.track.fileName)?.duration || item.track.durationFormatted}
+                                </span>
                               )}
                             </div>
 
-                            <span className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 leading-none">
-                              {mp3DurationCache.get(item.track.streamUrl) || availableFilesCache.get(item.track.fileName)?.duration || item.track.durationFormatted}
-                            </span>
+                            <WaveformVisualizer 
+                              url={item.track.streamUrl || item.track.fileName}
+                              currentTime={isCurrentlyPlaying ? (playingStates[item.track.id]?.currentTime || 0) : 0}
+                              duration={playingStates[item.track.id]?.duration || item.track.durationSeconds || 0}
+                              isPlaying={isCurrentlyPlaying}
+                              isPlayed={isPlayedTrack}
+                            />
                           </div>
                         </div>
                       </Fragment>
@@ -2313,7 +2498,7 @@ export default function PlayerTab({
                         const isValid = !customVal || parseCustomTimeText(customVal) !== null;
                         const status = getMP3Status(s.mp3Url);
                         const isVerified = s.assetType === 'script' ? status.exists : (status.exists && status.valid);
-                        const isCurrentlyPlaying = playingSlotKey === slotKey;
+                        const isCurrentlyPlaying = !!playingStates[slotKey] || playingAudiosRef.current.has(slotKey);
                         const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
 
                         const isMissedRecent = isPast && !played && !exported && diffSeconds <= 1800;
@@ -2382,6 +2567,7 @@ export default function PlayerTab({
                               className={cn(
                                 "flex-1 rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 select-none cursor-pointer hover:shadow hover:border-slate-300 active:scale-[99.5%] active:bg-slate-50/30 text-left",
                                 activeShow ? "ml-1" : "", "border-l-[4px] rounded-l-none",
+                                s.assetType !== 'script' && isVerified ? "pb-[1px]" : "",
                                 cardBorderClass,
                                 cardBgClass,
                                 cardOpacityClass
@@ -2470,57 +2656,76 @@ export default function PlayerTab({
                                 )}
                               </div>
 
-                              <div className="flex items-center justify-between">
-                                {isVerified ? (
-                                  <div className="flex flex-col gap-0.5">
-                                    <div className="flex items-center gap-1">
-                                      {exported ? (
-                                        <>
-                                          <CheckCircle className="w-2.5 h-2.5 text-purple-500" />
-                                          <span className="text-xs font-bold uppercase tracking-tighter text-purple-600">
-                                            Exported
-                                          </span>
-                                        </>
-                                      ) : (played || isCurrentlyPlaying) ? (
-                                        <>
-                                          <CheckCircle className="w-2.5 h-2.5 text-green-500" />
-                                          <span className="text-xs font-bold text-green-600 uppercase tracking-tighter">
-                                            {s.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
-                                          </span>
-                                        </>
-                                      ) : isMissedRecent || isMissedOld ? (
-                                        <>
-                                          <AlertCircle className="w-2.5 h-2.5 text-amber-600" />
-                                          <span className="text-xs font-bold text-amber-700 uppercase tracking-tighter">Missed</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <Clock className="w-2.5 h-2.5 text-slate-500" />
-                                          <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">{s.assetType === 'script' ? "To be read" : "To be played"}</span>
-                                        </>
-                                      )}
+                              <div className="flex flex-col gap-[1px]">
+                                <div className="flex items-center justify-between">
+                                  {isVerified ? (
+                                    <div className="flex flex-col gap-0.5">
+                                      <div className="flex items-center gap-1">
+                                        {exported ? (
+                                          <>
+                                            <CheckCircle className="w-2.5 h-2.5 text-purple-500" />
+                                            <span className="text-xs font-bold uppercase tracking-tighter text-purple-600">
+                                              Exported
+                                            </span>
+                                          </>
+                                        ) : isCurrentlyPlaying ? (
+                                          <>
+                                            <Volume2 className="w-2.5 h-2.5 text-purple-600 animate-pulse" />
+                                            <span className="text-xs font-bold text-purple-600 uppercase tracking-tighter">
+                                              Playing
+                                            </span>
+                                          </>
+                                        ) : played ? (
+                                          <>
+                                            <CheckCircle className="w-2.5 h-2.5 text-green-500" />
+                                            <span className="text-xs font-bold text-green-600 uppercase tracking-tighter">
+                                              {s.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
+                                            </span>
+                                          </>
+                                        ) : isMissedRecent || isMissedOld ? (
+                                          <>
+                                            <AlertCircle className="w-2.5 h-2.5 text-amber-600" />
+                                            <span className="text-xs font-bold text-amber-700 uppercase tracking-tighter">Missed</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Clock className="w-2.5 h-2.5 text-slate-500" />
+                                            <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">{s.assetType === 'script' ? "To be read" : "To be played"}</span>
+                                          </>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center gap-1">
-                                    <AlertCircle className="w-2.5 h-2.5 text-red-500" />
-                                    <span className="text-xs font-bold text-red-600 uppercase tracking-tighter">
-                                      {!status.exists ? "File not found." : (s.assetType === 'script' ? "Invalid script file." : "File not mp3.")}
+                                  ) : (
+                                    <div className="flex items-center gap-1">
+                                      <AlertCircle className="w-2.5 h-2.5 text-red-500" />
+                                      <span className="text-xs font-bold text-red-600 uppercase tracking-tighter">
+                                        {!status.exists ? "File not found." : (s.assetType === 'script' ? "Invalid script file." : "File not mp3.")}
+                                      </span>
+                                    </div>
+                                  )}
+                                  
+                                  {isCurrentlyPlaying ? (
+                                    <div className="flex items-center gap-1 text-xs font-mono font-bold leading-none text-purple-600">
+                                      <span>{formatTime(playingStates[slotKey]?.currentTime || 0)}</span>
+                                      <span className="opacity-30">/</span>
+                                      <span>{formatTime(playingStates[slotKey]?.duration || 0)}</span>
+                                    </div>
+                                  ) : isVerified ? (
+                                    <span className="text-xs font-mono font-bold text-slate-500 leading-none">
+                                      {s.assetType === 'script' ? (s.approximateReadTime ? (s.approximateReadTime.startsWith('~') ? s.approximateReadTime : `~${s.approximateReadTime}`) : '-:--') : (mp3DurationCache.get(s.mp3Url) || s.duration || '--:--')}
                                     </span>
-                                  </div>
+                                  ) : null}
+                                </div>
+
+                                {s.assetType !== 'script' && isVerified && (
+                                  <WaveformVisualizer 
+                                    url={resolvedUrl}
+                                    currentTime={isCurrentlyPlaying ? (playingStates[slotKey]?.currentTime || 0) : 0}
+                                    duration={playingStates[slotKey]?.duration || 0}
+                                    isPlaying={isCurrentlyPlaying}
+                                    isPlayed={played || exported}
+                                  />
                                 )}
-                                
-                                {isCurrentlyPlaying ? (
-                                  <div className="flex items-center gap-1 text-xs font-mono font-bold leading-none text-purple-600">
-                                    <span>{formatTime(currentTime)}</span>
-                                    <span className="opacity-30">/</span>
-                                    <span>{formatTime(duration)}</span>
-                                  </div>
-                                ) : isVerified ? (
-                                  <span className="text-xs font-mono font-bold text-slate-500 leading-none">
-                                    {s.assetType === 'script' ? (s.approximateReadTime ? (s.approximateReadTime.startsWith('~') ? s.approximateReadTime : `~${s.approximateReadTime}`) : '-:--') : (mp3DurationCache.get(s.mp3Url) || s.duration || '--:--')}
-                                  </span>
-                                ) : null}
                               </div>
                             </div>
                           </div>
@@ -2686,7 +2891,7 @@ export default function PlayerTab({
                  const isValid = !customVal || parseCustomTimeText(customVal) !== null;
                  const status = getMP3Status(s.mp3Url);
                  const isVerified = s.assetType === 'script' ? status.exists : (status.exists && status.valid);
-                 const isCurrentlyPlaying = playingSlotKey === slotKey;
+                 const isCurrentlyPlaying = !!playingStates[slotKey] || playingAudiosRef.current.has(slotKey);
                  const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
                  
                  // RECENT MISSED: Less than 30 mins ago, not played or exported
@@ -2766,6 +2971,7 @@ export default function PlayerTab({
                        className={cn(
                          "flex-1 rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 select-none cursor-pointer hover:shadow hover:border-slate-300 active:scale-[99.5%] active:bg-slate-50/30 text-left",
                          activeShow ? "ml-1" : "", "border-l-[4px] rounded-l-none",
+                         s.assetType !== 'script' && isVerified ? "pb-[1px]" : "",
                          cardBorderClass,
                          cardBgClass,
                          cardOpacityClass
@@ -2863,7 +3069,8 @@ export default function PlayerTab({
                    </div>
 
                    {/* Status & Details */}
-                   <div className="flex items-center justify-between">
+                   <div className="flex flex-col gap-[1px]">
+                     <div className="flex items-center justify-between">
                      {isVerified ? (
                        <div className="flex flex-col gap-0.5">
                          <div className="flex items-center gap-1">
@@ -2874,7 +3081,14 @@ export default function PlayerTab({
                                  Exported
                                </span>
                              </>
-                           ) : (played || isCurrentlyPlaying) ? (
+                           ) : isCurrentlyPlaying ? (
+                             <>
+                               <Volume2 className="w-2.5 h-2.5 text-purple-600 animate-pulse" />
+                               <span className="text-xs font-bold text-purple-600 uppercase tracking-tighter">
+                                 Playing
+                               </span>
+                             </>
+                           ) : played ? (
                              <>
                                <CheckCircle className="w-2.5 h-2.5 text-green-500" />
                                <span className="text-xs font-bold text-green-600 uppercase tracking-tighter">
@@ -2905,9 +3119,9 @@ export default function PlayerTab({
                      
                      {isCurrentlyPlaying ? (
                        <div className={cn("flex items-center gap-1 text-xs font-mono font-bold leading-none", isPre ? "text-emerald-600" : "text-purple-600")}>
-                         <span>{formatTime(currentTime)}</span>
+                         <span>{formatTime(playingStates[slotKey]?.currentTime || 0)}</span>
                          <span className="opacity-30">/</span>
-                         <span>{formatTime(duration)}</span>
+                         <span>{formatTime(playingStates[slotKey]?.duration || 0)}</span>
                        </div>
                      ) : isVerified ? (
                        <span className="text-xs font-mono font-bold text-slate-500 leading-none">
@@ -2915,7 +3129,18 @@ export default function PlayerTab({
                        </span>
                      ) : null}
                    </div>
+
+                   {s.assetType !== 'script' && isVerified && (
+                     <WaveformVisualizer 
+                       url={resolvedUrl}
+                       currentTime={isCurrentlyPlaying ? (playingStates[slotKey]?.currentTime || 0) : 0}
+                       duration={playingStates[slotKey]?.duration || 0}
+                       isPlaying={isCurrentlyPlaying}
+                       isPlayed={played || exported}
+                     />
+                   )}
                  </div>
+               </div>
                  {isThisCardDisplayed && (
                    <div className="shrink-0 flex flex-col items-center justify-center px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg shadow-sm">
                      <span className="text-[10px] uppercase font-black text-blue-500 tracking-wider">Current Time</span>

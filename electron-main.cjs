@@ -58,7 +58,7 @@ function getFreePort(startingPort = 3000, attempts = 0, maxAttempts = 100) {
         .then(resolve)
         .catch(reject);
     });
-    server.listen(startingPort, '127.0.0.1', () => {
+    server.listen(startingPort, '0.0.0.0', () => {
       const { port } = server.address();
       server.close(() => {
         resolve(port);
