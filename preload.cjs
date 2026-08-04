@@ -14,4 +14,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('live-read-closed', (event) => callback());
   },
   closeLiveReadWindow: () => ipcRenderer.invoke('close-live-read-window'),
+  onNavigate: (callback) => {
+    ipcRenderer.removeAllListeners('navigate-tab');
+    ipcRenderer.on('navigate-tab', (event, data) => callback(data));
+  },
+  setActiveTabMenu: (tab, subTab) => ipcRenderer.send('set-active-tab-menu', { tab, subTab }),
 });

@@ -170,6 +170,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"player" | "calendar" | "log">(
     "player",
   );
+  const [calendarSubTab, setCalendarSubTab] = useState<"calendar" | "list" | "shows">(
+    "calendar",
+  );
+
+  useEffect(() => {
+    if ((window as any).electronAPI?.setActiveTabMenu) {
+      (window as any).electronAPI.setActiveTabMenu(activeTab, calendarSubTab);
+    }
+  }, [activeTab, calendarSubTab]);
   const [durationUpdates, setDurationUpdates] = useState(0);
 
   // Fetch folder name/descriptor helper
@@ -1343,8 +1352,44 @@ export default function App() {
 
   const addLog = async (entry: LogEntry) => {
     const settings = getSavedSettings();
+
+    let showId = entry.showId;
+    let showName = entry.showName;
+    let hostName = entry.hostName;
+    let showDateTime = entry.showDateTime;
+
+    if (!showName && selectedPlaylistShow && playMode === "Playlist") {
+      showId = selectedPlaylistShow.id;
+      showName = selectedPlaylistShow.name;
+      hostName = selectedPlaylistShow.host;
+      const sDate = new Date(syncTime || now);
+      sDate.setHours(selectedPlaylistShow.startHour, selectedPlaylistShow.startMinute, 0, 0);
+      showDateTime = sDate.toISOString();
+    } else if (!showName && shows && shows.length > 0) {
+      const targetTime = entry.interstitialTime ? new Date(entry.interstitialTime) : new Date(entry.timestamp || now);
+      const activeShow = shows.find((s) => {
+        const sStart = new Date(targetTime);
+        sStart.setHours(s.startHour, s.startMinute, 0, 0);
+        const durationMin = s.durationMinutes || (s.endHour * 60 + s.endMinute) - (s.startHour * 60 + s.startMinute);
+        const sEnd = new Date(sStart.getTime() + (durationMin > 0 ? durationMin : 60) * 60000);
+        return targetTime >= sStart && targetTime < sEnd;
+      });
+      if (activeShow) {
+        showId = activeShow.id;
+        showName = activeShow.name;
+        hostName = activeShow.host;
+        const sDate = new Date(targetTime);
+        sDate.setHours(activeShow.startHour, activeShow.startMinute, 0, 0);
+        showDateTime = sDate.toISOString();
+      }
+    }
+
     const enrichedEntry: LogEntry = {
       ...entry,
+      showId,
+      showName,
+      hostName,
+      showDateTime,
       playMode: entry.playMode === "Export" ? "Export" : playMode,
       logTimeStamp: entry.logTimeStamp || new Date().toISOString(),
       timestamp: entry.interstitialTime || entry.timestamp || new Date().toISOString(),
@@ -1395,6 +1440,20 @@ export default function App() {
           window.dispatchEvent(new CustomEvent('live-read-closed'));
         });
       }
+      if ((window as any).electronAPI.onNavigate) {
+        (window as any).electronAPI.onNavigate(({ tab, subTab }: { tab: string; subTab?: string }) => {
+          if (tab === "folders") {
+            setShowLocationsModal(true);
+          } else if (tab === "help") {
+            setShowLocalHelp(true);
+          } else if (tab === "player" || tab === "calendar" || tab === "log") {
+            setActiveTab(tab as "player" | "calendar" | "log");
+            if (tab === "calendar" && subTab) {
+              setCalendarSubTab(subTab as "calendar" | "list" | "shows");
+            }
+          }
+        });
+      }
     }
   }, []);
 
@@ -1416,18 +1475,6 @@ export default function App() {
       setPrerecordHoursInput(show.durationHours.toString());
       setPrerecordMinutesInput(show.durationMinutes.toString());
     }
-    setTimeout(() => {
-      if (dateSelectRef.current) {
-        dateSelectRef.current.focus();
-        if ('showPicker' in HTMLSelectElement.prototype) {
-          try {
-            (dateSelectRef.current as any).showPicker();
-          } catch (e) {
-            // ignore if browser blocks auto-picker
-          }
-        }
-      }
-    }, 50);
   };
 
   const handleToggleMode = () => {
@@ -1724,6 +1771,26 @@ export default function App() {
       const totalMinutes = hours * 60 + mins;
       setPrerecordLengthMinutes(totalMinutes);
       setPrerecordDate(parsedDate);
+
+      // Set selectedPlaylistShow if a show was selected or matched
+      if (selectedPrerecordShowId) {
+        const matchedShow = shows.find((s) => s.id === selectedPrerecordShowId);
+        if (matchedShow) {
+          setSelectedPlaylistShow(matchedShow);
+        }
+      } else if (shows && shows.length > 0) {
+        const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+        const dayName = daysOrder[parsedDate.getDay()];
+        const hour = parsedDate.getHours();
+        const minute = parsedDate.getMinutes();
+        const matchedShow = shows.find((s) => isTimeInShow(s, dayName, hour, minute));
+        if (matchedShow) {
+          setSelectedPlaylistShow(matchedShow);
+        } else {
+          setSelectedPlaylistShow(null);
+        }
+      }
+
       setPlayMode(prerecordModalTarget);
       setShowPrerecordConfirmStep(false);
       setShowPrerecordModal(false);
@@ -2790,6 +2857,8 @@ export default function App() {
                   driveMP3s={driveMP3s}
                   isDriveActive={isDriveActive}
                   onRefresh={handleRefresh}
+                  currentViewMode={calendarSubTab}
+                  onViewModeChange={(mode) => setCalendarSubTab(mode)}
                 />
               </motion.div>
             ) : (

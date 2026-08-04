@@ -57,8 +57,14 @@ export const getMP3Status = (url: string | undefined) => {
 };
 
 export const formatDuration = (seconds: number) => {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
+  const totalSec = Math.max(0, Math.round(seconds));
+  const hrs = Math.floor(totalSec / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  const secs = totalSec % 60;
+
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
@@ -67,6 +73,7 @@ export interface Mp3ID3Metadata {
   artist?: string;
   albumArtist?: string;
   album?: string;
+  durationSeconds?: number;
 }
 
 export function parseID3v1Bytes(bytes: Uint8Array): Mp3ID3Metadata | null {

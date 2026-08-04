@@ -325,9 +325,11 @@ interface CalendarTabProps {
   onRefresh?: () => Promise<any> | void;
   shows?: Show[];
   onSaveShows?: (shows: Show[]) => void;
+  currentViewMode?: 'list' | 'calendar' | 'shows';
+  onViewModeChange?: (mode: 'list' | 'calendar' | 'shows') => void;
 }
 
-export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminToggle, now, driveMP3s = [], isDriveActive = false, onRefresh, shows = [], onSaveShows }: CalendarTabProps) {
+export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminToggle, now, driveMP3s = [], isDriveActive = false, onRefresh, shows = [], onSaveShows, currentViewMode, onViewModeChange }: CalendarTabProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Interstitial>>({});
   const isNew = editingId ? !interstitials.some(s => s.id === editingId) : false;
@@ -687,7 +689,18 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
   }, [formData.mp3Url]);
 
   // Calendar View states
-  const [viewMode, setViewMode] = useState<'list' | 'calendar' | 'shows'>('calendar');
+  const [viewMode, setViewModeState] = useState<'list' | 'calendar' | 'shows'>(currentViewMode || 'calendar');
+
+  const setViewMode = (mode: 'list' | 'calendar' | 'shows') => {
+    setViewModeState(mode);
+    if (onViewModeChange) onViewModeChange(mode);
+  };
+
+  useEffect(() => {
+    if (currentViewMode && currentViewMode !== viewMode) {
+      setViewModeState(currentViewMode);
+    }
+  }, [currentViewMode]);
   const [calendarLayoutMode, setCalendarLayoutMode] = useState<'full' | 'compact'>(() => (localStorage.getItem('interstitial_calendar_layout_mode') as 'full' | 'compact') || 'full');
   const [calendarTimeframe, setCalendarTimeframe] = useState<'weekly' | 'daily'>(() => (localStorage.getItem('interstitial_calendar_timeframe') as 'weekly' | 'daily') || 'weekly');
   const [showInactive, setShowInactive] = useState<boolean>(false);
@@ -1265,21 +1278,23 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
               </div>
             </div>
 
-            {/* Show Host & Show Day */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-black text-slate-700 uppercase tracking-wider block">
-                  Show Host
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. DJ Skeet"
-                  value={showFormData.host || ''}
-                  onChange={e => setShowFormData({ ...showFormData, host: e.target.value })}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800"
-                />
-              </div>
+            {/* Show Host */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-black text-slate-700 uppercase tracking-wider block">
+                Show Host
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. DJ Skeet"
+                value={showFormData.host || ''}
+                onChange={e => setShowFormData({ ...showFormData, host: e.target.value })}
+                className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 h-10"
+              />
+            </div>
 
+            {/* Combined Row: Show Day, Start Time, and Duration */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+              {/* 1. Show Day */}
               <div className="space-y-1.5">
                 <label className="text-xs font-black text-slate-700 uppercase tracking-wider block">
                   Show Day
@@ -1287,7 +1302,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                 <select
                   value={showFormData.day || 'Monday'}
                   onChange={e => setShowFormData({ ...showFormData, day: e.target.value as any })}
-                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800"
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 h-10"
                 >
                   {daysOfWeek.map(d => (
                     <option key={d} value={d}>
@@ -1296,69 +1311,66 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                   ))}
                 </select>
               </div>
-            </div>
 
-            {/* Start Time of Show */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-black text-slate-700 uppercase tracking-wider block">
-                Start Time of Show (Military Time)
-              </label>
-              <div className="flex gap-4">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    max="23"
-                    value={showFormData.startHour !== undefined ? showFormData.startHour : 9}
-                    onChange={e => setShowFormData({ ...showFormData, startHour: Math.max(0, Math.min(23, parseInt(e.target.value) || 0)) })}
-                    className="w-20 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
-                  />
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-tight">Hours</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={showFormData.startMinute !== undefined ? showFormData.startMinute : 0}
-                    onChange={e => setShowFormData({ ...showFormData, startMinute: Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) })}
-                    className="w-20 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800"
-                  />
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-tight">Minutes</span>
+              {/* 2. Start Time of Show */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-700 uppercase tracking-wider block truncate">
+                  Start Time (Military)
+                </label>
+                <div className="flex items-center gap-2 h-10">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <input
+                      type="number"
+                      min="0"
+                      max="23"
+                      value={showFormData.startHour !== undefined ? showFormData.startHour : 9}
+                      onChange={e => setShowFormData({ ...showFormData, startHour: Math.max(0, Math.min(23, parseInt(e.target.value) || 0)) })}
+                      className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 h-10"
+                    />
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-tight shrink-0">Hours</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={showFormData.startMinute !== undefined ? showFormData.startMinute : 0}
+                      onChange={e => setShowFormData({ ...showFormData, startMinute: Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) })}
+                      className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 h-10"
+                    />
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-tight shrink-0">Mins</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Duration of Show */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-black text-slate-700 uppercase tracking-wider block">
-                Duration of Show
-              </label>
-              <div className="grid grid-cols-2 gap-4">
-                {/* Hours duration */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-wider">Hours</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="23"
-                    value={showFormData.durationHours !== undefined ? showFormData.durationHours : 1}
-                    onChange={e => setShowFormData({ ...showFormData, durationHours: Math.max(0, parseInt(e.target.value) || 0) })}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 h-10"
-                  />
-                </div>
-
-                {/* Minutes duration */}
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-wider">Minutes</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="59"
-                    value={showFormData.durationMinutes !== undefined ? showFormData.durationMinutes : 0}
-                    onChange={e => setShowFormData({ ...showFormData, durationMinutes: Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) })}
-                    className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 h-10"
-                  />
+              {/* 3. Duration of Show */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-black text-slate-700 uppercase tracking-wider block truncate">
+                  Duration of Show
+                </label>
+                <div className="flex items-center gap-2 h-10">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <input
+                      type="number"
+                      min="0"
+                      max="23"
+                      value={showFormData.durationHours !== undefined ? showFormData.durationHours : 1}
+                      onChange={e => setShowFormData({ ...showFormData, durationHours: Math.max(0, parseInt(e.target.value) || 0) })}
+                      className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 h-10"
+                    />
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-tight shrink-0">Hours</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={showFormData.durationMinutes !== undefined ? showFormData.durationMinutes : 0}
+                      onChange={e => setShowFormData({ ...showFormData, durationMinutes: Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) })}
+                      className="w-full px-2 py-2 bg-white border border-slate-300 rounded-lg text-sm font-mono font-bold text-center outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 h-10"
+                    />
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-tight shrink-0">Mins</span>
+                  </div>
                 </div>
               </div>
             </div>

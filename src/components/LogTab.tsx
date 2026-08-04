@@ -38,7 +38,7 @@ interface LogTabProps {
   logs: LogEntry[];
 }
 
-type SortField = 'timestamp' | 'mp3Name' | 'interstitialName' | 'interstitialId' | 'playMode' | 'logTimeStamp';
+type SortField = 'timestamp' | 'mp3Name' | 'interstitialName' | 'interstitialId' | 'playMode' | 'logTimeStamp' | 'showName' | 'hostName';
 type SortOrder = 'asc' | 'desc';
 
 function formatLogTime(dateVal: string | number | Date, width: number): { dateStr: string; timeStr: string } {
@@ -187,8 +187,10 @@ export default function LogTab({ logs }: LogTabProps) {
           
           const timestampMatch = format(new Date(l.timestamp), 'yyyy-MM-dd HH:mm:ss').includes(q);
           const actualTimestampMatch = l.logTimeStamp && format(new Date(l.logTimeStamp), 'yyyy-MM-dd HH:mm:ss').includes(q);
+          const showMatch = l.showName && l.showName.toLowerCase().includes(q);
+          const hostMatch = l.hostName && l.hostName.toLowerCase().includes(q);
           
-          return interstitialNameMatch || filenameMatch || idMatch || playModeMatch || assetTypeMatch || timestampMatch || actualTimestampMatch;
+          return interstitialNameMatch || filenameMatch || idMatch || playModeMatch || assetTypeMatch || timestampMatch || actualTimestampMatch || showMatch || hostMatch;
         } catch (e) {
           return (l.interstitialName && l.interstitialName.toLowerCase().includes(q)) || (l.interstitialId && l.interstitialId.toLowerCase().includes(q));
         }
@@ -214,6 +216,12 @@ export default function LogTab({ logs }: LogTabProps) {
       } else if (sortField === 'mp3Name') {
         valA = getMP3Status(a.mp3Name).filename.toLowerCase();
         valB = getMP3Status(b.mp3Name).filename.toLowerCase();
+      } else if (sortField === 'showName') {
+        valA = (a.showName || '').toLowerCase();
+        valB = (b.showName || '').toLowerCase();
+      } else if (sortField === 'hostName') {
+        valA = (a.hostName || '').toLowerCase();
+        valB = (b.hostName || '').toLowerCase();
       } else if (sortField === 'playMode') {
         valA = (valA || 'Live').toLowerCase();
         valB = (valB || 'Live').toLowerCase();
@@ -237,14 +245,16 @@ export default function LogTab({ logs }: LogTabProps) {
 
   // Export to CSV
   const handleExportCSV = () => {
-    const headers = ['Scheduled Date', 'Scheduled Time', 'Actual Playback Time', 'Interstitial Name', 'Play Mode', 'MP3 File', 'Interstitial ID', 'Asset Type'];
+    const headers = ['Scheduled Date', 'Scheduled Time', 'Actual Playback Time', 'Interstitial Name', 'MP3 File', 'Show Name', 'Host Name', 'Play Mode', 'Interstitial ID', 'Asset Type'];
     const rows = sortedAndFilteredLogsAll.map(log => [
       format(new Date(log.timestamp), 'yyyy-MM-dd'),
       format(new Date(log.timestamp), 'HH:mm:ss'),
       log.logTimeStamp ? format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss') : '-',
       log.interstitialName,
-      log.playMode || 'Live',
       log.mp3Name,
+      log.showName || '',
+      log.hostName || '',
+      log.playMode || 'Live',
       log.interstitialId,
       getLogAssetType(log)
     ]);
@@ -271,8 +281,10 @@ export default function LogTab({ logs }: LogTabProps) {
       'Scheduled Time': format(new Date(log.timestamp), 'HH:mm:ss'),
       'Actual Playback Time': log.logTimeStamp ? format(new Date(log.logTimeStamp), 'yyyy-MM-dd HH:mm:ss') : '-',
       'Interstitial Name': log.interstitialName,
-      'Play Mode': log.playMode || 'Live',
       'MP3 File': log.mp3Name,
+      'Show Name': log.showName || '',
+      'Host Name': log.hostName || '',
+      'Play Mode': log.playMode || 'Live',
       'Interstitial ID': log.interstitialId,
       'Asset Type': getLogAssetType(log)
     }));
@@ -516,36 +528,49 @@ export default function LogTab({ logs }: LogTabProps) {
               title="Drag to resize Scheduled/Actual column"
             />
             
-            {/* 2nd Column: Interstitial */}
-            <div style={{ width: `${colWidths.name}px` }} className="shrink-0 flex items-center px-1 overflow-hidden">
-              <button 
-                onClick={() => toggleSort('interstitialName')}
-                className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-900 transition-colors text-slate-650 w-full"
-              >
-                <span className="truncate">Interstitial Name</span>
-                <SortArrow field="interstitialName" />
-              </button>
-            </div>
+            {/* 2nd Column: Consolidated Interstitial & MP3 / Show & Host details */}
+            <div className="flex-1 flex flex-col justify-center py-0.5 gap-0.5 px-2 min-w-0 overflow-hidden">
+              {/* Top row sorting: Interstitial Name : MP3 File */}
+              <div className="flex items-center gap-2 truncate">
+                <button 
+                  onClick={() => toggleSort('interstitialName')}
+                  className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-900 transition-colors text-slate-650 truncate"
+                  title="Sort by Interstitial Name"
+                >
+                  <span className="truncate">Interstitial Name</span>
+                  <SortArrow field="interstitialName" />
+                </button>
+                <span className="text-slate-400 font-normal">:</span>
+                <button 
+                  onClick={() => toggleSort('mp3Name')}
+                  className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-900 transition-colors text-slate-650 truncate"
+                  title="Sort by MP3 File"
+                >
+                  <span className="truncate">MP3 File</span>
+                  <SortArrow field="mp3Name" />
+                </button>
+              </div>
 
-            {/* Resizer 2 (Middle Divider) */}
-            <div 
-              onMouseDown={(e) => startResize('name', e)}
-              className={cn(
-                "w-[1px] cursor-col-resize bg-slate-300 hover:bg-slate-450 transition-colors shrink-0 self-stretch relative z-10",
-                isDragging === 'name' && "bg-slate-500"
-              )}
-              title="Drag to resize Interstitial Name column"
-            />
-
-            {/* 3rd Column: MP3 file path (fluid) */}
-            <div className="flex-1 flex items-center px-1 overflow-hidden">
-              <button 
-                onClick={() => toggleSort('mp3Name')}
-                className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-900 transition-colors text-slate-650"
-              >
-                <span className="truncate">MP3 File</span>
-                <SortArrow field="mp3Name" />
-              </button>
+              {/* Bottom row sorting: Show Name : Host Name */}
+              <div className="flex items-center gap-2 truncate text-slate-500">
+                <button 
+                  onClick={() => toggleSort('showName')}
+                  className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-900 transition-colors text-slate-500 truncate"
+                  title="Sort by Show Name"
+                >
+                  <span className="truncate">Show Name</span>
+                  <SortArrow field="showName" />
+                </button>
+                <span className="text-slate-300 font-normal">:</span>
+                <button 
+                  onClick={() => toggleSort('hostName')}
+                  className="flex items-center gap-1 text-left cursor-pointer group hover:text-slate-900 transition-colors text-slate-500 truncate"
+                  title="Sort by Host Name"
+                >
+                  <span className="truncate">Host Name</span>
+                  <SortArrow field="hostName" />
+                </button>
+              </div>
             </div>
 
             {/* Resizer 3 */}
@@ -614,26 +639,32 @@ export default function LogTab({ logs }: LogTabProps) {
                 {/* Resizer guide line 1 */}
                 <div className="w-[1px] shrink-0 self-stretch bg-slate-200" />
                 
-                {/* Interstitial details cell */}
-                <div style={{ width: `${colWidths.name}px` }} className="shrink-0 min-w-0 px-1 flex flex-col justify-center gap-0.5 py-1 overflow-hidden">
-                  <span className="text-xs font-bold text-slate-800 line-clamp-2 leading-tight">
-                    {log.interstitialName}
-                  </span>
-                </div>
-
-                {/* Resizer guide line 2 */}
-                <div className="w-[1px] shrink-0 self-stretch bg-slate-200" />
-                
-                {/* MP3 path cell */}
-                <div className="flex-1 min-w-0 px-1 flex items-center py-1">
-                  <div className="flex items-center gap-1 min-w-0 w-full">
+                {/* Consolidated Interstitial Name: MP3 File on top row, Show Name: Host Name on bottom row */}
+                <div className="flex-1 min-w-0 px-2 flex flex-col justify-center py-1 overflow-hidden">
+                  {/* Top row: Interstitial Name : MP3 File */}
+                  <div className="flex items-center gap-1.5 min-w-0 w-full truncate">
                     {getLogAssetType(log) === 'script' ? (
                       <FileText className="w-3 h-3 text-purple-500 shrink-0" />
                     ) : (
                       <Music className="w-3 h-3 text-slate-400 shrink-0" />
                     )}
-                    <span className="text-xs font-mono text-slate-500 line-clamp-1 break-all leading-tight w-full" title={log.mp3Name}>
+                    <span className="text-xs font-bold text-slate-850 truncate shrink-0 max-w-[50%]" title={log.interstitialName}>
+                      {log.interstitialName || '—'}
+                    </span>
+                    <span className="text-slate-400 font-normal shrink-0">:</span>
+                    <span className="text-xs font-mono text-slate-600 truncate min-w-0 flex-1" title={log.mp3Name}>
                       {getMP3Status(log.mp3Name).filename}
+                    </span>
+                  </div>
+
+                  {/* Bottom row: Show Name : Host Name */}
+                  <div className="flex items-center gap-1.5 min-w-0 w-full text-xs text-slate-500 font-medium truncate mt-0.5">
+                    <span className="truncate" title={log.showName ? `Show: ${log.showName}` : 'No show specified'}>
+                      {log.showName ? log.showName : '—'}
+                    </span>
+                    <span className="text-slate-300 font-normal shrink-0">:</span>
+                    <span className="truncate text-slate-500" title={log.hostName ? `Host: ${log.hostName}` : 'No host specified'}>
+                      {log.hostName ? log.hostName : '—'}
                     </span>
                   </div>
                 </div>

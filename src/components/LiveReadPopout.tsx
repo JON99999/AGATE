@@ -87,11 +87,35 @@ export default function LiveReadPopout({
 
   // UI adjustment states
   const [zoomLevel, setZoomLevel] = useState(20); // Font size in px for text
-  const [imageZoom, setImageZoom] = useState(100); // Scale percentage for images (100 = fit available window)
+  const [imageZoom, setImageZoom] = useState(100); // Scale percentage for images
+  const [imageNaturalWidth, setImageNaturalWidth] = useState<number | null>(null);
+  const [imageFitZoom, setImageFitZoom] = useState<number | null>(null);
+  const imageContainerRef = React.useRef<HTMLDivElement>(null);
   const [pdfZoom, setPdfZoom] = useState(100); // Scale percentage for PDFs
   const [currentTimeText, setCurrentTimeText] = useState('');
   const [logTimeText, setLogTimeText] = useState('');
   const [isEditingLogTime, setIsEditingLogTime] = useState(false);
+
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    const img = e.currentTarget;
+    const nw = img.naturalWidth;
+    const nh = img.naturalHeight;
+    if (!nw || !nh) return;
+    setImageNaturalWidth(nw);
+
+    if (imageContainerRef.current) {
+      const cw = imageContainerRef.current.clientWidth - 32;
+      const ch = imageContainerRef.current.clientHeight - 32;
+      if (cw > 0 && ch > 0) {
+        const scaleX = cw / nw;
+        const scaleY = ch / nh;
+        const fitScale = Math.min(scaleX, scaleY, 1);
+        const fitPercent = Math.max(10, Math.round(fitScale * 100));
+        setImageFitZoom(fitPercent);
+        setImageZoom(fitPercent);
+      }
+    }
+  };
 
   // 1. Initial Data Loading (IPC or URL parameter fallbacks)
   const initialFormattedLoggedTime = React.useMemo(() => {
@@ -205,17 +229,30 @@ export default function LiveReadPopout({
     return () => clearInterval(interval);
   }, [isEditingLogTime, loggedTime]);
 
+  const standardImageSteps = [25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400];
+  const imageSteps = Array.from(new Set(imageFitZoom ? [...standardImageSteps, imageFitZoom] : standardImageSteps)).sort((a, b) => a - b);
+
   // Handle Zoom In / Zoom Out (Announcer friendly readability for text, images, and PDFs)
   const handleZoomIn = () => {
-    if (isText) setZoomLevel(prev => Math.min(prev + 2, 40));
-    else if (isImage) setImageZoom(prev => Math.min(prev + 25, 400));
-    else if (isPdf) setPdfZoom(prev => Math.min(prev + 25, 300));
+    if (isText) {
+      setZoomLevel(prev => Math.min(prev + 2, 40));
+    } else if (isImage) {
+      const nextStep = imageSteps.find(s => s > imageZoom);
+      if (nextStep) setImageZoom(nextStep);
+    } else if (isPdf) {
+      setPdfZoom(prev => Math.min(prev + 25, 300));
+    }
   };
 
   const handleZoomOut = () => {
-    if (isText) setZoomLevel(prev => Math.max(prev - 2, 14));
-    else if (isImage) setImageZoom(prev => Math.max(prev - 25, 25));
-    else if (isPdf) setPdfZoom(prev => Math.max(prev - 25, 50));
+    if (isText) {
+      setZoomLevel(prev => Math.max(prev - 2, 14));
+    } else if (isImage) {
+      const prevSteps = imageSteps.filter(s => s < imageZoom);
+      if (prevSteps.length > 0) setImageZoom(prevSteps[prevSteps.length - 1]);
+    } else if (isPdf) {
+      setPdfZoom(prev => Math.max(prev - 25, 50));
+    }
   };
 
   const isLogTimeValid = !isEditingLogTime || parseCustomTimeText(logTimeText) !== null;
@@ -400,16 +437,18 @@ export default function LiveReadPopout({
 
             {/* Image File Display */}
             {isImage && fileUrl && (
-              <div className="flex-1 w-full bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center justify-center overflow-auto shadow-inner custom-scrollbar relative">
+              <div ref={imageContainerRef} className="flex-1 w-full bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center justify-center overflow-auto shadow-inner custom-scrollbar relative">
                 <img 
                   src={fileUrl} 
                   alt={fileName} 
+                  onLoad={handleImageLoad}
                   referrerPolicy="no-referrer"
-                  className="rounded shadow-md border border-slate-200 transition-all duration-150"
+                  className="rounded shadow-md border border-slate-200 transition-all duration-150 shrink-0"
                   style={{
-                    width: imageZoom === 100 ? undefined : `${imageZoom}%`,
-                    maxWidth: imageZoom === 100 ? '100%' : 'none',
-                    maxHeight: imageZoom === 100 ? '100%' : 'none',
+                    width: imageNaturalWidth ? `${(imageZoom / 100) * imageNaturalWidth}px` : `${imageZoom}%`,
+                    height: 'auto',
+                    maxWidth: 'none',
+                    maxHeight: 'none',
                     objectFit: 'contain'
                   }}
                 />
@@ -418,23 +457,14 @@ export default function LiveReadPopout({
 
             {/* PDF File Display */}
             {isPdf && fileUrl && (
-              <div className="flex-1 w-full bg-slate-50 border border-slate-200 rounded-xl overflow-auto shadow-inner flex flex-col custom-scrollbar p-2">
-                <div 
-                  className="flex-1 w-full min-h-full transition-all duration-150 flex flex-col"
-                  style={{
-                    width: pdfZoom === 100 ? '100%' : `${pdfZoom}%`,
-                    height: pdfZoom === 100 ? '100%' : `${pdfZoom}%`,
-                    minWidth: '100%',
-                    minHeight: '100%'
-                  }}
-                >
-                  <iframe 
-                    src={`${fileUrl}#toolbar=0&navpanes=0&zoom=${pdfZoom}`}
-                    title="PDF Document Viewer"
-                    className="w-full h-full border-0 rounded flex-1"
-                    style={{ minHeight: '100%' }}
-                  />
-                </div>
+              <div className="flex-1 w-full h-full bg-slate-50 border border-slate-200 rounded-xl overflow-hidden shadow-inner flex flex-col p-0 relative">
+                <iframe 
+                  key={`pdf-frame-${pdfZoom}`}
+                  src={`${fileUrl}#toolbar=0&navpanes=0&zoom=${pdfZoom}`}
+                  title="PDF Document Viewer"
+                  className="w-full h-full border-0 rounded flex-1"
+                  style={{ width: '100%', height: '100%' }}
+                />
               </div>
             )}
           </div>

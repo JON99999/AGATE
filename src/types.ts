@@ -49,6 +49,48 @@ export interface LogEntry {
   playMode?: 'Live' | 'Prerecord' | 'Export' | 'Playlist';
   logTimeStamp?: string;
   assetType?: 'audio' | 'script';
+  showId?: string;
+  showName?: string;
+  hostName?: string;
+  showDateTime?: string;
+  artist?: string;
+  albumArtist?: string;
+  album?: string;
+  durationSeconds?: number;
+  durationFormatted?: string;
+}
+
+export interface ShowPlaylistLogTrackItem {
+  id: string;
+  fileName: string;
+  title?: string;
+  artist?: string;
+  albumArtist?: string;
+  album?: string;
+  durationSeconds?: number;
+  durationFormatted?: string;
+  playedAt: string;
+  isInterstitial?: boolean;
+}
+
+export interface ShowPlaylistLog {
+  showId: string;
+  showName: string;
+  hostName: string;
+  showDateTime: string;
+  logFileName: string;
+  playedTracks: ShowPlaylistLogTrackItem[];
+  cancelledTrackIds: string[];
+  unplayedTrackIds: string[];
+  breakPositions?: Record<string, number>;
+  trackMetadata?: Record<string, {
+    id: string;
+    fileName: string;
+    title?: string;
+    durationSeconds?: number;
+    artist?: string;
+    album?: string;
+  }>;
 }
 
 export interface Show {

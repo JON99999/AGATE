@@ -1306,7 +1306,7 @@ async function startServer() {
   // API - Load playlist tracks for a show
   app.post('/api/shows/playlist/load-tracks', async (req, res) => {
     try {
-      const { showNameShort, showName } = req.body;
+      const { showNameShort, showName, folderType } = req.body;
       if (!showNameShort && !showName) {
         return res.status(400).json({ error: 'showNameShort or showName is required' });
       }
@@ -1316,9 +1316,10 @@ async function startServer() {
         return res.json({ success: true, tracks: [], playlistFile: null });
       }
 
-      let playlistsPath = path.join(folderPath, 'Playlists');
-      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, 'playlists'))) {
-        playlistsPath = path.join(folderPath, 'playlists');
+      const baseSubfolder = folderType === 'Evergreens' ? 'Evergreens' : 'Playlists';
+      let playlistsPath = path.join(folderPath, baseSubfolder);
+      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, baseSubfolder.toLowerCase()))) {
+        playlistsPath = path.join(folderPath, baseSubfolder.toLowerCase());
       }
 
       const showFolderPath = findShowPlaylistFolder(playlistsPath, showNameShort, showName);
@@ -1367,7 +1368,7 @@ async function startServer() {
           album: meta?.album,
           durationSeconds: t.durationSeconds,
           durationFormatted: `${m}:${s.toString().padStart(2, '0')}`,
-          streamUrl: `/api/shows/playlist/stream-file?showNameShort=${encodeURIComponent(searchKey)}&showName=${encodeURIComponent(showName || '')}&file=${encodeURIComponent(t.fileName)}`
+          streamUrl: `/api/shows/playlist/stream-file?showNameShort=${encodeURIComponent(searchKey)}&showName=${encodeURIComponent(showName || '')}&file=${encodeURIComponent(t.fileName)}${folderType ? `&folderType=${folderType}` : ''}`
         };
       }));
 
@@ -1476,6 +1477,7 @@ async function startServer() {
       const showNameShort = req.query.showNameShort as string;
       const showName = req.query.showName as string;
       const file = req.query.file as string;
+      const folderType = (req.query.folderType as string) || 'Playlists';
       if ((!showNameShort && !showName) || !file) {
         return res.status(400).send('showNameShort/showName and file are required');
       }
@@ -1485,9 +1487,10 @@ async function startServer() {
         return res.status(404).send('Local source folder not defined or offline');
       }
 
-      let playlistsPath = path.join(folderPath, 'Playlists');
-      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, 'playlists'))) {
-        playlistsPath = path.join(folderPath, 'playlists');
+      const baseSubfolder = folderType === 'Evergreens' ? 'Evergreens' : 'Playlists';
+      let playlistsPath = path.join(folderPath, baseSubfolder);
+      if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, baseSubfolder.toLowerCase()))) {
+        playlistsPath = path.join(folderPath, baseSubfolder.toLowerCase());
       }
 
       const showFolderPath = findShowPlaylistFolder(playlistsPath, showNameShort, showName);
@@ -1700,6 +1703,119 @@ async function startServer() {
     } catch (e: any) {
       console.error('Failed to save playlist show log entry:', e);
       res.status(500).json({ error: 'Failed to save playlist log: ' + e.message });
+    }
+  });
+
+  // API - Dedicated Playlist Show JSON Log Save
+  app.post('/api/shows/playlist/save-log-json', (req, res) => {
+    try {
+      const { showNameShort, showName, showStartTime, logData, folderType } = req.body;
+      if (!showNameShort && !showName) {
+        return res.status(400).json({ error: 'showNameShort or showName is required' });
+      }
+
+      const folderPath = currentSettings.localPathMP3s;
+      let showFolderPath: string | null = null;
+
+      if (folderPath && fs.existsSync(folderPath)) {
+        const baseSubfolder = folderType === 'Evergreens' ? 'Evergreens' : 'Playlists';
+        let playlistsPath = path.join(folderPath, baseSubfolder);
+        if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, baseSubfolder.toLowerCase()))) {
+          playlistsPath = path.join(folderPath, baseSubfolder.toLowerCase());
+        }
+        if (!fs.existsSync(playlistsPath)) {
+          fs.mkdirSync(playlistsPath, { recursive: true });
+        }
+        const searchKey = showNameShort || showName;
+        showFolderPath = findShowPlaylistFolder(playlistsPath, showNameShort, showName);
+        if (!showFolderPath) {
+          showFolderPath = path.join(playlistsPath, String(searchKey).replace(/[\/\\?%*:|"<>]/g, '_'));
+          if (!fs.existsSync(showFolderPath)) {
+            fs.mkdirSync(showFolderPath, { recursive: true });
+          }
+        }
+      }
+
+      const dateObj = showStartTime ? new Date(showStartTime) : new Date();
+      const YYYY = dateObj.getFullYear();
+      const MM = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const DD = String(dateObj.getDate()).padStart(2, '0');
+      const HH = String(dateObj.getHours()).padStart(2, '0');
+      const min = String(dateObj.getMinutes()).padStart(2, '0');
+      const safeShowName = String(showNameShort || showName || 'Show').replace(/[\/\\?%*:|"<>]/g, '_');
+      const logFileName = `Log_${safeShowName}_${YYYY}_${MM}_${DD}_at_${HH}_${min}.json`;
+
+      if (showFolderPath) {
+        const filePath = path.join(showFolderPath, logFileName);
+        fs.writeFileSync(filePath, JSON.stringify(logData, null, 2), 'utf-8');
+      }
+
+      // Backup to Playlists log directory
+      const baseLogFilePath = getLogFilePath();
+      const baseLogDir = baseLogFilePath ? path.dirname(baseLogFilePath) : LOG_DIR;
+      const playlistLogsDir = path.join(baseLogDir, 'Playlists');
+      if (!fs.existsSync(playlistLogsDir)) {
+        fs.mkdirSync(playlistLogsDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(playlistLogsDir, logFileName), JSON.stringify(logData, null, 2), 'utf-8');
+
+      res.json({ success: true, logFileName });
+    } catch (e: any) {
+      console.error('Failed to save playlist JSON log:', e);
+      res.status(500).json({ error: 'Failed to save playlist JSON log: ' + e.message });
+    }
+  });
+
+  // API - Dedicated Playlist Show JSON Log Load
+  app.post('/api/shows/playlist/load-log-json', (req, res) => {
+    try {
+      const { showNameShort, showName, showStartTime, folderType } = req.body;
+      if (!showNameShort && !showName) {
+        return res.status(400).json({ error: 'showNameShort or showName is required' });
+      }
+
+      const dateObj = showStartTime ? new Date(showStartTime) : new Date();
+      const YYYY = dateObj.getFullYear();
+      const MM = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const DD = String(dateObj.getDate()).padStart(2, '0');
+      const HH = String(dateObj.getHours()).padStart(2, '0');
+      const min = String(dateObj.getMinutes()).padStart(2, '0');
+      const safeShowName = String(showNameShort || showName || 'Show').replace(/[\/\\?%*:|"<>]/g, '_');
+      const logFileName = `Log_${safeShowName}_${YYYY}_${MM}_${DD}_at_${HH}_${min}.json`;
+
+      const folderPath = currentSettings.localPathMP3s;
+      let foundData: any = null;
+
+      if (folderPath && fs.existsSync(folderPath)) {
+        const baseSubfolder = folderType === 'Evergreens' ? 'Evergreens' : 'Playlists';
+        let playlistsPath = path.join(folderPath, baseSubfolder);
+        if (!fs.existsSync(playlistsPath) && fs.existsSync(path.join(folderPath, baseSubfolder.toLowerCase()))) {
+          playlistsPath = path.join(folderPath, baseSubfolder.toLowerCase());
+        }
+        const showFolderPath = findShowPlaylistFolder(playlistsPath, showNameShort, showName);
+        if (showFolderPath) {
+          const filePath = path.join(showFolderPath, logFileName);
+          if (fs.existsSync(filePath)) {
+            const raw = fs.readFileSync(filePath, 'utf-8');
+            foundData = JSON.parse(raw);
+          }
+        }
+      }
+
+      if (!foundData) {
+        const baseLogFilePath = getLogFilePath();
+        const baseLogDir = baseLogFilePath ? path.dirname(baseLogFilePath) : LOG_DIR;
+        const backupPath = path.join(baseLogDir, 'Playlists', logFileName);
+        if (fs.existsSync(backupPath)) {
+          const raw = fs.readFileSync(backupPath, 'utf-8');
+          foundData = JSON.parse(raw);
+        }
+      }
+
+      res.json({ success: true, logFileName, logData: foundData });
+    } catch (e: any) {
+      console.error('Failed to load playlist JSON log:', e);
+      res.status(500).json({ error: 'Failed to load playlist JSON log: ' + e.message });
     }
   });
 

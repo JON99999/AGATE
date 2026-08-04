@@ -414,6 +414,30 @@ export const updateAudioCacheWithProgress = async (
     }
   }
 
+  for (const cachedUrl of Array.from(rawBlobCache.keys())) {
+    if (!activeSet.has(cachedUrl)) {
+      rawBlobCache.delete(cachedUrl);
+    }
+  }
+
+  for (const cachedUrl of Array.from(mp3MetadataCache.keys())) {
+    if (!activeSet.has(cachedUrl)) {
+      mp3MetadataCache.delete(cachedUrl);
+    }
+  }
+
+  for (const cachedUrl of Array.from(mp3DurationCache.keys())) {
+    if (!activeSet.has(cachedUrl)) {
+      mp3DurationCache.delete(cachedUrl);
+    }
+  }
+
+  for (const cachedUrl of Array.from(mp3WaveformCache.keys())) {
+    if (!activeSet.has(cachedUrl)) {
+      mp3WaveformCache.delete(cachedUrl);
+    }
+  }
+
   const uniqueActiveUrls = Array.from(new Set(activeUrls));
   let completed = 0;
   let failed = 0;
@@ -1342,7 +1366,8 @@ export const verifyEvergreensOnDrive = async (shows: Show[]): Promise<{
 export const loadPlaylistTracksFromDrive = async (
   showNameShort?: string,
   showName?: string,
-  mode: 'Local' | 'Drive' | 'Demo' = 'Drive'
+  mode: 'Local' | 'Drive' | 'Demo' = 'Drive',
+  parentFolder: 'Playlists' | 'Evergreens' = 'Playlists'
 ): Promise<{ tracks: Array<{ id: string; fileName: string; title: string; durationSeconds: number; durationFormatted: string; streamUrl: string }>; playlistFile: string | null }> => {
   const getDemoTracks = (nameKey: string) => {
     return [
@@ -1385,7 +1410,7 @@ export const loadPlaylistTracksFromDrive = async (
   }
 
   try {
-    const playlistsId = await getOrCreateDrivePlaylistsFolder();
+    const playlistsId = parentFolder === 'Evergreens' ? await getOrCreateDriveEvergreensFolder() : await getOrCreateDrivePlaylistsFolder();
     let showFolderId: string | null = null;
     if (showNameShort) {
       showFolderId = await findFileInFolderCaseInsensitive(showNameShort, playlistsId);
@@ -1550,6 +1575,98 @@ export const checkPlaylistShowFilesOnDrive = async (
   } catch (err) {
     console.error('Error checking playlist show files on Google Drive:', err);
     return { currentShowFileCount: 0, nextShowFileCount: 0 };
+  }
+};
+
+export const formatShowPlaylistLogFileName = (showNameShort: string, showStartTime?: string | Date): string => {
+  const safeShowName = String(showNameShort || 'Show').replace(/[\/\\?%*:|"<>]/g, '_');
+  const dateObj = showStartTime ? new Date(showStartTime) : new Date();
+  const YYYY = dateObj.getFullYear();
+  const MM = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const DD = String(dateObj.getDate()).padStart(2, '0');
+  const HH = String(dateObj.getHours()).padStart(2, '0');
+  const min = String(dateObj.getMinutes()).padStart(2, '0');
+  return `Log_${safeShowName}_${YYYY}_${MM}_${DD}_at_${HH}_${min}.json`;
+};
+
+const playlistLogFileIdCache = new Map<string, string>();
+const playlistLogSaveQueue = new Map<string, Promise<string>>();
+
+export const saveShowPlaylistLogToDrive = async (
+  showNameShort: string,
+  showName: string,
+  showStartTime: string | Date | undefined,
+  logData: any,
+  parentFolder: 'Playlists' | 'Evergreens' = 'Playlists'
+): Promise<string> => {
+  const fileName = formatShowPlaylistLogFileName(showNameShort || showName, showStartTime);
+
+  const previousSave = playlistLogSaveQueue.get(fileName) || Promise.resolve('');
+
+  const currentSave = (async () => {
+    try {
+      await previousSave;
+    } catch (e) {}
+
+    const playlistsId = parentFolder === 'Evergreens' ? await getOrCreateDriveEvergreensFolder() : await getOrCreateDrivePlaylistsFolder();
+    let showFolderId = await findFileInFolderCaseInsensitive(showNameShort, playlistsId);
+    if (!showFolderId && showName) {
+      showFolderId = await findFileInFolderCaseInsensitive(showName, playlistsId);
+    }
+    if (!showFolderId) {
+      showFolderId = await createFileInFolder(showNameShort || showName, playlistsId, 'application/vnd.google-apps.folder');
+    }
+
+    let fileId = playlistLogFileIdCache.get(fileName) || null;
+
+    if (!fileId) {
+      fileId = await findFileInFolderCaseInsensitive(fileName, showFolderId);
+    }
+
+    const jsonStr = JSON.stringify(logData, null, 2);
+
+    if (!fileId) {
+      fileId = await createFileInFolder(fileName, showFolderId, 'application/json');
+    }
+
+    if (fileId) {
+      playlistLogFileIdCache.set(fileName, fileId);
+      await uploadFileContent(fileId, jsonStr, 'application/json');
+    }
+
+    return fileName;
+  })();
+
+  playlistLogSaveQueue.set(fileName, currentSave);
+  return await currentSave;
+};
+
+export const loadShowPlaylistLogFromDrive = async (
+  showNameShort: string,
+  showName: string,
+  showStartTime: string | Date | undefined,
+  parentFolder: 'Playlists' | 'Evergreens' = 'Playlists'
+): Promise<any | null> => {
+  try {
+    const playlistsId = parentFolder === 'Evergreens' ? await getOrCreateDriveEvergreensFolder() : await getOrCreateDrivePlaylistsFolder();
+    let showFolderId = await findFileInFolderCaseInsensitive(showNameShort, playlistsId);
+    if (!showFolderId && showName) {
+      showFolderId = await findFileInFolderCaseInsensitive(showName, playlistsId);
+    }
+    if (!showFolderId) return null;
+
+    const fileName = formatShowPlaylistLogFileName(showNameShort || showName, showStartTime);
+    const fileId = playlistLogFileIdCache.get(fileName) || await findFileInFolderCaseInsensitive(fileName, showFolderId);
+    if (!fileId) return null;
+
+    playlistLogFileIdCache.set(fileName, fileId);
+
+    const res = await driveFetch(`drive/v3/files/${fileId}?alt=media`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.error('Error loading show playlist log from Drive:', err);
+    return null;
   }
 };
 

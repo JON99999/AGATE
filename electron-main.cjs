@@ -97,6 +97,233 @@ async function startServer() {
   }
 }
 
+function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
+  if (appMode === 'Player') {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+
+  const sendNavigate = (tab, subTab) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('navigate-tab', { tab, subTab });
+    }
+  };
+
+  const macAppMenu = isMac ? {
+    label: app.name || 'Interstitial-er',
+    submenu: [
+      { role: 'about' },
+      { type: 'separator' },
+      { role: 'services' },
+      { type: 'separator' },
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      { role: 'quit' }
+      /* REMOVED ITEM: Check for Updates (Commented out per spec)
+      ,
+      {
+        label: 'Check for Updates...',
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('check-for-updates');
+          }
+        }
+      }
+      */
+    ]
+  } : null;
+
+  const fileMenu = {
+    label: 'File',
+    submenu: [
+      ...(isMac ? [
+        { role: 'close' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ] : [
+        /* REMOVED ITEM: Check for Updates (Commented out per spec)
+        {
+          label: 'Check for Updates...',
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('check-for-updates');
+            }
+          }
+        },
+        { type: 'separator' },
+        */
+        { role: 'quit', label: 'Exit', accelerator: 'Alt+F4' }
+      ])
+    ]
+  };
+
+  /* REMOVED MENU: Edit Menu (Commented out per spec)
+  const editMenu = {
+    label: 'Edit',
+    submenu: [
+      { role: 'undo' },
+      { role: 'redo' },
+      { type: 'separator' },
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      { role: 'selectAll' }
+    ]
+  };
+  */
+
+  const viewMenu = {
+    label: 'View',
+    submenu: [
+      {
+        label: 'Player',
+        type: 'radio',
+        checked: activeTab === 'player',
+        click: () => sendNavigate('player')
+      },
+      {
+        label: 'Calendar',
+        type: activeTab === 'calendar' ? 'submenu' : 'radio',
+        checked: activeTab === 'calendar',
+        click: () => sendNavigate('calendar', calendarSubTab || 'calendar'),
+        ...(activeTab === 'calendar' ? {
+          submenu: [
+            {
+              label: 'Calendar Grid',
+              type: 'radio',
+              checked: calendarSubTab === 'calendar',
+              click: () => sendNavigate('calendar', 'calendar')
+            },
+            {
+              label: 'Interstitials',
+              type: 'radio',
+              checked: calendarSubTab === 'list',
+              click: () => sendNavigate('calendar', 'list')
+            },
+            {
+              label: 'Shows',
+              type: 'radio',
+              checked: calendarSubTab === 'shows',
+              click: () => sendNavigate('calendar', 'shows')
+            }
+          ]
+        } : {})
+      },
+      {
+        label: 'Log',
+        type: 'radio',
+        checked: activeTab === 'log',
+        click: () => sendNavigate('log')
+      },
+      { type: 'separator' },
+      {
+        label: 'Folders',
+        click: () => sendNavigate('folders')
+      },
+      { type: 'separator' },
+      {
+        label: 'Reload',
+        accelerator: isMac ? 'Cmd+R' : 'Ctrl+R',
+        click: (item, focusedWindow) => {
+          if (focusedWindow) focusedWindow.reload();
+        }
+      },
+      {
+        label: 'Toggle Full Screen',
+        accelerator: isMac ? 'Ctrl+Cmd+F' : 'F11',
+        click: (item, focusedWindow) => {
+          if (focusedWindow) focusedWindow.setFullScreen(!focusedWindow.isFullScreen());
+        }
+      }
+      /* REMOVED ITEMS: Sync to System Clock & View Keyboard Shortcuts (Commented out per spec)
+      ,
+      {
+        label: 'Sync to system clock',
+        click: () => sendNavigate('sync-clock')
+      },
+      {
+        label: 'View Keyboard Shortcuts',
+        click: () => sendNavigate('keyboard-shortcuts')
+      }
+      */
+    ]
+  };
+
+  const windowMenu = {
+    label: 'Window',
+    submenu: [
+      { role: 'minimize', accelerator: isMac ? 'Cmd+M' : undefined },
+      {
+        label: 'Maximize',
+        click: (item, focusedWindow) => {
+          if (focusedWindow) {
+            if (focusedWindow.isMaximized()) {
+              focusedWindow.unmaximize();
+            } else {
+              focusedWindow.maximize();
+            }
+          }
+        }
+      },
+      ...(isMac ? [
+        { role: 'zoom' },
+        { type: 'separator' },
+        { role: 'close', accelerator: 'Cmd+W' }
+      ] : [
+        { role: 'close', accelerator: 'Alt+F4' }
+      ])
+      /* REMOVED ITEMS: Open Live Read Viewer & Bring All to Front (Commented out per spec)
+      ,
+      {
+        label: 'Open Live Read Viewer',
+        click: () => {
+          if (global.spawnLiveRead) global.spawnLiveRead({});
+        }
+      },
+      { role: 'front' }
+      */
+    ]
+  };
+
+  const helpMenu = {
+    label: 'Help',
+    submenu: [
+      {
+        label: 'Local Help / User Manual',
+        click: () => sendNavigate('help')
+      },
+      {
+        label: 'About Interstitial-er',
+        click: () => {
+          dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            title: 'About Interstitial-er',
+            message: 'Interstitial-er',
+            detail: `Version 0.12.1\nCross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.`
+          });
+        }
+      }
+    ]
+  };
+
+  const template = [
+    ...(macAppMenu ? [macAppMenu] : []),
+    fileMenu,
+    viewMenu,
+    windowMenu,
+    helpMenu
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
+ipcMain.on('set-active-tab-menu', (event, { tab, subTab }) => {
+  buildAppMenu(tab, subTab);
+});
+
 function createWindow() {
   const disableShadows = DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC && isIntelMac;
 
@@ -131,6 +358,8 @@ function createWindow() {
       windowOptions.minWidth = 250;
       windowOptions.maxWidth = 250;
     }
+  } else {
+    buildAppMenu('player', 'calendar');
   }
 
   mainWindow = new BrowserWindow(windowOptions);
