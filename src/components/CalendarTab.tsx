@@ -401,7 +401,8 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
         const createdMsg = data.createdFolders.length > 0 
           ? `\n\nCreated folders for shows: ${data.createdFolders.join(', ')}`
           : '';
-        alert(`Evergreen & Playlist folder verification completed successfully in Google Drive!\n\nEvergreens Location: ${data.evergreensPath}\nPlaylists Location: ${data.playlistsPath}${createdMsg}`);
+        const intersLoc = data.interstitialsPath ? `\nInterstitials Location: ${data.interstitialsPath}` : '';
+        alert(`Evergreen, Playlist & Interstitial folder verification completed successfully in Google Drive!\n\nEvergreens Location: ${data.evergreensPath}\nPlaylists Location: ${data.playlistsPath}${intersLoc}${createdMsg}`);
         return;
       }
 
@@ -412,16 +413,22 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to verify evergreen/playlist folders');
+        throw new Error(data.error || 'Failed to verify evergreen/playlist/interstitial folders');
+      }
+
+      if (data.interstitialsReadonlyError) {
+        alert(`Warning: ${data.interstitialsReadonlyMessage}`);
+        return;
       }
       
       const createdMsg = data.createdFolders.length > 0 
         ? `\n\nCreated folders for shows: ${data.createdFolders.join(', ')}`
         : '';
       const playlistsLoc = data.playlistsPath ? `\nPlaylists Location: ${data.playlistsPath}` : '';
-      alert(`Evergreen & Playlist folder verification completed successfully!\n\nEvergreens Location: ${data.evergreensPath}${playlistsLoc}${createdMsg}`);
+      const intersLoc = data.interstitialsPath ? `\nInterstitials Location: ${data.interstitialsPath}` : '';
+      alert(`Evergreen, Playlist & Interstitial folder verification completed successfully!\n\nEvergreens Location: ${data.evergreensPath}${playlistsLoc}${intersLoc}${createdMsg}`);
     } catch (err: any) {
-      alert(`Error verifying evergreen folders:\n${err.message}`);
+      alert(`Error verifying folders:\n${err.message}`);
     } finally {
       setIsVerifyingEvergreens(false);
     }

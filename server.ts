@@ -56,7 +56,18 @@ function getCalendarFilePath() {
         fs.mkdirSync(currentSettings.localPathCalendar, { recursive: true });
       } catch (e) {}
     }
-    return path.join(currentSettings.localPathCalendar, 'interstitials.json');
+    const targetFile = path.join(currentSettings.localPathCalendar, 'interstitials.json');
+    // If interstitials.json was saved in a subfolder during previous operation, copy back if needed
+    if (!fs.existsSync(targetFile)) {
+      const subFolderFile = path.join(currentSettings.localPathCalendar, 'Interstitials', 'interstitials.json');
+      const mediaSubFolderFile = currentSettings.localPathMP3s ? path.join(currentSettings.localPathMP3s, 'Interstitials', 'interstitials.json') : null;
+      if (fs.existsSync(subFolderFile)) {
+        try { fs.copyFileSync(subFolderFile, targetFile); } catch (e) {}
+      } else if (mediaSubFolderFile && fs.existsSync(mediaSubFolderFile)) {
+        try { fs.copyFileSync(mediaSubFolderFile, targetFile); } catch (e) {}
+      }
+    }
+    return targetFile;
   }
   return SCHEDULE_FILE_DEFAULT;
 }
@@ -81,10 +92,9 @@ function getLogBackupPath() {
 }
 
 function getCalendarBackupPath() {
-  if (currentSettings.mode === 'Local' && currentSettings.localPathCalendar) {
-    return path.join(currentSettings.localPathCalendar, 'backups', 'interstitials_backup.json');
-  }
-  return path.join(DATA_DIR, 'backups', 'interstitials_backup.json');
+  const calendarPath = getCalendarFilePath();
+  const calendarDir = path.dirname(calendarPath);
+  return path.join(calendarDir, 'backups', 'interstitials_backup.json');
 }
 
 function getShowsFilePath() {
@@ -382,11 +392,19 @@ async function startServer() {
       const logsExists = localPathLogs ? fs.existsSync(localPathLogs) : true;
       const schedExists = localPathCalendar ? fs.existsSync(localPathCalendar) : true;
 
+      let interstitialsFolderExists = true;
+      if (localPathMP3s && fs.existsSync(localPathMP3s)) {
+        const intersDir = path.join(localPathMP3s, 'Interstitials');
+        const lowerIntersDir = path.join(localPathMP3s, 'interstitials');
+        interstitialsFolderExists = fs.existsSync(intersDir) || fs.existsSync(lowerIntersDir);
+      }
+
       res.json({
         exists: mp3Exists && logsExists && schedExists,
         mp3Exists,
         logsExists,
-        schedExists
+        schedExists,
+        interstitialsFolderExists
       });
     } catch (e) {
       res.json({ exists: false });
@@ -398,6 +416,8 @@ async function startServer() {
     try {
       const { localPathMP3s, localPathLogs, localPathCalendar } = req.body;
       let createdCount = 0;
+      let interstitialsReadonlyError = false;
+      let interstitialsReadonlyMessage = '';
 
       [localPathMP3s, localPathLogs, localPathCalendar].forEach(dirPath => {
         if (dirPath && !fs.existsSync(dirPath)) {
@@ -406,7 +426,24 @@ async function startServer() {
         }
       });
 
-      res.json({ success: true, createdCount });
+      if (localPathMP3s && fs.existsSync(localPathMP3s)) {
+        let intersDir = path.join(localPathMP3s, 'Interstitials');
+        if (!fs.existsSync(intersDir) && fs.existsSync(path.join(localPathMP3s, 'interstitials'))) {
+          intersDir = path.join(localPathMP3s, 'interstitials');
+        }
+        if (!fs.existsSync(intersDir)) {
+          try {
+            fs.mkdirSync(intersDir, { recursive: true });
+            createdCount++;
+          } catch (err: any) {
+            console.error('Failed to create Interstitials folder in localPathMP3s:', err);
+            interstitialsReadonlyError = true;
+            interstitialsReadonlyMessage = "The 'interstitials' folder does not exist in your Media folder and could not be created because the directory is read-only. Administrator assistance is required to set folder permissions or create the 'interstitials' folder manually.";
+          }
+        }
+      }
+
+      res.json({ success: true, createdCount, interstitialsReadonlyError, interstitialsReadonlyMessage });
     } catch (e: any) {
       res.status(500).json({ error: e.message || 'Failed to auto-create paths' });
     }
@@ -494,7 +531,14 @@ async function startServer() {
       if (!folderPath || !fs.existsSync(folderPath)) {
         return res.json([]);
       }
-      const files = fs.readdirSync(folderPath);
+      let targetDir = path.join(folderPath, 'Interstitials');
+      if (!fs.existsSync(targetDir) && fs.existsSync(path.join(folderPath, 'interstitials'))) {
+        targetDir = path.join(folderPath, 'interstitials');
+      }
+      if (!fs.existsSync(targetDir)) {
+        return res.json([]);
+      }
+      const files = fs.readdirSync(targetDir);
       const allowedExtensions = ['.mp3', '.txt', '.pdf', '.png', '.jpg', '.jpeg'];
       const mp3List = files
         .filter(f => {
@@ -502,7 +546,7 @@ async function startServer() {
           return allowedExtensions.includes(ext);
         })
         .map(f => {
-          const fullPath = path.join(folderPath, f);
+          const fullPath = path.join(targetDir, f);
           const stats = fs.statSync(fullPath);
           const ext = path.extname(f).toLowerCase();
           const isScript = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].includes(ext);
@@ -515,7 +559,7 @@ async function startServer() {
         });
       res.json(mp3List);
     } catch (e: any) {
-      console.error('Failed to read local MP3 directory:', e);
+      console.error('Failed to read local Interstitials directory:', e);
       res.status(500).json([]);
     }
   });
@@ -531,12 +575,19 @@ async function startServer() {
         return res.status(404).send('Local source folder not defined or offline');
       }
 
-      // Safe basename resolve prevents directory escapes
-      const targetFilePath = path.join(folderPath, path.basename(file));
+      // Safe basename resolve inside Interstitials subfolder only
+      let targetFilePath = path.join(folderPath, 'Interstitials', path.basename(file));
+      if (!fs.existsSync(targetFilePath)) {
+        const lowerIntersSub = path.join(folderPath, 'interstitials', path.basename(file));
+        if (fs.existsSync(lowerIntersSub)) {
+          targetFilePath = lowerIntersSub;
+        }
+      }
+
       if (fs.existsSync(targetFilePath)) {
         res.sendFile(targetFilePath);
       } else {
-        res.status(404).send('File not found in local directory');
+        res.status(404).send('File not found in Interstitials directory');
       }
     } catch (e: any) {
       res.status(500).send(e.message || 'Streaming failed');
@@ -554,9 +605,16 @@ async function startServer() {
         return res.status(404).json({ error: 'Media & Scripts folder not defined or offline' });
       }
 
-      const targetFilePath = path.join(folderPath, path.basename(file));
+      let targetFilePath = path.join(folderPath, 'Interstitials', path.basename(file));
       if (!fs.existsSync(targetFilePath)) {
-        return res.status(404).json({ error: 'File not found' });
+        const lowerIntersSub = path.join(folderPath, 'interstitials', path.basename(file));
+        if (fs.existsSync(lowerIntersSub)) {
+          targetFilePath = lowerIntersSub;
+        }
+      }
+
+      if (!fs.existsSync(targetFilePath)) {
+        return res.status(404).json({ error: 'File not found in Interstitials directory' });
       }
 
       const ext = path.extname(file).toLowerCase();
@@ -821,7 +879,7 @@ async function startServer() {
     }
   });
 
-  // API - Verify Evergreen & Playlist folders
+  // API - Verify Evergreen, Playlist, and Interstitial folders
   app.post('/api/shows/verify-evergreens', (req, res) => {
     try {
       const folderPath = currentSettings.localPathMP3s;
@@ -846,6 +904,25 @@ async function startServer() {
       if (!fs.existsSync(playlistsPath)) {
         fs.mkdirSync(playlistsPath, { recursive: true });
         playlistsFolderCreated = true;
+      }
+
+      let interstitialsPath = path.join(folderPath, 'Interstitials');
+      if (!fs.existsSync(interstitialsPath) && fs.existsSync(path.join(folderPath, 'interstitials'))) {
+        interstitialsPath = path.join(folderPath, 'interstitials');
+      }
+      let interstitialsFolderCreated = false;
+      let interstitialsReadonlyError = false;
+      let interstitialsReadonlyMessage = '';
+
+      if (!fs.existsSync(interstitialsPath)) {
+        try {
+          fs.mkdirSync(interstitialsPath, { recursive: true });
+          interstitialsFolderCreated = true;
+        } catch (mkErr: any) {
+          console.error('Failed to create Interstitials folder in media directory:', mkErr);
+          interstitialsReadonlyError = true;
+          interstitialsReadonlyMessage = "The 'interstitials' folder does not exist in your Media folder and could not be created because the directory is read-only. Administrator assistance is required to set folder permissions or create the 'interstitials' folder manually.";
+        }
       }
 
       const showsFilePath = getShowsFilePath();
@@ -889,8 +966,12 @@ async function startServer() {
         success: true,
         evergreensFolderCreated,
         playlistsFolderCreated,
+        interstitialsFolderCreated,
+        interstitialsReadonlyError,
+        interstitialsReadonlyMessage,
         evergreensPath,
         playlistsPath,
+        interstitialsPath,
         createdFolders
       });
     } catch (err: any) {

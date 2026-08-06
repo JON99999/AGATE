@@ -602,7 +602,7 @@ async function uploadFileContent(fileId: string, content: string, mimeType: stri
 // Higher level API functions
 
 /**
- * Load schedules from Drive schedules.json in folder
+ * Load schedules from Drive interstitials.json in preferences folder
  */
 export const loadCalendarFromDrive = async (): Promise<Interstitial[]> => {
   try {
@@ -627,7 +627,7 @@ export const loadCalendarFromDrive = async (): Promise<Interstitial[]> => {
 };
 
 /**
- * Save schedules to Drive schedules.json
+ * Save schedules to Drive interstitials.json in preferences folder
  */
 export const saveCalendarToDrive = async (schedules: Interstitial[]): Promise<void> => {
   try {
@@ -1086,7 +1086,10 @@ export interface DriveMP3 {
 
 export const listMP3sFromDrive = async (): Promise<DriveMP3[]> => {
   try {
-    const query = encodeURIComponent(`'${DRIVE_FOLDERS.mp3s}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`);
+    const interstitialsFolderId = await getOrCreateDriveInterstitialsFolder();
+    if (!interstitialsFolderId) return [];
+
+    const query = encodeURIComponent(`'${interstitialsFolderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`);
     const res = await driveFetch(`drive/v3/files?q=${query}&fields=files(id,name,size)&pageSize=100`);
     const data = await res.json();
     if (!data.files) return [];
@@ -1107,7 +1110,7 @@ export const listMP3sFromDrive = async (): Promise<DriveMP3[]> => {
       };
     });
   } catch (err) {
-    console.error('Error listing MP3s from Google Drive:', err);
+    console.error('Error listing MP3s from Google Drive Interstitials folder:', err);
     return [];
   }
 };
@@ -1181,6 +1184,21 @@ export const validateGoogleDriveAccess = async (): Promise<boolean> => {
     console.error('Error validating Google Drive shared links:', err);
     return false;
   }
+};
+
+export const getOrCreateDriveInterstitialsFolder = async (): Promise<string> => {
+  const mp3sFolder = DRIVE_FOLDERS.mp3s;
+  if (!mp3sFolder) {
+    throw new Error('Google Drive Media & Scripts folder is not configured. Please set it in Settings.');
+  }
+  let interstitialsId = await findFileInFolderCaseInsensitive('Interstitials', mp3sFolder);
+  if (!interstitialsId) {
+    interstitialsId = await findFileInFolderCaseInsensitive('interstitials', mp3sFolder);
+  }
+  if (!interstitialsId) {
+    interstitialsId = await createFileInFolder('Interstitials', mp3sFolder, 'application/vnd.google-apps.folder');
+  }
+  return interstitialsId;
 };
 
 export const getOrCreateDriveEvergreensFolder = async (): Promise<string> => {
@@ -1302,8 +1320,10 @@ export const verifyEvergreensOnDrive = async (shows: Show[]): Promise<{
   success: boolean;
   evergreensFolderCreated: boolean;
   playlistsFolderCreated: boolean;
+  interstitialsFolderCreated: boolean;
   evergreensPath: string;
   playlistsPath: string;
+  interstitialsPath: string;
   createdFolders: string[];
 }> => {
   try {
@@ -1326,6 +1346,16 @@ export const verifyEvergreensOnDrive = async (shows: Show[]): Promise<{
     if (!playlistsId) {
       playlistsId = await createFileInFolder('Playlists', mp3sFolder, 'application/vnd.google-apps.folder');
       playlistsFolderCreated = true;
+    }
+
+    let interstitialsFolderCreated = false;
+    let interstitialsId = await findFileInFolderCaseInsensitive('Interstitials', mp3sFolder);
+    if (!interstitialsId) {
+      interstitialsId = await findFileInFolderCaseInsensitive('interstitials', mp3sFolder);
+    }
+    if (!interstitialsId) {
+      interstitialsId = await createFileInFolder('Interstitials', mp3sFolder, 'application/vnd.google-apps.folder');
+      interstitialsFolderCreated = true;
     }
 
     const createdFolders: string[] = [];
@@ -1353,8 +1383,10 @@ export const verifyEvergreensOnDrive = async (shows: Show[]): Promise<{
       success: true,
       evergreensFolderCreated,
       playlistsFolderCreated,
+      interstitialsFolderCreated,
       evergreensPath: 'Google Drive: /medialibrary/Evergreens',
       playlistsPath: 'Google Drive: /medialibrary/Playlists',
+      interstitialsPath: 'Google Drive: /medialibrary/Interstitials',
       createdFolders
     };
   } catch (err: any) {

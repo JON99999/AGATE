@@ -87,6 +87,7 @@ import {
   listMP3sFromDrive,
   updateAudioCache,
   updateAudioCacheWithProgress,
+  getPlayableUrl,
   CachingProgressReport,
   DRIVE_FOLDERS,
   mp3BlobCache,
@@ -336,7 +337,7 @@ export default function App() {
     targetMode: "Live" | "Prerecord" | "Export" | "Playlist",
     additionalUrls?: string[]
   ) => {
-    if (additionalUrls && additionalUrls.length > 0) {
+    if (additionalUrls) {
       setCurrentPlaylistTrackUrls(additionalUrls);
     }
 
@@ -344,12 +345,12 @@ export default function App() {
       .filter((s) => s.enabled && s.mp3Url)
       .map((s) => s.mp3Url);
 
-    const playlistUrls = (additionalUrls && additionalUrls.length > 0)
+    const playlistUrls = additionalUrls !== undefined
       ? additionalUrls
       : currentPlaylistTrackUrls;
 
     let activeUrls: string[] = [];
-    if (targetMode === "Playlist" || (playlistUrls && playlistUrls.length > 0)) {
+    if (targetMode === "Playlist" || targetMode === "Prerecord" || targetMode === "Export" || (playlistUrls && playlistUrls.length > 0)) {
       activeUrls = Array.from(new Set([...interstitialUrls, ...playlistUrls]));
     } else {
       activeUrls = Array.from(new Set(interstitialUrls));
@@ -357,39 +358,57 @@ export default function App() {
 
     activeUrls = activeUrls.filter(Boolean);
 
-    if (activeUrls.length === 0) {
-      return;
-    }
-
-    const allAlreadyCached = activeUrls.length > 0 && activeUrls.every(url => mp3BlobCache.has(url));
-
     setCachingTargetMode(targetMode);
-    if (!allAlreadyCached) {
+
+    // If additionalUrls has not been supplied yet for dynamic modes ("Playlist", "Prerecord", "Export"),
+    // PlayerTab is still fetching tracks asynchronously from Drive. Keep modal open & background blurred.
+    if (additionalUrls === undefined && (targetMode === "Playlist" || targetMode === "Prerecord" || targetMode === "Export")) {
       setShowCachingModal(true);
       setCachingProgress({
-        total: activeUrls.length,
+        total: 0,
         completed: 0,
         failed: 0,
         errors: [],
         isComplete: false
       });
+      return;
     }
+
+    // Check which active URLs are not cached yet
+    const uncachedUrls = activeUrls.filter(url => {
+      const fileInCache = availableFilesCache.get(url);
+      const resolvedUrl = fileInCache ? fileInCache.path : url;
+      return !mp3BlobCache.has(resolvedUrl) && !mp3BlobCache.has(url) && !getPlayableUrl(url).startsWith('blob:');
+    });
+
+    if (uncachedUrls.length === 0) {
+      // If no caching is needed, close the modal ASAP
+      setShowCachingModal(false);
+      return;
+    }
+
+    // Uncached files exist -> show caching modal with background blurred immediately
+    setShowCachingModal(true);
+    setCachingProgress({
+      total: activeUrls.length,
+      completed: activeUrls.length - uncachedUrls.length,
+      failed: 0,
+      errors: [],
+      isComplete: false
+    });
 
     const report = await updateAudioCacheWithProgress(
       activeUrls,
       getAccessToken() || token,
       (currentReport) => {
-        if (!allAlreadyCached) {
-          setCachingProgress(currentReport);
-        }
+        setCachingProgress(currentReport);
       }
     );
 
     if (report.isComplete) {
-      if (report.failed === 0 && !allAlreadyCached) {
-        setTimeout(() => {
-          setShowCachingModal(false);
-        }, 1200);
+      if (report.failed === 0) {
+        // Close card ASAP (no delay)
+        setShowCachingModal(false);
       }
     }
   };
@@ -606,6 +625,7 @@ export default function App() {
     useState("");
 
   const [localPathsUnavailable, setLocalPathsUnavailable] = useState(false);
+  const [interstitialsReadOnlyError, setInterstitialsReadOnlyError] = useState<string | null>(null);
   const [locationsError, setLocationsError] = useState<string | null>(null);
   const [locationsSuccess, setLocationsSuccess] = useState<string | null>(null);
 
@@ -1018,6 +1038,17 @@ export default function App() {
           setIsDriveActive(true);
           setIsDriveValidated(true);
           setConnectionError(null);
+
+          fetch("/api/shows/verify-evergreens", { method: "POST" })
+            .then((r) => r.json())
+            .then((resData) => {
+              if (resData && resData.interstitialsReadonlyError) {
+                setInterstitialsReadOnlyError(resData.interstitialsReadonlyMessage);
+              } else {
+                setInterstitialsReadOnlyError(null);
+              }
+            })
+            .catch((e) => console.error("Verify folders check failed:", e));
         } catch (e) {
           console.error("Local mode fetch details failed:", e);
           setIsDriveValidated(false);
@@ -1673,6 +1704,9 @@ export default function App() {
     setSelectedPlaylistShow(targetShow);
     setPlayMode("Playlist");
     setShowPlaylistModal(false);
+    setShowCachingModal(true);
+    setCachingTargetMode("Playlist");
+    setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
     triggerCachingForMode("Playlist");
   };
 
@@ -1680,6 +1714,9 @@ export default function App() {
     setSelectedPlaylistShow(targetShow);
     setPlayMode("Playlist");
     setShowPlaylistModal(false);
+    setShowCachingModal(true);
+    setCachingTargetMode("Playlist");
+    setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
     triggerCachingForMode("Playlist");
   };
 
@@ -1796,6 +1833,9 @@ export default function App() {
       setShowPrerecordModal(false);
       setPrerecordConfirmDetails(null);
       handleRefresh();
+      setShowCachingModal(true);
+      setCachingTargetMode(prerecordModalTarget);
+      setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
       triggerCachingForMode(prerecordModalTarget);
     } catch (err: any) {
       setPrerecordError(
@@ -1813,6 +1853,10 @@ export default function App() {
       setShowPrerecordModal(false);
       setPrerecordConfirmDetails(null);
       handleRefresh();
+      setShowCachingModal(true);
+      setCachingTargetMode(prerecordModalTarget);
+      setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
+      triggerCachingForMode(prerecordModalTarget);
     }
   };
 
@@ -2740,6 +2784,37 @@ export default function App() {
           </div>
         )}
 
+        {/* Read-Only Interstitials Folder Warning Banner */}
+        {interstitialsReadOnlyError && !connectionError && (
+          <div
+            className={cn(
+              "mx-auto px-4 mt-3 transition-all shrink-0",
+              activeTab === "player"
+                ? "max-w-[400px]"
+                : "max-w-full md:px-6 lg:px-8",
+            )}
+          >
+            <div className="bg-amber-950/70 border border-amber-500/50 text-amber-200 rounded-xl p-3 flex flex-col gap-1.5 shadow-sm">
+              <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-amber-400">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                Read-Only Folder Warning — Administrator Help Needed
+              </div>
+              <p className="text-xs font-bold leading-relaxed text-amber-100">
+                {interstitialsReadOnlyError}
+              </p>
+              <div className="mt-1 flex gap-2">
+                <button
+                  onClick={() => setShowLocationsModal(true)}
+                  className="flex items-center gap-1.5 py-1 px-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs uppercase tracking-wider rounded border border-amber-400 transition cursor-pointer active:translate-y-px"
+                >
+                  <Folder className="w-3 h-3 shrink-0" />
+                  <span>Configure folders</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Missing Files Warning Banner */}
         {(() => {
           if (connectionError) return null;
@@ -3070,6 +3145,9 @@ export default function App() {
                     onClick={() => {
                       confirmNavAction(() => {
                         if (playMode !== "Live") {
+                          setShowCachingModal(true);
+                          setCachingTargetMode("Live");
+                          setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
                           setPlayMode("Live");
                           setPrerecordDate(null);
                           handleRefresh();
@@ -3200,9 +3278,13 @@ export default function App() {
                         onClick: () => {
                           confirmNavAction(() => {
                             if (playMode !== "Live") {
+                              setShowCachingModal(true);
+                              setCachingTargetMode("Live");
+                              setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
                               setPlayMode("Live");
                               setPrerecordDate(null);
                               handleRefresh();
+                              triggerCachingForMode("Live");
                             }
                           });
                         },
@@ -4217,6 +4299,12 @@ export default function App() {
                           Directory location where logs are stored sequentially.
                         </p>
                       </div>
+
+                      {interstitialsReadOnlyError && (
+                        <div className="p-3 bg-amber-950/20 border border-amber-500/50 text-amber-900 rounded text-xs leading-relaxed font-bold">
+                          ⚠️ {interstitialsReadOnlyError}
+                        </div>
+                      )}
 
                       {localPathsUnavailable && (
                         <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded text-xs leading-relaxed font-medium">
@@ -5404,22 +5492,24 @@ export default function App() {
                     <span className="text-slate-300">
                       {cachingProgress.isComplete 
                         ? (cachingProgress.failed > 0 ? 'Caching Completed with Errors' : 'Caching Complete!') 
-                        : `Caching audio files (${cachingProgress.completed + cachingProgress.failed} / ${cachingProgress.total})`}
+                        : (cachingProgress.total > 0 
+                            ? `Caching audio files (${cachingProgress.completed + cachingProgress.failed} / ${cachingProgress.total})`
+                            : 'Loading & verifying audio assets...')}
                     </span>
                     <span className="text-purple-400 font-mono">
                       {cachingProgress.total > 0 
                         ? `${Math.round(((cachingProgress.completed + cachingProgress.failed) / cachingProgress.total) * 100)}%`
-                        : '0%'}
+                        : '...'}
                     </span>
                   </div>
                   {/* Progress Bar */}
                   <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
                     <div 
-                      className={`h-full transition-all duration-200 ${cachingProgress.failed > 0 ? 'bg-amber-500' : 'bg-purple-500'}`}
+                      className={`h-full transition-all duration-200 ${cachingProgress.failed > 0 ? 'bg-amber-500' : 'bg-purple-500'} ${cachingProgress.total === 0 ? 'animate-pulse' : ''}`}
                       style={{ 
                         width: cachingProgress.total > 0 
                           ? `${Math.round(((cachingProgress.completed + cachingProgress.failed) / cachingProgress.total) * 100)}%` 
-                          : '0%' 
+                          : '100%' 
                       }}
                     />
                   </div>

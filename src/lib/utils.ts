@@ -68,6 +68,20 @@ export const formatDuration = (seconds: number) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
+export const formatTotalTrackTime = (seconds: number): string => {
+  const totalSec = Math.max(0, Math.round(seconds));
+  const days = Math.floor(totalSec / 86400);
+  const hrs = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hrs > 0) parts.push(`${hrs}hr`);
+  if (mins > 0 || parts.length === 0) parts.push(`${mins}min`);
+
+  return parts.join(' ');
+};
+
 export interface Mp3ID3Metadata {
   title?: string;
   artist?: string;

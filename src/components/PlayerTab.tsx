@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo, useRef, Fragment } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, Fragment } from 'react';
 import { format, addMinutes, subMinutes, subDays, isSameMinute, isBefore, isAfter, startOfMinute, differenceInSeconds, parseISO } from 'date-fns';
 import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download, Ear, FileText, Volume2, ListMusic, ChevronUp, ChevronDown, RotateCcw, Music, Flag, ListPlus } from 'lucide-react';
 import { Interstitial, InterstitialType, LogEntry, Show } from '../types';
-import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getSortedShows, getShowShade, readMp3ID3Metadata, Mp3ID3Metadata, formatDuration } from '../lib/utils';
+import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getSortedShows, getShowShade, readMp3ID3Metadata, Mp3ID3Metadata, formatDuration, formatTotalTrackTime } from '../lib/utils';
 import LiveReadPopout from './LiveReadPopout';
 import { WaveformVisualizer } from './WaveformVisualizer';
 import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache, updateAudioCache, getAccessToken, driveFileNameCache, loadPlaylistTracksFromDrive, saveShowPlaylistLogToDrive, loadShowPlaylistLogFromDrive, formatShowPlaylistLogFileName, getSavedSettings } from '../lib/driveService';
@@ -595,13 +595,12 @@ export default function PlayerTab({
       const trackUrls = serverTracks.map((t: any) => t.streamUrl).filter(Boolean);
       const trackUrlsHash = trackUrls.join(',');
       const token = getAccessToken();
-      if (trackUrls.length > 0 && lastTriggeredCacheHashRef.current !== trackUrlsHash) {
+      if (onTriggerCaching) {
+        onTriggerCaching((playMode as any) || 'Playlist', trackUrls);
         lastTriggeredCacheHashRef.current = trackUrlsHash;
-        if (onTriggerCaching) {
-          onTriggerCaching('Playlist', trackUrls);
-        } else {
-          updateAudioCache(trackUrls, token).catch(e => console.warn('Playlist track pre-caching error:', e));
-        }
+      } else if (trackUrls.length > 0 && lastTriggeredCacheHashRef.current !== trackUrlsHash) {
+        lastTriggeredCacheHashRef.current = trackUrlsHash;
+        updateAudioCache(trackUrls, token).catch(e => console.warn('Playlist track pre-caching error:', e));
       }
 
       // Asynchronously load ID3 metadata for tooltips & log
@@ -663,6 +662,9 @@ export default function PlayerTab({
     } catch (err: any) {
       if (currentSyncId !== syncRequestIdRef.current) return;
       console.error('Failed to sync playlist tracks:', err);
+      if (onTriggerCaching) {
+        onTriggerCaching((playMode as any) || 'Playlist', []);
+      }
       if (isInitial) {
         setPlaylistError(err.message || 'Error loading playlist tracks');
       }
@@ -937,6 +939,10 @@ export default function PlayerTab({
   const [duration, setDuration] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const activeItemRef = useRef<HTMLDivElement>(null);
+  const userScrollTopRef = useRef<number | null>(null);
+  const lastModeRef = useRef<string | null>(null);
+  const isAutoScrollingRef = useRef<boolean>(false);
+  const prevScrollTriggerRef = useRef<number>(scrollTrigger);
 
   const persistentHeaderRef = useRef<HTMLDivElement>(null);
   const persistentLeftStripRef = useRef<HTMLDivElement>(null);
@@ -949,6 +955,9 @@ export default function PlayerTab({
     if (!container) return;
 
     const handleScroll = () => {
+      if (scrollContainerRef.current && !isAutoScrollingRef.current) {
+        userScrollTopRef.current = scrollContainerRef.current.scrollTop;
+      }
       if (persistentTitleRef.current && persistentLeftStripRef.current && persistentTextBoxRef.current) {
         if (playMode === 'Playlist' || playMode === 'Prerecord' || playMode === 'Export') {
           const defaultTitle = playMode === 'Export' ? 'Export Mode' : playMode === 'Prerecord' ? 'Prerecord Mode' : 'Playlist Mode';
@@ -1107,25 +1116,85 @@ export default function PlayerTab({
     return () => clearTimeout(timer);
   }, [shows, scrollTrigger, playMode, playlistShow, effectiveShow]);
 
-  // Auto-scroll logic: centered on "now" indicator or scrolled to top for Prerecord
+  // Auto-scroll logic: centered on "now" indicator or scrolled to top for Prerecord on initial mode switch or "Now" refresh click,
+  // while preserving exact user scroll position across track re-orders, automated background updates, and post-cache updates.
   useEffect(() => {
-    // Small timeout to ensure DOM layout has settled after data load/render
-    const timer = setTimeout(() => {
-      if (playMode === 'Prerecord') {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const isModeSwitch = lastModeRef.current !== playMode;
+    const isSyncTriggered = prevScrollTriggerRef.current !== scrollTrigger;
+
+    if (isModeSwitch || isSyncTriggered) {
+      lastModeRef.current = playMode;
+      prevScrollTriggerRef.current = scrollTrigger;
+      userScrollTopRef.current = null;
+      isAutoScrollingRef.current = true;
+
+      const performAutoScroll = () => {
+        const cont = scrollContainerRef.current;
+        if (!cont) return;
+
+        if (playMode === 'Prerecord') {
+          cont.scrollTop = 0;
+        } else if (playMode === 'Live') {
+          const nowEl = (cont.querySelector('#now-indicator') as HTMLElement) || activeItemRef.current;
+          if (nowEl) {
+            const containerRect = cont.getBoundingClientRect();
+            const targetRect = nowEl.getBoundingClientRect();
+            const targetTop = targetRect.top - containerRect.top + cont.scrollTop;
+            cont.scrollTop = Math.max(0, targetTop - (cont.clientHeight / 2) + (targetRect.height / 2));
+          } else {
+            cont.scrollTop = 0;
+          }
+        } else if (playMode === 'Playlist') {
+          const targetEl = (cont.querySelector('#now-indicator') as HTMLElement) || activeItemRef.current;
+          if (targetEl) {
+            const containerRect = cont.getBoundingClientRect();
+            const targetRect = targetEl.getBoundingClientRect();
+            const targetTop = targetRect.top - containerRect.top + cont.scrollTop;
+            cont.scrollTop = Math.max(0, targetTop - (cont.clientHeight / 2) + (targetRect.height / 2));
+          } else {
+            cont.scrollTop = 0;
+          }
+        } else if (playMode === 'Export') {
+          const targetEl = (cont.querySelector('#export-start-indicator') as HTMLElement) || activeItemRef.current;
+          if (targetEl) {
+            const containerRect = cont.getBoundingClientRect();
+            const targetRect = targetEl.getBoundingClientRect();
+            const targetTop = targetRect.top - containerRect.top + cont.scrollTop;
+            cont.scrollTop = Math.max(0, targetTop - (cont.clientHeight / 2) + (targetRect.height / 2));
+          } else {
+            cont.scrollTo({ top: 0, behavior: 'auto' });
+          }
+        }
+
         if (scrollContainerRef.current) {
-          scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+          userScrollTopRef.current = scrollContainerRef.current.scrollTop;
         }
-      } else {
-        if (activeItemRef.current) {
-          activeItemRef.current.scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'center' 
-          });
-        }
+
+        requestAnimationFrame(() => {
+          isAutoScrollingRef.current = false;
+        });
+      };
+
+      // Double requestAnimationFrame ensures layout and DOM paint are fully complete
+      requestAnimationFrame(() => {
+        requestAnimationFrame(performAutoScroll);
+      });
+    } else {
+      // Restore exact saved scroll position on re-renders, track re-orders, and refreshes without jumping
+      if (!isAutoScrollingRef.current && userScrollTopRef.current !== null && scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = userScrollTopRef.current;
       }
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [scrollTrigger, playMode]);
+    }
+  }, [scrollTrigger, playMode, playlistTracks, cancelledTrackIds, cacheDisplayStatus]);
+
+  useLayoutEffect(() => {
+    if (!isAutoScrollingRef.current && lastModeRef.current === playMode && prevScrollTriggerRef.current === scrollTrigger && userScrollTopRef.current !== null && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = userScrollTopRef.current;
+    }
+  });
 
   useEffect(() => {
     if (!playingAudio) return;
@@ -1305,6 +1374,7 @@ export default function PlayerTab({
           played?: boolean;
           playedAt?: string;
           cancelled?: boolean;
+          isOverrun?: boolean;
         }
       | {
           type: 'break';
@@ -1313,6 +1383,7 @@ export default function PlayerTab({
           startTime: Date;
           endTime: Date;
           interstitials: Interstitial[];
+          isOverrun?: boolean;
         }
       | {
           type: 'show-end';
@@ -1488,6 +1559,8 @@ export default function PlayerTab({
     let activeTrackCounter = 1;
     let lastActiveTrackEnd = new Date(cursorTime);
 
+    const activeTimelineEntries: PlaylistTimelineEntry[] = [];
+
     for (const item of activeTimelineSequence) {
       if (item.type === 'track') {
         const track = item.track;
@@ -1495,7 +1568,7 @@ export default function PlayerTab({
         const trackStart = new Date(cursorTime);
         const trackEnd = new Date(trackStart.getTime() + trackDur * 1000);
 
-        items.push({
+        activeTimelineEntries.push({
           type: 'track',
           id: track.id,
           track,
@@ -1513,7 +1586,7 @@ export default function PlayerTab({
         const breakStart = new Date(cursorTime);
         const breakEnd = new Date(breakStart.getTime() + b.totalDurationSec * 1000);
 
-        items.push({
+        activeTimelineEntries.push({
           type: 'break',
           id: b.id,
           slotTime: b.slotTime,
@@ -1528,8 +1601,8 @@ export default function PlayerTab({
     }
 
     // 5. Calculate Show End indicator card and Overrun card positions
-    const activeEntries = items.filter(i => i.type !== 'header' && !(i.type === 'track' && i.cancelled));
-    const showEntries = activeEntries.filter(i => i.startTime.getTime() < showEnd.getTime());
+    const showEndMs = showEnd.getTime();
+    const showEntries = activeTimelineEntries.filter(i => i.startTime.getTime() < showEndMs);
 
     let maxShowEndMs = showStart.getTime();
     showEntries.forEach(i => {
@@ -1539,7 +1612,6 @@ export default function PlayerTab({
       }
     });
 
-    const showEndMs = showEnd.getTime();
     let status: 'over' | 'under' | 'exact' = 'exact';
     let diffSeconds = 0;
 
@@ -1557,6 +1629,10 @@ export default function PlayerTab({
     const diffFormatted = formatDuration(diffSeconds);
     const showEndCardTimeMs = Math.max(showEndMs, maxShowEndMs);
 
+    // Append show entries first
+    items.push(...showEntries);
+
+    // Append Show End indicator card right after show entries
     items.push({
       type: 'show-end',
       id: 'show-end-indicator',
@@ -1567,7 +1643,8 @@ export default function PlayerTab({
       startTime: new Date(showEndCardTimeMs)
     });
 
-    const extraEntries = activeEntries.filter(i => i.startTime.getTime() >= showEndMs || i.startTime.getTime() >= showEndCardTimeMs);
+    // Extra entries are active entries starting at or after showEnd boundary / showEndCardTimeMs
+    const extraEntries = activeTimelineEntries.filter(i => i.startTime.getTime() >= showEndMs || i.startTime.getTime() >= showEndCardTimeMs);
     let maxExtraEndMs = showEndCardTimeMs;
 
     if (extraEntries.length > 0) {
@@ -1586,8 +1663,12 @@ export default function PlayerTab({
         id: 'extra-tracks-indicator',
         totalExtraSeconds,
         extraFormatted,
-        startTime: new Date(maxExtraEndMs + 1)
+        startTime: new Date(showEndCardTimeMs + 1)
       });
+
+      // Append overrun extra entries after Overrun indicator card
+      const overrunItems = extraEntries.map(entry => ({ ...entry, isOverrun: true }));
+      items.push(...overrunItems);
     }
 
     // 6. Cancelled Playlist Tracks positioned after the Overrun card at the bottom of the view
@@ -1912,12 +1993,20 @@ export default function PlayerTab({
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Failed to verify folders');
+      
+      if (data.interstitialsReadonlyError) {
+        alert(`Warning: ${data.interstitialsReadonlyMessage}`);
+        return;
+      }
+
       const createdMsg = data.createdFolders?.length > 0
         ? `\n\nCreated folders for shows: ${data.createdFolders.join(', ')}`
         : '';
-      alert(`Evergreen & Playlist folder verification completed successfully!\n\nEvergreens Location: ${data.evergreensPath}\nPlaylists Location: ${data.playlistsPath}${createdMsg}`);
+      const playlistsLoc = data.playlistsPath ? `\nPlaylists Location: ${data.playlistsPath}` : '';
+      const intersLoc = data.interstitialsPath ? `\nInterstitials Location: ${data.interstitialsPath}` : '';
+      alert(`Evergreen, Playlist & Interstitial folder verification completed successfully!\n\nEvergreens Location: ${data.evergreensPath}${playlistsLoc}${intersLoc}${createdMsg}`);
     } catch (err: any) {
-      alert(`Error verifying evergreen & playlist folders:\n${err.message}`);
+      alert(`Error verifying folders:\n${err.message}`);
     } finally {
       setIsVerifyingEvergreens(false);
     }
@@ -2388,7 +2477,7 @@ export default function PlayerTab({
       <div id="export-mode-container" className="flex flex-col h-full bg-slate-50">
         <div 
           ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto space-y-2 pb-4 scroll-smooth"
+          className="flex-1 overflow-y-auto space-y-2 pb-4"
         >
           {/* Action stacked buttons above the MP3 list, satisfying layout requests A & B */}
           <div className="sticky top-0 bg-slate-50 z-10 space-y-1.5 pt-1.5 pb-2 px-1.5 border-b border-slate-200">
@@ -2456,7 +2545,7 @@ export default function PlayerTab({
             >
               <span className="text-xs font-black uppercase text-white tracking-widest font-sans flex items-center gap-1.5 flex-wrap">
                 <ListOrdered className="w-3.5 h-3.5 text-white/90 shrink-0" />
-                mp3's ({playlistTimeline.filter(i => i.type === 'track').length} tracks, {playlistTimeline.filter(i => i.type === 'break').length} breaks)
+                mp3's ({playlistTimeline.filter(i => i.type === 'track').length} tracks, {playlistTimeline.filter(i => i.type === 'break').length} breaks, {formatTotalTrackTime(playlistTimeline.reduce((acc, item) => item.type === 'track' ? acc + Math.round((item.endTime.getTime() - item.startTime.getTime()) / 1000) : acc, 0))})
               </span>
               {isPlaylistLoading && (
                 <span className="text-[10px] font-mono text-blue-100 flex items-center gap-1 shrink-0">
@@ -2526,6 +2615,7 @@ export default function PlayerTab({
                       className={cn(
                         "rounded border shadow-xs p-2 my-1.5 transition-all flex flex-col gap-0 select-none text-left border-l-[4px]",
                         item.track ? "pb-[1px]" : "",
+                        item.isOverrun ? "border-amber-600" : "",
                         (item.track && item.track.id === movedHighlightTrackId)
                           ? "ring-2 ring-purple-500/90 shadow-lg scale-[1.01] z-10"
                           : isCurrentlyPlaying 
@@ -2538,7 +2628,7 @@ export default function PlayerTab({
                       )}
                       style={{
                         backgroundColor: 'var(--playlist-card-bg)',
-                        borderColor: 'var(--playlist-card-border)',
+                        borderColor: item.isOverrun ? '#d97706' : 'var(--playlist-card-border)',
                         color: 'var(--playlist-card-text)',
                         borderLeftColor: isCurrentlyPlaying
                           ? '#9333ea'
@@ -2552,11 +2642,14 @@ export default function PlayerTab({
                     >
                       {/* Top Header Bar for Playlist card: ListMusic icon + Up/Down/X controls on left, Play button right-justified */}
                       <div 
-                        className="flex justify-between items-center -mx-2 -mt-2 px-2 py-1 rounded-t border-b border-slate-200/60 dark:border-slate-700/60"
-                        style={{ backgroundColor: 'var(--playlist-card-header-bg)' }}
+                        className={cn(
+                          "flex justify-between items-center -mx-2 -mt-2 px-2 py-1 rounded-t border-b",
+                          item.isOverrun ? "border-amber-600/50" : "border-slate-200/60 dark:border-slate-700/60"
+                        )}
+                        style={{ backgroundColor: item.isOverrun ? 'rgba(217, 119, 6, 0.15)' : 'var(--playlist-card-header-bg)' }}
                       >
                         <div className="flex items-center gap-1.5">
-                          <ListMusic className="w-3.5 h-3.5 text-purple-600 dark:text-purple-300 shrink-0" />
+                          <ListMusic className={cn("w-3.5 h-3.5 shrink-0", item.isOverrun ? "text-amber-600 dark:text-amber-400" : "text-purple-600 dark:text-purple-300")} />
                           
                           {/* Up, Down, X, Reactivate controls */}
                           <div className="flex items-center gap-0.5 ml-0.5">
@@ -3107,7 +3200,7 @@ export default function PlayerTab({
 
       <div 
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto pb-4 scroll-smooth relative"
+        className="flex-1 overflow-y-auto pb-4 relative"
       >
         {(() => {
           const modeStr = playMode as string;
@@ -3257,6 +3350,7 @@ export default function PlayerTab({
                           className={cn(
                             "rounded border shadow-xs p-2 my-1.5 transition-all flex flex-col gap-0 select-none text-left border-l-[4px]",
                             item.type !== 'break' && item.track ? "pb-[1px]" : "",
+                            item.isOverrun ? "border-amber-600" : "",
                             (item.track && item.track.id === movedHighlightTrackId)
                               ? "ring-2 ring-purple-500/90 shadow-lg scale-[1.01] z-10"
                               : isCurrentlyPlaying 
@@ -3269,7 +3363,7 @@ export default function PlayerTab({
                           )}
                           style={{
                             backgroundColor: 'var(--playlist-card-bg)',
-                            borderColor: 'var(--playlist-card-border)',
+                            borderColor: item.isOverrun ? '#d97706' : 'var(--playlist-card-border)',
                             color: 'var(--playlist-card-text)',
                             borderLeftColor: isCurrentlyPlaying
                               ? '#9333ea'
@@ -3283,11 +3377,14 @@ export default function PlayerTab({
                         >
                           {/* Top Header Bar for Playlist card: ListMusic icon + Up/Down/X controls on left, Play button right-justified */}
                           <div 
-                            className="flex justify-between items-center -mx-2 -mt-2 px-2 py-1 rounded-t border-b border-slate-200/60 dark:border-slate-700/60"
-                            style={{ backgroundColor: 'var(--playlist-card-header-bg)' }}
+                            className={cn(
+                              "flex justify-between items-center -mx-2 -mt-2 px-2 py-1 rounded-t border-b",
+                              item.isOverrun ? "border-amber-600/50" : "border-slate-200/60 dark:border-slate-700/60"
+                            )}
+                            style={{ backgroundColor: item.isOverrun ? 'rgba(217, 119, 6, 0.15)' : 'var(--playlist-card-header-bg)' }}
                           >
                             <div className="flex items-center gap-1.5">
-                              <ListMusic className="w-3.5 h-3.5 text-purple-600 dark:text-purple-300 shrink-0" />
+                              <ListMusic className={cn("w-3.5 h-3.5 shrink-0", item.isOverrun ? "text-amber-600 dark:text-amber-400" : "text-purple-600 dark:text-purple-300")} />
                               
                               {/* Up, Down, X, Reactivate controls slid to the left next to list note icon */}
                               <div className="flex items-center gap-0.5 ml-0.5">
