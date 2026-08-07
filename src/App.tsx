@@ -1389,22 +1389,37 @@ export default function App() {
     let hostName = entry.hostName;
     let showDateTime = entry.showDateTime;
 
-    if (!showName && selectedPlaylistShow && playMode === "Playlist") {
-      showId = selectedPlaylistShow.id;
-      showName = selectedPlaylistShow.name;
-      hostName = selectedPlaylistShow.host;
-      const sDate = new Date(syncTime || now);
-      sDate.setHours(selectedPlaylistShow.startHour, selectedPlaylistShow.startMinute, 0, 0);
-      showDateTime = sDate.toISOString();
-    } else if (!showName && shows && shows.length > 0) {
+    if (!showName) {
+      if (playMode === "Prerecord" && selectedPrerecordShowId && shows && shows.length > 0) {
+        const pShow = shows.find((s) => s.id === selectedPrerecordShowId);
+        if (pShow) {
+          showId = pShow.id;
+          showName = pShow.name;
+          hostName = pShow.host;
+          const targetTime = entry.interstitialTime ? new Date(entry.interstitialTime) : new Date(entry.timestamp || now);
+          const sDate = new Date(targetTime);
+          sDate.setHours(pShow.startHour, pShow.startMinute, 0, 0);
+          showDateTime = sDate.toISOString();
+        }
+      } else if (playMode === "Playlist" && selectedPlaylistShow) {
+        showId = selectedPlaylistShow.id;
+        showName = selectedPlaylistShow.name;
+        hostName = selectedPlaylistShow.host;
+        const targetTime = entry.interstitialTime ? new Date(entry.interstitialTime) : new Date(entry.timestamp || now);
+        const sDate = new Date(targetTime);
+        sDate.setHours(selectedPlaylistShow.startHour, selectedPlaylistShow.startMinute, 0, 0);
+        showDateTime = sDate.toISOString();
+      }
+    }
+
+    if (!showName && shows && shows.length > 0) {
       const targetTime = entry.interstitialTime ? new Date(entry.interstitialTime) : new Date(entry.timestamp || now);
-      const activeShow = shows.find((s) => {
-        const sStart = new Date(targetTime);
-        sStart.setHours(s.startHour, s.startMinute, 0, 0);
-        const durationMin = s.durationMinutes || (s.endHour * 60 + s.endMinute) - (s.startHour * 60 + s.startMinute);
-        const sEnd = new Date(sStart.getTime() + (durationMin > 0 ? durationMin : 60) * 60000);
-        return targetTime >= sStart && targetTime < sEnd;
-      });
+      const daysOrder = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+      const dayName = daysOrder[targetTime.getDay()];
+      const hour = targetTime.getHours();
+      const minute = targetTime.getMinutes();
+
+      const activeShow = shows.find((s) => isTimeInShow(s, dayName, hour, minute));
       if (activeShow) {
         showId = activeShow.id;
         showName = activeShow.name;

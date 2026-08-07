@@ -338,6 +338,8 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
   const [interstitialFilterQuery, setInterstitialFilterQuery] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewScriptFile, setPreviewScriptFile] = useState<string | null>(null);
+  const [previewScriptBackupUrl, setPreviewScriptBackupUrl] = useState<string | undefined>(undefined);
+  const [pickerTarget, setPickerTarget] = useState<'main' | 'backup'>('main');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -947,11 +949,16 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
     const isScriptExt = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].some(ext => nameLower.endsWith(ext));
     const inferredAssetType = isScriptExt ? 'script' : 'audio';
 
+    const sanitizedBackupMp3Url = (inferredAssetType === 'script' && formData.backupMp3Url)
+      ? getFilenameFromUrlOrPath(formData.backupMp3Url)
+      : undefined;
+
     const now = new Date().toISOString();
     const updated: Interstitial = {
       ...formData as Interstitial,
       mp3Url: sanitizedMp3Url,
       assetType: inferredAssetType,
+      backupMp3Url: sanitizedBackupMp3Url,
       metadata: {
         ...(formData.metadata as InterstitialMetadata),
         lastModifiedDate: now
@@ -3399,7 +3406,10 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                         
                         <button 
                           type="button"
-                          onClick={() => setIsPickerOpen(true)}
+                          onClick={() => {
+                            setPickerTarget('main');
+                            setIsPickerOpen(true);
+                          }}
                           className="px-3 py-1.5 bg-slate-900 border border-slate-900 hover:bg-slate-800 text-white rounded text-xs font-black uppercase flex items-center justify-center gap-2 transition-all shadow-sm shrink-0 cursor-pointer select-none h-8"
                         >
                           <FolderOpen className="w-3.5 h-3.5" />
@@ -3410,27 +3420,144 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                   </div>
 
                   {formData.assetType === 'script' && (
-                    <div className="space-y-0 mt-3">
-                      <div className="bg-blue-600 text-white text-xs font-black uppercase tracking-widest px-3 py-1.5 rounded-t-lg select-none">
-                        Approximate Read Time
-                      </div>
-                      <div className="p-3 bg-slate-50 border-x border-b border-slate-350 rounded-b-lg flex items-center justify-between gap-3 shadow-xs">
-                        <span className="text-xs font-bold text-slate-700 uppercase tracking-tight">
-                          Read Time (m:ss):
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-black text-slate-500 font-mono select-none">~</span>
-                          <input
-                            type="text"
-                            placeholder="1:30"
-                            value={(formData.approximateReadTime || '').replace(/^~/, '')}
-                            onChange={e => setFormData({ ...formData, approximateReadTime: e.target.value })}
-                            className="w-24 px-2 py-1 bg-white border border-slate-350 rounded text-xs font-bold font-mono text-slate-850 outline-none focus:ring-1 focus:ring-blue-500 h-7"
-                          />
-                          <span className="text-[11px] text-slate-400 font-medium italic">(m:ss)</span>
+                    <>
+                      <div className="space-y-0 mt-3">
+                        <div className="bg-blue-600 text-white text-xs font-black uppercase tracking-widest px-3 py-1.5 rounded-t-lg select-none">
+                          Approximate Read Time
+                        </div>
+                        <div className="p-3 bg-slate-50 border-x border-b border-slate-350 rounded-b-lg flex items-center justify-between gap-3 shadow-xs">
+                          <span className="text-xs font-bold text-slate-700 uppercase tracking-tight">
+                            Read Time (m:ss):
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-slate-500 font-mono select-none">~</span>
+                            <input
+                              type="text"
+                              placeholder="1:30"
+                              value={(formData.approximateReadTime || '').replace(/^~/, '')}
+                              onChange={e => setFormData({ ...formData, approximateReadTime: e.target.value })}
+                              className="w-24 px-2 py-1 bg-white border border-slate-350 rounded text-xs font-bold font-mono text-slate-850 outline-none focus:ring-1 focus:ring-blue-500 h-7"
+                            />
+                            <span className="text-[11px] text-slate-400 font-medium italic">(m:ss)</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
+
+                      {/* Backup MP3 Assignment Field */}
+                      <div className="space-y-0 mt-3">
+                        <div className="bg-blue-600 text-white text-xs font-black uppercase tracking-widest px-3 py-1.5 rounded-t-lg select-none flex items-center justify-between">
+                          <span>Backup MP3 (Optional)</span>
+                          {formData.backupMp3Url && (
+                            <button
+                              type="button"
+                              onClick={() => setFormData({ ...formData, backupMp3Url: undefined })}
+                              className="px-2 py-0.5 bg-blue-700 hover:bg-blue-800 text-white rounded text-[10px] font-black uppercase flex items-center gap-1 transition-all cursor-pointer select-none shadow-xs"
+                              title="Remove backup MP3"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                        <div className="p-3 bg-slate-50 border-x border-b border-slate-350 rounded-b-lg space-y-3 shadow-xs">
+                          <div className="leading-tight select-none">
+                            {formData.backupMp3Url ? (
+                              <span className="text-sm font-mono font-bold text-slate-850 break-all" title={getFilenameFromUrlOrPath(formData.backupMp3Url)}>
+                                {getFilenameFromUrlOrPath(formData.backupMp3Url)}
+                              </span>
+                            ) : (
+                              <span className="text-sm font-medium text-slate-400 italic">None Selected</span>
+                            )}
+                          </div>
+
+                          {formData.backupMp3Url && (() => {
+                            const filename = getFilenameFromUrlOrPath(formData.backupMp3Url);
+                            const meta = metadataCache[filename];
+                            if (meta && (meta.title || meta.artist || meta.album)) {
+                              const parts = [meta.title, meta.artist, meta.album].filter(Boolean);
+                              return (
+                                <div className="text-xs text-slate-600 font-bold italic select-none">
+                                  Metadata: <span className="text-slate-800 font-semibold">{parts.join(", ")}</span>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+
+                          <div className="flex items-center justify-between gap-2 pt-2.5 border-t border-slate-350">
+                            <div className="flex items-center gap-2 min-w-0">
+                              {formData.backupMp3Url ? (() => {
+                                const filename = getFilenameFromUrlOrPath(formData.backupMp3Url);
+                                const status = getMP3Status(filename);
+                                return (
+                                  <>
+                                    {status.exists && status.valid ? (
+                                      <CheckCircle className="w-4 h-4 text-emerald-700 dark:text-emerald-400 stroke-[2.5] shrink-0" title="File Verified" />
+                                    ) : !status.exists ? (
+                                      <AlertCircle className="w-4 h-4 text-red-500 stroke-[2.5] shrink-0 animate-pulse" title="File not found" />
+                                    ) : (
+                                      <Music className="w-4 h-4 text-orange-400 shrink-0" title="File not mp3" />
+                                    )}
+
+                                    <div className="flex flex-wrap items-center gap-x-2 text-xs">
+                                      {!status.exists && (
+                                        <span className="font-black text-red-500 uppercase">
+                                          File not found.
+                                        </span>
+                                      )}
+                                      {!status.valid && status.exists && (
+                                        <span className="font-black text-orange-500 uppercase">
+                                          File not mp3.
+                                        </span>
+                                      )}
+                                      {status.exists && status.valid && (
+                                        <span className="font-black text-emerald-700 dark:text-emerald-400 uppercase">
+                                          File Verified
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {status.exists && status.valid && (
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePreview(filename)}
+                                        className={cn(
+                                          "flex items-center gap-1 text-xs font-black uppercase px-2.5 py-1 rounded border shadow-xs transition-all cursor-pointer select-none h-8",
+                                          previewUrl === filename 
+                                            ? "bg-slate-900 text-white border-slate-900" 
+                                            : "bg-white text-blue-600 border-slate-300 hover:bg-slate-50"
+                                        )}
+                                      >
+                                        {previewUrl === filename ? <Square className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 fill-current" />}
+                                        {previewUrl === filename ? 'Stop' : 'Preview'}
+                                      </button>
+                                    )}
+                                  </>
+                                );
+                              })() : (
+                                <p className="text-xs text-slate-400 font-medium">
+                                  Optional backup audio track
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  setPickerTarget('backup');
+                                  setIsPickerOpen(true);
+                                }}
+                                className="px-3 py-1.5 bg-slate-900 border border-slate-900 hover:bg-slate-800 text-white rounded text-xs font-black uppercase flex items-center justify-center gap-2 transition-all shadow-sm shrink-0 cursor-pointer select-none h-8"
+                              >
+                                <FolderOpen className="w-3.5 h-3.5" />
+                                Choose
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
 
@@ -3755,17 +3882,25 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                         <button
                           type="button"
                           onClick={() => {
-                            // Automatically infer assetType based on chosen file extension
-                            const nameLower = file.name.toLowerCase();
-                            const isScriptExt = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].some(ext => nameLower.endsWith(ext));
-                            const inferredAssetType = isScriptExt ? 'script' : 'audio';
+                            if (pickerTarget === 'backup') {
+                              setFormData({
+                                ...formData,
+                                backupMp3Url: file.name
+                              });
+                              setIsPickerOpen(false);
+                            } else {
+                              // Automatically infer assetType based on chosen file extension
+                              const nameLower = file.name.toLowerCase();
+                              const isScriptExt = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].some(ext => nameLower.endsWith(ext));
+                              const inferredAssetType = isScriptExt ? 'script' : 'audio';
 
-                            setFormData({ 
-                              ...formData, 
-                              mp3Url: file.name,
-                              assetType: inferredAssetType
-                            });
-                            setIsPickerOpen(false);
+                              setFormData({ 
+                                ...formData, 
+                                mp3Url: file.name,
+                                assetType: inferredAssetType
+                              });
+                              setIsPickerOpen(false);
+                            }
                           }}
                           className="px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-black uppercase tracking-wider transition-all shadow-sm cursor-pointer flex items-center justify-center h-7 shrink-0 w-[64px]"
                         >
@@ -4117,9 +4252,13 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
           <LiveReadPopout
             initialFileName={previewScriptFile}
             initialInterstitialName="File Preview"
+            backupMp3Url={previewScriptBackupUrl}
             isOverlay={true}
             isPreview={true}
-            onClose={() => setPreviewScriptFile(null)}
+            onClose={() => {
+              setPreviewScriptFile(null);
+              setPreviewScriptBackupUrl(undefined);
+            }}
           />
         </div>
       )}

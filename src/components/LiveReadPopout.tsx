@@ -9,7 +9,10 @@ import {
   AlertTriangle, 
   FileText, 
   Type, 
-  Eye
+  Eye,
+  Play,
+  Square,
+  Ear
 } from 'lucide-react';
 import { LogEntry } from '../types';
 
@@ -19,8 +22,10 @@ interface LiveReadPopoutProps {
   initialInterstitialName?: string;
   initialInterstitialTime?: string;
   initialLoggedTime?: string;
+  backupMp3Url?: string;
   onClose?: () => void;
   onLogCommit?: (entry: LogEntry) => void;
+  onPlayBackupMp3?: (backupMp3Url: string) => void;
   isOverlay?: boolean;
   isPreview?: boolean;
 }
@@ -65,8 +70,10 @@ export default function LiveReadPopout({
   initialInterstitialName = '',
   initialInterstitialTime = '',
   initialLoggedTime = '',
+  backupMp3Url: initialBackupMp3Url = '',
   onClose,
   onLogCommit,
+  onPlayBackupMp3,
   isOverlay = false,
   isPreview = false
 }: LiveReadPopoutProps) {
@@ -76,6 +83,90 @@ export default function LiveReadPopout({
   const [interstitialName, setInterstitialName] = useState(initialInterstitialName);
   const [interstitialTime, setInterstitialTime] = useState(initialInterstitialTime);
   const [loggedTime, setLoggedTime] = useState(initialLoggedTime);
+  const [backupMp3Url, setBackupMp3Url] = useState(initialBackupMp3Url);
+  const [isPreviewMode, setIsPreviewMode] = useState(isPreview);
+
+  useEffect(() => {
+    setIsPreviewMode(prev => prev || isPreview);
+  }, [isPreview]);
+
+  // Backup MP3 playback state for preview
+  const [backupAudioPlaying, setBackupAudioPlaying] = useState(false);
+  const backupAudioRef = React.useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (backupAudioRef.current) {
+        backupAudioRef.current.pause();
+        backupAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleTogglePreviewBackupMp3 = () => {
+    if (!backupMp3Url) return;
+    if (backupAudioPlaying && backupAudioRef.current) {
+      backupAudioRef.current.pause();
+      setBackupAudioPlaying(false);
+    } else {
+      if (backupAudioRef.current) {
+        backupAudioRef.current.pause();
+      }
+      const cleanName = backupMp3Url.includes('/') ? backupMp3Url.split('/').pop() : backupMp3Url;
+      const url = `/api/mp3-file/${encodeURIComponent(cleanName || '')}`;
+      const audio = new Audio(url);
+      backupAudioRef.current = audio;
+      audio.play().then(() => {
+        setBackupAudioPlaying(true);
+      }).catch(err => {
+        console.error("Failed to play preview backup audio:", err);
+      });
+      audio.onended = () => {
+        setBackupAudioPlaying(false);
+      };
+    }
+  };
+
+  const handlePlayBackupMp3Action = () => {
+    if (!backupMp3Url) return;
+
+    if (isPreviewMode) {
+      handleTogglePreviewBackupMp3();
+      return;
+    }
+
+    const nowISO = new Date().toISOString();
+    let commitTimestamp = nowISO;
+    if (logTimeText && logTimeText.trim()) {
+      const parsedCustomDate = parseCustomTimeText(logTimeText.trim());
+      if (parsedCustomDate) {
+        commitTimestamp = parsedCustomDate.toISOString();
+      }
+    }
+
+    const logEntry: LogEntry = {
+      timestamp: commitTimestamp,
+      interstitialTime: interstitialTime || commitTimestamp,
+      mp3Name: backupMp3Url,
+      interstitialName: interstitialName || fileName || 'Live Read (Backup MP3)',
+      interstitialId: interstitialId,
+      status: 'backup play',
+      logTimeStamp: commitTimestamp,
+      assetType: 'audio'
+    };
+
+    if (onLogCommit) {
+      onLogCommit(logEntry);
+    }
+
+    if (onPlayBackupMp3) {
+      onPlayBackupMp3(backupMp3Url);
+    }
+
+    if (onClose) {
+      onClose();
+    }
+  };
 
   // Content states
   const [fileContent, setFileContent] = useState<string>('');
@@ -134,7 +225,7 @@ export default function LiveReadPopout({
   useEffect(() => {
     async function loadInitialData() {
       // Try Electron IPC first
-      if (!isPreview && !isOverlay && (window as any).electronAPI && (window as any).electronAPI.getLiveReadData) {
+      if (!isPreviewMode && !isOverlay && (window as any).electronAPI && (window as any).electronAPI.getLiveReadData) {
         try {
           const ipcData = await (window as any).electronAPI.getLiveReadData();
           if (ipcData) {
@@ -143,6 +234,9 @@ export default function LiveReadPopout({
             setInterstitialName(ipcData.interstitialName || ipcData.scheduleName || '');
             setInterstitialTime(ipcData.interstitialTime || ipcData.scheduledTime || '');
             setLoggedTime(ipcData.initialLoggedTime || '');
+            if (ipcData.isPreview || ipcData.playMode === 'Export') {
+              setIsPreviewMode(true);
+            }
             if (ipcData.name) {
               fetchFileContent(ipcData.name);
             }
@@ -160,6 +254,12 @@ export default function LiveReadPopout({
       const sName = params.get('interstitialName') || params.get('scheduleName') || '';
       const sTime = params.get('interstitialTime') || params.get('scheduledTime') || '';
       const sLogged = params.get('initialLoggedTime') || '';
+      const pMode = params.get('playMode') || '';
+      const isPrev = params.get('isPreview') === 'true' || pMode === 'Export';
+
+      if (isPrev) {
+        setIsPreviewMode(true);
+      }
 
       if (f) {
         setFileName(f);
@@ -259,6 +359,15 @@ export default function LiveReadPopout({
 
   // Commit Log as Read
   const handleLogAsRead = async () => {
+    if (isPreviewMode) {
+      if (onClose) {
+        onClose();
+      } else if ((window as any).electronAPI && (window as any).electronAPI.closeLiveReadWindow) {
+        await (window as any).electronAPI.closeLiveReadWindow();
+      }
+      return;
+    }
+
     // Generate ISO timestamp or parse custom time text back to full ISO string
     let finalTimestamp = new Date().toISOString();
     
@@ -314,13 +423,15 @@ export default function LiveReadPopout({
   const hasBeenLogged = !!loggedTime;
   const isTimeChangedFromLogged = hasBeenLogged && logTimeText !== initialFormattedLoggedTime;
   
-  const closeButtonText = hasBeenLogged ? "Close" : "Close - Not Read";
-  const isLogButtonDisabled = loading || !!error || !isLogTimeValid || (hasBeenLogged && !isTimeChangedFromLogged);
-  const logButtonText = isTimeChangedFromLogged
-    ? "Log Again"
-    : hasBeenLogged
-      ? `Logged at ${getLoggedAtLabel(loggedTime)}`
-      : "Log as Read";
+  const closeButtonText = isPreviewMode ? "Close" : hasBeenLogged ? "Close" : "Close - Not Read";
+  const isLogButtonDisabled = isPreviewMode ? false : (loading || !!error || !isLogTimeValid || (hasBeenLogged && !isTimeChangedFromLogged));
+  const logButtonText = isPreviewMode
+    ? "Close Preview"
+    : isTimeChangedFromLogged
+      ? "Log Again"
+      : hasBeenLogged
+        ? `Logged at ${getLoggedAtLabel(loggedTime)}`
+        : "Log as Read";
 
   return (
     <div className={cn(
@@ -474,75 +585,130 @@ export default function LiveReadPopout({
       {/* FOOTER & LOGGING CONTROLS */}
       <div className="bg-slate-50 border-t border-slate-200 p-4 shrink-0 flex justify-end items-center">
         {isPreview ? (
-          <button
-            type="button"
-            onClick={handleCloseNotRead}
-            className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none h-10"
-          >
-            <X className="w-4 h-4" />
-            Close Preview
-          </button>
+          <div className="w-full flex items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={handleCloseNotRead}
+              className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none h-10"
+            >
+              <X className="w-4 h-4" />
+              Close Preview
+            </button>
+
+            {backupMp3Url && (
+              <button
+                type="button"
+                onClick={handleTogglePreviewBackupMp3}
+                className={cn(
+                  "px-4 py-2 font-black text-xs uppercase rounded-lg transition-all shadow-md flex items-center gap-2 select-none cursor-pointer leading-none h-10 border",
+                  backupAudioPlaying
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-purple-700 border-purple-300 hover:bg-purple-50"
+                )}
+              >
+                {backupAudioPlaying ? (
+                  <>
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <span>Stop Backup MP3</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Preview Backup MP3</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         ) : (
           <div className="w-full flex flex-col sm:flex-row justify-between items-center gap-4">
             {/* Timestamp editor and custom logger input */}
             <div className="flex items-center gap-3 w-full sm:w-auto">
-              <div className="text-xs font-black text-slate-400 uppercase tracking-widest block select-none">
-                Logged Time:
-              </div>
-              <div className={cn(
-                "relative flex items-center bg-white border rounded px-2 py-1.5 focus-within:ring-1 max-w-[160px] w-full transition-all",
-                isLogTimeValid 
-                  ? "border-slate-300 focus-within:ring-purple-500 focus-within:border-purple-500" 
-                  : "border-rose-500 focus-within:ring-rose-500 focus-within:border-rose-500 ring-1 ring-rose-500"
-              )}>
-                <input 
-                  type="text"
-                  value={logTimeText}
-                  onChange={(e) => {
-                    setLogTimeText(e.target.value);
-                    setIsEditingLogTime(true);
-                  }}
-                  onFocus={() => {
-                    setIsEditingLogTime(true);
-                  }}
-                  className={cn(
-                    "w-full bg-transparent outline-none border-0 font-mono font-bold text-xs",
-                    isLogTimeValid ? "text-slate-700" : "text-rose-600"
-                  )}
-                  title="Click to manually edit log execution time"
-                />
-                {isEditingLogTime && (
-                  <button 
-                    onClick={() => {
-                      setIsEditingLogTime(false);
-                      setLoggedTime(''); // Reset logged status so we tick live
-                    }}
-                    className="text-[10px] bg-slate-200 text-slate-600 px-1 py-0.5 rounded font-black uppercase hover:bg-slate-300 transition-colors ml-1"
-                    title="Reset to live ticking clock"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
+              {isPreviewMode ? (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 font-bold text-xs">
+                  <Ear className="w-4 h-4 text-purple-600" />
+                  <span>Preview Mode (No Logging)</span>
+                </div>
+              ) : (
+                <>
+                  <div className="text-xs font-black text-slate-400 uppercase tracking-widest block select-none">
+                    Logged Time:
+                  </div>
+                  <div className={cn(
+                    "relative flex items-center bg-white border rounded px-2 py-1.5 focus-within:ring-1 max-w-[160px] w-full transition-all",
+                    isLogTimeValid 
+                      ? "border-slate-300 focus-within:ring-purple-500 focus-within:border-purple-500" 
+                      : "border-rose-500 focus-within:ring-rose-500 focus-within:border-rose-500 ring-1 ring-rose-500"
+                  )}>
+                    <input 
+                      type="text"
+                      value={logTimeText}
+                      onChange={(e) => {
+                        setLogTimeText(e.target.value);
+                        setIsEditingLogTime(true);
+                      }}
+                      onFocus={() => {
+                        setIsEditingLogTime(true);
+                      }}
+                      className={cn(
+                        "w-full bg-transparent outline-none border-0 font-mono font-bold text-xs",
+                        isLogTimeValid ? "text-slate-700" : "text-rose-600"
+                      )}
+                      title="Click to manually edit log execution time"
+                    />
+                    {isEditingLogTime && (
+                      <button 
+                        onClick={() => {
+                          setIsEditingLogTime(false);
+                          setLoggedTime(''); // Reset logged status so we tick live
+                        }}
+                        className="text-[10px] bg-slate-200 text-slate-600 px-1 py-0.5 rounded font-black uppercase hover:bg-slate-300 transition-colors ml-1"
+                        title="Reset to live ticking clock"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
+
+            {/* Middle Center: Play Backup MP3 */}
+            {backupMp3Url ? (
+              <div className="flex items-center justify-center shrink-0">
+                <button
+                  type="button"
+                  onClick={handlePlayBackupMp3Action}
+                  className="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-800 border border-purple-300 font-black text-xs uppercase rounded-lg transition-all shadow-xs flex items-center gap-2 select-none cursor-pointer leading-none h-10"
+                  title={isPreviewMode ? "Listen to backup MP3 preview" : "Close read window and play backup MP3 track on player card"}
+                >
+                  <Play className="w-3.5 h-3.5 fill-current text-purple-700" />
+                  <span>{isPreviewMode ? "Preview Backup MP3" : "Play Backup MP3"}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="hidden sm:block flex-1" />
+            )}
 
             {/* Logging action buttons */}
             <div className="flex gap-3 w-full sm:w-auto shrink-0 justify-end">
-              <button
-                type="button"
-                onClick={handleCloseNotRead}
-                className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 hover:text-slate-800 font-black text-xs uppercase rounded-lg transition-all shadow-xs flex items-center gap-1.5 select-none cursor-pointer leading-none"
-              >
-                <X className="w-4 h-4" />
-                {closeButtonText}
-              </button>
+              {!isPreviewMode && (
+                <button
+                  type="button"
+                  onClick={handleCloseNotRead}
+                  className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 hover:text-slate-800 font-black text-xs uppercase rounded-lg transition-all shadow-xs flex items-center gap-1.5 select-none cursor-pointer leading-none"
+                >
+                  <X className="w-4 h-4" />
+                  {closeButtonText}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleLogAsRead}
                 disabled={isLogButtonDisabled}
                 className="px-6 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-40 disabled:hover:bg-purple-600 text-white font-black text-xs uppercase rounded-lg transition-all shadow-md flex items-center gap-1.5 select-none cursor-pointer leading-none"
               >
-                <Check className="w-4 h-4" />
+                {isPreviewMode ? <X className="w-4 h-4" /> : <Check className="w-4 h-4" />}
                 {logButtonText}
               </button>
             </div>

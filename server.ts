@@ -601,15 +601,18 @@ async function startServer() {
       if (!file) return res.status(400).json({ error: 'Filename required' });
 
       const folderPath = currentSettings.localPathMP3s;
-      if (!folderPath || !fs.existsSync(folderPath)) {
-        return res.status(404).json({ error: 'Media & Scripts folder not defined or offline' });
-      }
 
-      let targetFilePath = path.join(folderPath, 'Interstitials', path.basename(file));
+      let targetFilePath = file;
       if (!fs.existsSync(targetFilePath)) {
-        const lowerIntersSub = path.join(folderPath, 'interstitials', path.basename(file));
-        if (fs.existsSync(lowerIntersSub)) {
-          targetFilePath = lowerIntersSub;
+        if (!folderPath || !fs.existsSync(folderPath)) {
+          return res.status(404).json({ error: 'Media & Scripts folder not defined or offline' });
+        }
+        targetFilePath = path.join(folderPath, 'Interstitials', path.basename(file));
+        if (!fs.existsSync(targetFilePath)) {
+          const lowerIntersSub = path.join(folderPath, 'interstitials', path.basename(file));
+          if (fs.existsSync(lowerIntersSub)) {
+            targetFilePath = lowerIntersSub;
+          }
         }
       }
 

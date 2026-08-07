@@ -1416,7 +1416,7 @@ export default function PlayerTab({
     let maxPlayedEnd = new Date(showStart);
 
     // 2. Add Played Tracks at their actual playedAt timestamp
-    const playedTracks = playlistTracks.filter(t => !!playedPlaylistTracks[t.id] || !!playedPlaylistTracks[t.fileName]);
+    const playedTracks = (playMode === 'Export') ? [] : playlistTracks.filter(t => !!playedPlaylistTracks[t.id] || !!playedPlaylistTracks[t.fileName]);
     for (const track of playedTracks) {
       const exactCachedDurationStr = mp3DurationCache.get(track.streamUrl) || availableFilesCache.get(track.fileName)?.duration;
       let trackDur = track.durationSeconds || 180;
@@ -1482,7 +1482,9 @@ export default function PlayerTab({
     }
 
     // 4. Calculate default track insertion indices for upcoming breaks, and interleave with active unplayed tracks
-    const activeUnplayedTracks = playlistTracks.filter(t => !playedPlaylistTracks[t.id] && !playedPlaylistTracks[t.fileName] && !cancelledTrackIds.includes(t.id) && !cancelledTrackIds.includes(t.fileName));
+    const activeUnplayedTracks = (playMode === 'Export')
+      ? playlistTracks.filter(t => !cancelledTrackIds.includes(t.id) && !cancelledTrackIds.includes(t.fileName))
+      : playlistTracks.filter(t => !playedPlaylistTracks[t.id] && !playedPlaylistTracks[t.fileName] && !cancelledTrackIds.includes(t.id) && !cancelledTrackIds.includes(t.fileName));
 
     const getTrackDurationSec = (track: any): number => {
       const exactCachedDurationStr = mp3DurationCache.get(track.streamUrl) || availableFilesCache.get(track.fileName)?.duration;
@@ -1694,6 +1696,21 @@ export default function PlayerTab({
 
     return items;
   }, [playMode, playlistShow, playlistTracks, playlistFile, syncTime, interstitials, playedPlaylistTracks, cancelledTrackIds, nowClock, breakPositions]);
+
+  const breakIndexMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    let breakSlotCount = 0;
+    playlistTimeline.forEach((item) => {
+      if (item.type === 'break') {
+        breakSlotCount++;
+        item.interstitials.forEach((s) => {
+          const slotKey = `${item.slotTime.toISOString()}-${s.id}`;
+          map[slotKey] = breakSlotCount;
+        });
+      }
+    });
+    return map;
+  }, [playlistTimeline]);
 
   const handleMoveTrackUp = (trackId: string) => {
     triggerMovedHighlight(trackId);
@@ -1939,18 +1956,20 @@ export default function PlayerTab({
           isInterstitial: false
         };
 
-        pendingPlayedPlaylistTracksRef.current[track.id] = playedInfo;
-        pendingPlayedPlaylistTracksRef.current[track.fileName] = playedInfo;
+        if (playMode !== 'Export') {
+          pendingPlayedPlaylistTracksRef.current[track.id] = playedInfo;
+          pendingPlayedPlaylistTracksRef.current[track.fileName] = playedInfo;
 
-        const updatedPlayedMap = {
-          ...playedPlaylistTracks,
-          [track.id]: playedInfo,
-          [track.fileName]: playedInfo
-        };
-        setPlayedPlaylistTracks(updatedPlayedMap);
+          const updatedPlayedMap = {
+            ...playedPlaylistTracks,
+            [track.id]: playedInfo,
+            [track.fileName]: playedInfo
+          };
+          setPlayedPlaylistTracks(updatedPlayedMap);
 
-        // 3. Save entry to playlist show Log___.json
-        saveCurrentShowPlaylistLog(updatedPlayedMap);
+          // 3. Save entry to playlist show Log___.json
+          saveCurrentShowPlaylistLog(updatedPlayedMap);
+        }
 
         // Reset card redraw timer when play is started
         startCardRotateTimer();
@@ -2012,9 +2031,59 @@ export default function PlayerTab({
     }
   };
 
+  const renderLiveReadOverlay = () => {
+    if (!activeLiveReadOverlay) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <LiveReadPopout
+          initialFileName={activeLiveReadOverlay.filePath || activeLiveReadOverlay.fileName}
+          initialInterstitialId={activeLiveReadOverlay.interstitialId}
+          initialInterstitialName={activeLiveReadOverlay.interstitialName}
+          initialInterstitialTime={activeLiveReadOverlay.interstitialTime}
+          initialLoggedTime={activeLiveReadOverlay.initialLoggedTime}
+          backupMp3Url={activeLiveReadOverlay.backupMp3Url}
+          isOverlay={true}
+          isPreview={activeLiveReadOverlay.playMode === 'Export' || activeLiveReadOverlay.isPreview || playMode === 'Export'}
+          onClose={() => setActiveLiveReadOverlay(null)}
+          onLogCommit={(logEntry) => {
+            if (playMode !== 'Export' && activeLiveReadOverlay.playMode !== 'Export' && !activeLiveReadOverlay.isPreview) {
+              onLog(logEntry);
+            }
+            setActiveLiveReadOverlay(null);
+          }}
+          onPlayBackupMp3={(backupUrl) => {
+            setActiveLiveReadOverlay(null);
+            if (activeLiveReadOverlay.interstitialId && activeLiveReadOverlay.slotKey && activeLiveReadOverlay.slotISO) {
+              const targetInterstitial = interstitials.find(s => s.id === activeLiveReadOverlay.interstitialId);
+              if (targetInterstitial) {
+                const slotDate = new Date(activeLiveReadOverlay.slotISO);
+                playBackupAudioTrack(backupUrl, activeLiveReadOverlay.slotKey, targetInterstitial, slotDate);
+              }
+            }
+          }}
+        />
+      </div>
+    );
+  };
+
   const handlePlay = (s: Interstitial, slot: Date) => {
     const slotKey = `${slot.toISOString()}-${s.id}`;
     
+    if (playingAudiosRef.current.has(slotKey)) {
+      const a = playingAudiosRef.current.get(slotKey);
+      if (a) {
+        a.pause();
+        a.src = "";
+      }
+      playingAudiosRef.current.delete(slotKey);
+      setPlayingStates(prev => {
+        const copy = { ...prev };
+        delete copy[slotKey];
+        return copy;
+      });
+      return;
+    }
+
     if (s.assetType === 'script') {
       const parts = s.mp3Url ? s.mp3Url.split('/') : [];
       const filename = parts[parts.length - 1] || 'Script';
@@ -2025,7 +2094,7 @@ export default function PlayerTab({
       const playedLog = logs.find(l => 
         l.interstitialId === s.id && 
         (l.interstitialTime === slotISO || isSameMinute(parseISO(l.timestamp), slot)) &&
-        l.status === 'played'
+        (l.status === 'played' || l.status === 'backup play')
       );
 
       const payload = {
@@ -2035,7 +2104,12 @@ export default function PlayerTab({
         interstitialId: s.id,
         interstitialName: s.name,
         interstitialTime: interstitialTimeISO,
-        initialLoggedTime: playedLog?.logTimeStamp || playedLog?.timestamp || ''
+        initialLoggedTime: playedLog?.logTimeStamp || playedLog?.timestamp || '',
+        backupMp3Url: s.backupMp3Url,
+        slotKey,
+        slotISO: interstitialTimeISO,
+        playMode,
+        isPreview: playMode === 'Export'
       };
 
       if ((window as any).electronAPI && (window as any).electronAPI.spawnLiveRead) {
@@ -2062,21 +2136,6 @@ export default function PlayerTab({
             setActiveLiveReadOverlay(payload);
           });
       }
-      return;
-    }
-    
-    if (playingAudiosRef.current.has(slotKey)) {
-      const a = playingAudiosRef.current.get(slotKey);
-      if (a) {
-        a.pause();
-        a.src = "";
-      }
-      playingAudiosRef.current.delete(slotKey);
-      setPlayingStates(prev => {
-        const copy = { ...prev };
-        delete copy[slotKey];
-        return copy;
-      });
       return;
     }
 
@@ -2118,58 +2177,154 @@ export default function PlayerTab({
         [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
       }));
 
-      const playedAt = new Date().toISOString();
-      const logEntry: LogEntry = {
-        timestamp: playedAt,
-        interstitialTime: slot.toISOString(),
-        mp3Name: s.mp3Url,
-        interstitialName: s.name,
-        interstitialId: s.id,
-        status: 'played',
-        playMode: playMode,
-        ...(playlistShow ? {
-          showId: playlistShow.id,
-          showName: playlistShow.name,
-          hostName: playlistShow.host,
-          showDateTime: new Date(slot).toISOString()
-        } : {})
-      };
-      onLog(logEntry);
-
-      if (playMode === 'Playlist' && playlistShow) {
-        const durRes = resolveTrackDuration({ streamUrl: s.mp3Url, fileName: s.mp3Url }, undefined, audio.duration);
-        const updatedPlayed = {
-          ...playedPlaylistTracks,
-          [s.id]: {
-            id: s.id,
-            playedAt,
-            fileName: s.mp3Url,
-            title: s.name,
-            durationSeconds: durRes.durationSeconds,
-            durationFormatted: durRes.durationFormatted,
-            isInterstitial: true
-          }
+      if (playMode !== 'Export') {
+        const playedAt = new Date().toISOString();
+        const logEntry: LogEntry = {
+          timestamp: playedAt,
+          interstitialTime: slot.toISOString(),
+          mp3Name: s.mp3Url,
+          interstitialName: s.name,
+          interstitialId: s.id,
+          status: 'played',
+          playMode: playMode,
+          ...(playlistShow ? {
+            showId: playlistShow.id,
+            showName: playlistShow.name,
+            hostName: playlistShow.host,
+            showDateTime: new Date(slot).toISOString()
+          } : {})
         };
-        setPlayedPlaylistTracks(updatedPlayed);
-        saveCurrentShowPlaylistLog(updatedPlayed);
+        onLog(logEntry);
+
+        if (playMode === 'Playlist' && playlistShow) {
+          const durRes = resolveTrackDuration({ streamUrl: s.mp3Url, fileName: s.mp3Url }, undefined, audio.duration);
+          const updatedPlayed = {
+            ...playedPlaylistTracks,
+            [s.id]: {
+              id: s.id,
+              playedAt,
+              fileName: s.mp3Url,
+              title: s.name,
+              durationSeconds: durRes.durationSeconds,
+              durationFormatted: durRes.durationFormatted,
+              isInterstitial: true
+            }
+          };
+          setPlayedPlaylistTracks(updatedPlayed);
+          saveCurrentShowPlaylistLog(updatedPlayed);
+        }
       }
     }).catch(err => {
       console.error('Playback failed', err);
-      onLog({
-        timestamp: new Date().toISOString(),
-        interstitialTime: slot.toISOString(),
-        mp3Name: s.mp3Url,
-        interstitialName: s.name,
-        interstitialId: s.id,
-        status: 'failed',
-        playMode: playMode,
-        ...(playlistShow ? {
-          showId: playlistShow.id,
-          showName: playlistShow.name,
-          hostName: playlistShow.host,
-          showDateTime: new Date(slot).toISOString()
-        } : {})
+      if (playMode !== 'Export') {
+        onLog({
+          timestamp: new Date().toISOString(),
+          interstitialTime: slot.toISOString(),
+          mp3Name: s.mp3Url,
+          interstitialName: s.name,
+          interstitialId: s.id,
+          status: 'failed',
+          playMode: playMode,
+          ...(playlistShow ? {
+            showId: playlistShow.id,
+            showName: playlistShow.name,
+            hostName: playlistShow.host,
+            showDateTime: new Date(slot).toISOString()
+          } : {})
+        });
+      }
+    });
+  };
+
+  const playBackupAudioTrack = (backupUrl: string, slotKey: string, s: Interstitial, slot: Date) => {
+    if (playingAudiosRef.current.has(slotKey)) {
+      const a = playingAudiosRef.current.get(slotKey);
+      if (a) {
+        a.pause();
+        a.src = "";
+      }
+      playingAudiosRef.current.delete(slotKey);
+    }
+
+    const playableUrl = getPlayableUrl(backupUrl);
+    if (!playableUrl) return;
+    const audio = new Audio(playableUrl);
+
+    const updateProgress = () => {
+      setPlayingStates(prev => ({
+        ...prev,
+        [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
+      }));
+    };
+
+    audio.addEventListener('loadedmetadata', updateProgress);
+    audio.addEventListener('timeupdate', updateProgress);
+
+    audio.addEventListener('ended', () => {
+      playingAudiosRef.current.delete(slotKey);
+      setPlayingStates(prev => {
+        const copy = { ...prev };
+        delete copy[slotKey];
+        return copy;
       });
+    });
+
+    audio.addEventListener('error', () => {
+      playingAudiosRef.current.delete(slotKey);
+      setPlayingStates(prev => {
+        const copy = { ...prev };
+        delete copy[slotKey];
+        return copy;
+      });
+    });
+
+    audio.play().then(() => {
+      playingAudiosRef.current.set(slotKey, audio);
+      setPlayingStates(prev => ({
+        ...prev,
+        [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
+      }));
+
+      if (playMode !== 'Export') {
+        const playedAt = new Date().toISOString();
+        const activeShow = effectiveShow || playlistShow;
+        const logEntry: LogEntry = {
+          timestamp: playedAt,
+          interstitialTime: slot.toISOString(),
+          mp3Name: backupUrl,
+          interstitialName: s.name,
+          interstitialId: s.id,
+          status: 'backup play',
+          playMode: playMode,
+          ...(activeShow ? {
+            showId: activeShow.id,
+            showName: activeShow.name,
+            hostName: activeShow.host,
+            showDateTime: new Date(slot).toISOString()
+          } : {})
+        };
+        onLog(logEntry);
+
+        if ((playMode === 'Playlist' || playMode === 'Prerecord') && activeShow) {
+          const durRes = resolveTrackDuration({ streamUrl: backupUrl, fileName: backupUrl }, undefined, audio.duration);
+          const updatedPlayed = {
+            ...playedPlaylistTracks,
+            [s.id]: {
+              id: s.id,
+              playedAt,
+              fileName: backupUrl,
+              title: `${s.name} (backup mp3)`,
+              durationSeconds: durRes.durationSeconds,
+              durationFormatted: durRes.durationFormatted,
+              isInterstitial: true
+            }
+          };
+          setPlayedPlaylistTracks(updatedPlayed);
+          saveCurrentShowPlaylistLog(updatedPlayed);
+        }
+      }
+    }).catch(err => {
+      console.error('Backup MP3 playback failed', err);
     });
   };
 
@@ -2177,7 +2332,7 @@ export default function PlayerTab({
     return logs.some(l => 
       l.interstitialId === interstitialId && 
       (l.interstitialTime === slot.toISOString() || isSameMinute(parseISO(l.timestamp), slot)) &&
-      l.status === 'played'
+      (l.status === 'played' || l.status === 'backup play')
     );
   };
 
@@ -2373,7 +2528,7 @@ export default function PlayerTab({
       const playedLog = logs.find(l => 
         l.interstitialId === item.interstitialId && 
         (l.interstitialTime === item.slotISO || isSameMinute(parseISO(l.timestamp), slot)) &&
-        l.status === 'played'
+        (l.status === 'played' || l.status === 'backup play')
       );
       return !playedLog;
     });
@@ -2385,7 +2540,7 @@ export default function PlayerTab({
       const playedLog = logs.find(l => 
         l.interstitialId === item.interstitialId && 
         (l.interstitialTime === item.slotISO || isSameMinute(parseISO(l.timestamp), slot)) &&
-        l.status === 'played'
+        (l.status === 'played' || l.status === 'backup play')
       );
       return !playedLog;
     });
@@ -2469,6 +2624,7 @@ export default function PlayerTab({
           >
             Configure
           </button>
+          {renderLiveReadOverlay()}
         </div>
       );
     }
@@ -2692,7 +2848,7 @@ export default function PlayerTab({
                           </div>
                         </div>
 
-                        {/* Right side: Right-justified circular Play / Pause / Check button */}
+                        {/* Right side: Right-justified circular Play / Pause / Check / Ear button */}
                         <div className="flex items-center gap-1.5 ml-auto">
                           <button
                             onClick={() => handleTogglePlayTrack(item.track)}
@@ -2713,7 +2869,7 @@ export default function PlayerTab({
                             ) : isPlayedTrack ? (
                               <CheckCircle className="w-2.5 h-2.5 text-white" />
                             ) : (
-                              <Play className="w-2.5 h-2.5 fill-current ml-0.5" />
+                              <Ear className="w-3 h-3 text-white" />
                             )}
                           </button>
                         </div>
@@ -2821,11 +2977,12 @@ export default function PlayerTab({
                         const playedLog = logs.find(l => 
                           l.interstitialId === s.id && 
                           (l.interstitialTime === slot.toISOString() || isSameMinute(parseISO(l.timestamp), slot)) &&
-                          l.status === 'played'
+                          (l.status === 'played' || l.status === 'backup play')
                         );
+                        const exported = !!playedLog && playedLog.playMode === 'Export' && playedLog.status === 'played';
                         const played = !!playedLog && playedLog.playMode !== 'Export';
-                        const exported = !!playedLog && playedLog.playMode === 'Export';
                         const slotKey = `${slot.toISOString()}-${s.id}`;
+                        const breakNum = breakIndexMap[slotKey] || (bIdx + 1);
                         const previewKey = `export-preview-${slotKey}`;
                         const status = getMP3Status(s.mp3Url);
                         const isVerified = s.assetType === 'script' ? status.exists : (status.exists && status.valid);
@@ -2851,8 +3008,9 @@ export default function PlayerTab({
                           <div 
                             key={s.id} 
                             title={`MP3: ${s.mp3Url || ""}`}
+                            onClick={() => isVerified ? handlePlay(s, slot) : null}
                             className={cn(
-                              "rounded border shadow-xs p-2 transition-all flex flex-col gap-1.5 mx-1 text-left select-none relative",
+                              "rounded border shadow-xs p-2 transition-all flex flex-col gap-1.5 mx-1 text-left select-none relative cursor-pointer",
                               s.assetType !== 'script' && isVerified ? "pb-[1px]" : "",
                               bgClass,
                             )}
@@ -2903,23 +3061,7 @@ export default function PlayerTab({
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      const filename = s.mp3Url ? s.mp3Url.split('/').pop() || 'Script' : 'Script';
-                                      const interstitialTimeISO = slot.toISOString();
-                                      const payload = {
-                                        name: filename,
-                                        fileName: filename,
-                                        filePath: s.mp3Url,
-                                        interstitialId: s.id,
-                                        interstitialName: s.name,
-                                        interstitialTime: interstitialTimeISO,
-                                        initialLoggedTime: playedLog?.logTimeStamp || playedLog?.timestamp || ''
-                                      };
-                                      if ((window as any).electronAPI && (window as any).electronAPI.spawnLiveRead) {
-                                        (window as any).electronAPI.spawnLiveRead(payload);
-                                        setActiveLiveReadOverlay(payload);
-                                      } else {
-                                        setActiveLiveReadOverlay(payload);
-                                      }
+                                      handlePlay(s, slot);
                                     }}
                                     className={cn(
                                       "p-1 rounded-full transition-all shadow-xs flex items-center justify-center cursor-pointer active:scale-95 border",
@@ -3031,7 +3173,7 @@ export default function PlayerTab({
                                       <>
                                         <CheckCircle className="w-3 h-3 text-green-600" />
                                         <span className="text-xs font-bold text-green-700 uppercase tracking-tighter">
-                                          {s.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : ''}
+                                          {s.assetType === 'script' ? (playedLog?.status === 'backup play' ? 'Played' : 'Read') : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : ''}
                                         </span>
                                       </>
                                     ) : (isMissedRecent || isMissedOld) ? (
@@ -3045,7 +3187,7 @@ export default function PlayerTab({
                                       <>
                                         <Clock className="w-3 h-3 text-slate-500" />
                                         <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">
-                                          {`Break ${bIdx + 1}`}
+                                          {`Break ${breakNum}`}
                                         </span>
                                       </>
                                     )}
@@ -3138,6 +3280,7 @@ export default function PlayerTab({
             </button>
           </div>
         </div>
+        {renderLiveReadOverlay()}
       </div>
     );
   }
@@ -3566,11 +3709,12 @@ export default function PlayerTab({
                         const playedLog = logs.find(l => 
                           l.interstitialId === s.id && 
                           (l.interstitialTime === slot.toISOString() || isSameMinute(parseISO(l.timestamp), slot)) &&
-                          l.status === 'played'
+                          (l.status === 'played' || l.status === 'backup play')
                         );
                         const played = !!playedLog && playedLog.playMode !== 'Export';
                         const exported = !!playedLog && playedLog.playMode === 'Export';
                         const slotKey = `${slot.toISOString()}-${s.id}`;
+                        const breakNum = breakIndexMap[slotKey] || (idx + 1);
                         const customVal = customScriptTimes[slotKey];
                         const isValid = !customVal || parseCustomTimeText(customVal) !== null;
                         const status = getMP3Status(s.mp3Url);
@@ -3695,14 +3839,14 @@ export default function PlayerTab({
                                       isPresent || isUpcoming ? "bg-purple-600 text-white shadow-md shadow-purple-200" :
                                       "bg-slate-700 text-white"
                                     )}
-                                    title={!isVerified ? "Invalid or missing file" : (played || exported) ? "Read Again" : "Display Script"}
-                                  >
+                                    title={!isVerified ? "Invalid or missing file" : isCurrentlyPlaying ? "Stop Audio" : (played || exported) ? "Read Again" : "Display Script"}
+                                    >
                                     {!isVerified ? (
                                       <X className="w-2.5 h-2.5" />
-                                    ) : (played || exported) ? (
-                                      <RefreshCw className="w-2.5 h-2.5" />
                                     ) : isCurrentlyPlaying ? (
                                       <Square className="w-2.5 h-2.5 fill-current" />
+                                    ) : (played || exported) ? (
+                                      <RefreshCw className="w-2.5 h-2.5" />
                                     ) : (
                                       <FileText className="w-2.5 h-2.5" />
                                     )}
@@ -3726,6 +3870,8 @@ export default function PlayerTab({
                                       <Square className="w-2.5 h-2.5 fill-current" />
                                     ) : (played || exported) ? (
                                       <RefreshCw className="w-2.5 h-2.5" />
+                                    ) : (playMode as string) === 'Export' ? (
+                                      <Ear className="w-2.5 h-2.5" />
                                     ) : (
                                       <Play className="w-2.5 h-2.5 fill-current" />
                                     )}
@@ -3756,7 +3902,7 @@ export default function PlayerTab({
                                           <>
                                             <CheckCircle className="w-2.5 h-2.5 text-green-500" />
                                             <span className="text-xs font-bold text-green-600 uppercase tracking-tighter">
-                                              {s.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
+                                              {s.assetType === 'script' ? (playedLog?.status === 'backup play' ? 'Played' : 'Read') : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
                                             </span>
                                           </>
                                         ) : isMissedRecent || isMissedOld ? (
@@ -4156,14 +4302,14 @@ export default function PlayerTab({
                            isPresent || isUpcoming ? (isPre ? "bg-emerald-600 text-white shadow-md shadow-emerald-200" : "bg-purple-600 text-white shadow-md shadow-purple-200") :
                            "bg-slate-700 text-white"
                          )}
-                         title={!isVerified ? "Invalid or missing file" : (played || exported) ? "Read Again" : "Display Script"}
-                       >
+                         title={!isVerified ? "Invalid or missing file" : isCurrentlyPlaying ? "Stop Audio" : (played || exported) ? "Read Again" : "Display Script"}
+                         >
                          {!isVerified ? (
                            <X className="w-2.5 h-2.5" />
-                         ) : (played || exported) ? (
-                           <RefreshCw className="w-2.5 h-2.5" />
                          ) : isCurrentlyPlaying ? (
                            <Square className="w-2.5 h-2.5 fill-current" />
+                         ) : (played || exported) ? (
+                           <RefreshCw className="w-2.5 h-2.5" />
                          ) : (
                            <FileText className="w-2.5 h-2.5" />
                          )}
@@ -4218,7 +4364,7 @@ export default function PlayerTab({
                              <>
                                <CheckCircle className="w-2.5 h-2.5 text-green-500" />
                                <span className="text-xs font-bold text-green-600 uppercase tracking-tighter">
-                                 {s.assetType === 'script' ? 'Read' : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
+                                 {s.assetType === 'script' ? (playedLog?.status === 'backup play' ? 'Played' : 'Read') : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
                                </span>
                              </>
                            ) : isMissedRecent || isMissedOld ? (
@@ -4287,24 +4433,7 @@ export default function PlayerTab({
       })()}
       </div>
 
-      {/* No Playback Error Overlay as per user request */}
-      {activeLiveReadOverlay && !(window as any).electronAPI && (
-        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <LiveReadPopout
-            initialFileName={activeLiveReadOverlay.fileName}
-            initialInterstitialId={activeLiveReadOverlay.interstitialId}
-            initialInterstitialName={activeLiveReadOverlay.interstitialName}
-            initialInterstitialTime={activeLiveReadOverlay.interstitialTime}
-            initialLoggedTime={activeLiveReadOverlay.initialLoggedTime}
-            isOverlay={true}
-            onClose={() => setActiveLiveReadOverlay(null)}
-            onLogCommit={(logEntry) => {
-              onLog(logEntry);
-              setActiveLiveReadOverlay(null);
-            }}
-          />
-        </div>
-      )}
+      {renderLiveReadOverlay()}
     </div>
   );
 }

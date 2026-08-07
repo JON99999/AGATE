@@ -37,6 +37,7 @@ export interface Interstitial {
   duration?: string;
   assetType?: 'audio' | 'script';
   approximateReadTime?: string;
+  backupMp3Url?: string;
 }
 
 export interface LogEntry {
@@ -45,7 +46,7 @@ export interface LogEntry {
   mp3Name: string;
   interstitialName: string;
   interstitialId: string;
-  status: 'played' | 'skipped' | 'failed';
+  status: 'played' | 'skipped' | 'failed' | 'backup play';
   playMode?: 'Live' | 'Prerecord' | 'Export' | 'Playlist';
   logTimeStamp?: string;
   assetType?: 'audio' | 'script';
