@@ -62,10 +62,14 @@ This application is primarily a **Desktop Application** built with Electron and 
 - **Check Version References Everywhere**: When commanded to update, check, or reset the application's version, the agent **MUST** perform a global search across the workspace to locate and align all instances. This includes modifying `package.json`, `package-lock.json`, and companion developer instructions/distribution guides like `HOW_TO_RELEASE_IN_GITHUB_ONLINE.md`. All version tags (e.g., `v0.8.3`) must remain strictly in sync with the core version string.
 
 
+## Archive & Backup Guidelines
+
+- **Folder-Based Archiving (Strategy 2)**: When asked to create a codebase backup or version archive, store all archived files directly inside an uncompressed snapshot directory (e.g., `archive_v0.12.5/`) rather than packing them into `.tar.gz` or `.zip` binary archives.
+- **Binary Corruption Prevention**: Never attempt to inspect, view, or modify binary files or compressed archives using text-based inspection tools (`view_file`, `edit_file`), as UTF-8 string encoding transforms raw binary byte sequences (such as gzip magic headers `0x1f 0x8b`) into replacement characters (`0xef 0xbf 0xbd`), resulting in corrupt archive headers.
+
 ## Performance & Optimization Guidelines
 
-- **Performance-First Philosophy**: 
-  - Interface aesthetics must **never** override performance and a small system resource footprint during execution. 
+- **Performance-First Philosophy**:
   - This application is a critical utility for radio broadcasters who need uninterrupted, reliable audio data flow—both within Interstitial-er and across other audio playback/streaming tools running on the same host operating system simultaneously.
   - The application must be as lean and computationally non-intensive as possible. Sacrifice fancy UI gimmicks or "pretty" interface tricks whenever they introduce CPU or GPU usage overhead.
 

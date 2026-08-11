@@ -46,6 +46,7 @@ import {
   Undo2,
   Zap,
   ZapOff,
+  Ruler,
   Square,
   X,
 } from "lucide-react";
@@ -306,6 +307,10 @@ export default function App() {
     return localStorage.getItem("debug_animations_disabled") === "true";
   });
 
+  const [showPixelRuler, setShowPixelRuler] = useState(() => {
+    return localStorage.getItem("show_pixel_ruler") === "true";
+  });
+
   const [activeOptimizations, setActiveOptimizations] = useState<OptimizationConfig>(() => {
     try {
       const stored = localStorage.getItem("debug_active_optimizations");
@@ -430,6 +435,14 @@ export default function App() {
     }
   };
   // === DEBUG ANIMATION SWITCH END ===
+
+  const togglePixelRuler = () => {
+    setShowPixelRuler(prev => {
+      const next = !prev;
+      localStorage.setItem("show_pixel_ruler", String(next));
+      return next;
+    });
+  };
 
   // Audio playing navigation guard
   const [showAudioPlayingNavModal, setShowAudioPlayingNavModal] = useState(false);
@@ -2700,6 +2713,21 @@ export default function App() {
                     : ""}
                 </p>
               </div>
+            ) : playMode === "Playlist" ? (
+              <div className="flex flex-col py-0.5">
+                <p className="text-xs uppercase text-purple-600 font-black tracking-widest leading-none flex items-center gap-1.5 mb-1">
+                  <RadioTower className="w-3.5 h-3.5 animate-pulse" />
+                  Live With Playlist
+                </p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <p className="text-xs uppercase text-slate-400 font-black tracking-tighter leading-none">
+                    Time
+                  </p>
+                  <p className="text-xs font-mono font-black text-slate-900 tabular-nums leading-none">
+                    {format(now, "HH:mm:ss")}
+                  </p>
+                </div>
+              </div>
             ) : (
               <div className="flex flex-col py-0.5">
                 <p className="text-xs uppercase text-purple-600 font-black tracking-widest leading-none flex items-center gap-1.5 mb-1">
@@ -2720,7 +2748,7 @@ export default function App() {
             <div className="flex items-center gap-2 font-sans">
 
               {playMode === "Live" && (
-                <>
+                <div className="flex items-center gap-2 live-refresh-container">
                   <p className="text-xs uppercase text-purple-600 font-black tracking-tight leading-none whitespace-nowrap">
                     Refresh: {formatCountdown(countdown)}
                   </p>
@@ -2734,7 +2762,7 @@ export default function App() {
                       Now
                     </span>
                   </button>
-                </>
+                </div>
               )}
               {(isPre || playMode === "Export") && (
                 <button
@@ -2949,6 +2977,7 @@ export default function App() {
                   onRefresh={handleRefresh}
                   currentViewMode={calendarSubTab}
                   onViewModeChange={(mode) => setCalendarSubTab(mode)}
+                  showPixelRuler={showPixelRuler}
                 />
               </motion.div>
             ) : (
@@ -4647,7 +4676,7 @@ export default function App() {
                     onClick={toggleAnimations}
                     title={animationsDisabled ? "Performance Overrides: ACTIVE. Click to configure or disable" : "Performance Overrides: INACTIVE. Click to configure & enable"}
                     className={cn(
-                      "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer mr-auto border border-transparent",
+                      "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer border border-transparent",
                       animationsDisabled
                         ? "bg-red-100 text-red-700 border-red-300 hover:bg-red-200"
                         : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
@@ -4660,6 +4689,21 @@ export default function App() {
                     )}
                   </button>
                   {/* === DEBUG ANIMATION SWITCH END === */}
+                  {/* === PIXEL RULER SWITCH START === */}
+                  <button
+                    type="button"
+                    onClick={togglePixelRuler}
+                    title={showPixelRuler ? "Pixel Ruler: ACTIVE. Click to hide ruler" : "Pixel Ruler: INACTIVE. Click to show ruler"}
+                    className={cn(
+                      "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer mr-auto border border-transparent",
+                      showPixelRuler
+                        ? "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
+                    )}
+                  >
+                    <Ruler className={cn("w-3.5 h-3.5", showPixelRuler ? "text-amber-600" : "text-slate-500")} />
+                  </button>
+                  {/* === PIXEL RULER SWITCH END === */}
                   <button
                     type="button"
                     onClick={() => setShowLocationsModal(false)}

@@ -327,9 +327,10 @@ interface CalendarTabProps {
   onSaveShows?: (shows: Show[]) => void;
   currentViewMode?: 'list' | 'calendar' | 'shows';
   onViewModeChange?: (mode: 'list' | 'calendar' | 'shows') => void;
+  showPixelRuler?: boolean;
 }
 
-export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminToggle, now, driveMP3s = [], isDriveActive = false, onRefresh, shows = [], onSaveShows, currentViewMode, onViewModeChange }: CalendarTabProps) {
+export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminToggle, now, driveMP3s = [], isDriveActive = false, onRefresh, shows = [], onSaveShows, currentViewMode, onViewModeChange, showPixelRuler = false }: CalendarTabProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Interstitial>>({});
   const isNew = editingId ? !interstitials.some(s => s.id === editingId) : false;
@@ -361,26 +362,100 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
   const showGaps = React.useMemo(() => getShowGaps(shows), [shows]);
 
   const headerContainerRef = useRef<HTMLDivElement>(null);
-  const [headerContainerWidth, setHeaderContainerWidth] = useState<number>(1200);
+  const [headerContainerWidth, setHeaderContainerWidth] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      return Math.max(300, window.innerWidth - 32);
+    }
+    return 1200;
+  });
+
+  const controlsContainerRef = useRef<HTMLDivElement>(null);
+  const [controlsContainerWidth, setControlsContainerWidth] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      return Math.max(300, window.innerWidth - 32);
+    }
+    return 1200;
+  });
+
+  const [calendarLayoutMode, setCalendarLayoutMode] = useState<'full' | 'compact'>(() => (localStorage.getItem('interstitial_calendar_layout_mode') as 'full' | 'compact') || 'full');
+  const [calendarTimeframe, setCalendarTimeframe] = useState<'weekly' | 'daily'>(() => (localStorage.getItem('interstitial_calendar_timeframe') as 'weekly' | 'daily') || 'weekly');
+
+  const activeViewMode = currentViewMode || 'calendar';
+
+  const measureContainers = React.useCallback(() => {
+    let hWidth = 0;
+    if (headerContainerRef.current) {
+      hWidth = headerContainerRef.current.getBoundingClientRect().width;
+      if (hWidth > 0) {
+        setHeaderContainerWidth(hWidth);
+      }
+    }
+    if (controlsContainerRef.current) {
+      const cWidth = controlsContainerRef.current.getBoundingClientRect().width;
+      if (cWidth > 0) {
+        setControlsContainerWidth(cWidth);
+      }
+    } else if (hWidth > 0) {
+      setControlsContainerWidth(hWidth);
+    }
+  }, []);
+
+  React.useLayoutEffect(() => {
+    measureContainers();
+  });
+
+  useEffect(() => {
+    const handleResize = () => measureContainers();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [measureContainers]);
 
   useEffect(() => {
     if (!headerContainerRef.current) return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setHeaderContainerWidth(entry.contentRect.width);
-      }
-    });
+    const observer = new ResizeObserver(() => measureContainers());
     observer.observe(headerContainerRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [activeViewMode, measureContainers]);
 
-  const hideCalendarIcon = headerContainerWidth < 1050 && headerContainerWidth >= 580;
-  const hideInterstitialsIcons = headerContainerWidth < 980 && headerContainerWidth >= 580;
-  const hideShowsIcon = headerContainerWidth < 910 && headerContainerWidth >= 580;
-  const addTextShort = headerContainerWidth < 830 && headerContainerWidth >= 750;
-  const addTextIconOnly = headerContainerWidth < 750;
-  const halfFilter = headerContainerWidth < 670;
-  const modeIconsOnly = headerContainerWidth < 580;
+  useEffect(() => {
+    if (!controlsContainerRef.current) return;
+    const observer = new ResizeObserver(() => measureContainers());
+    observer.observe(controlsContainerRef.current);
+    return () => observer.disconnect();
+  }, [activeViewMode, calendarTimeframe, calendarLayoutMode, measureContainers]);
+
+  const isCalendarView = activeViewMode === 'calendar';
+  const hideCalendarIcon = headerContainerWidth < 697;
+  const hideInterstitialsIcons = headerContainerWidth < 697;
+  const hideShowsIcon = headerContainerWidth < 697;
+  const addTextShort = headerContainerWidth < (isCalendarView ? 913 : 810) && headerContainerWidth >= (isCalendarView ? 890 : 766);
+  const addTextIconOnly = headerContainerWidth < (isCalendarView ? 890 : 766);
+  const halfFilter = headerContainerWidth < (isCalendarView ? 860 : 734);
+  const modeIconsOnly = headerContainerWidth < 618;
+  const isHeaderStacked = headerContainerWidth < 462;
+
+  const listCardCollapsePreviewText = headerContainerWidth < 520;
+  const listCardCollapseCopyText = headerContainerWidth < 460;
+  const listCardCollapseViewEditText = headerContainerWidth < 420;
+  const listCardHideSummaryTag = headerContainerWidth < 480;
+  const listCardHideTypeTag = headerContainerWidth < 420;
+
+  const activeTriggerWidth = isCalendarView ? controlsContainerWidth : headerContainerWidth;
+
+  const isCell3Below = controlsContainerWidth < 528;
+
+  const isFilterModeSplit = controlsContainerWidth < 970;
+
+  const controlsNavShort = controlsContainerWidth < 1110;
+
+  const controlsNavIconOnly = controlsContainerWidth < 590;
+
+  const showsCardsCollapse = headerContainerWidth < 450;
+
+  const isWeekDayStacked = controlsContainerWidth < 970;
+
+  const isNavStacked = controlsContainerWidth < 970;
+  const isFullStacked = controlsContainerWidth < 380;
 
   // Shows related states
   const [showFilterQuery, setShowFilterQuery] = useState('');
@@ -710,8 +785,6 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
       setViewModeState(currentViewMode);
     }
   }, [currentViewMode]);
-  const [calendarLayoutMode, setCalendarLayoutMode] = useState<'full' | 'compact'>(() => (localStorage.getItem('interstitial_calendar_layout_mode') as 'full' | 'compact') || 'full');
-  const [calendarTimeframe, setCalendarTimeframe] = useState<'weekly' | 'daily'>(() => (localStorage.getItem('interstitial_calendar_timeframe') as 'weekly' | 'daily') || 'weekly');
   const [showInactive, setShowInactive] = useState<boolean>(false);
   const [calendarDate, setCalendarDate] = useState<Date>(() => new Date(now));
   const [selectedCalendarInterstitial, setSelectedCalendarInterstitial] = useState<Interstitial | null>(null);
@@ -1563,9 +1636,9 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
         <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm flex flex-col flex-1 min-h-0">
           {/* Header row (Static outside of scrollable viewport, matching log grid layout) */}
           <div className="bg-slate-100 border-b border-slate-250 pl-[17px] pr-3 py-1.5 flex items-center gap-4 text-[11px] font-black text-slate-500 uppercase tracking-wider shrink-0 select-none sticky top-0 z-20 shadow-sm">
-            <div className="w-[120px] shrink-0">Day & Time</div>
+            <div className="w-[85px] shrink-0">Day & Time</div>
             <div className="flex-1 min-w-0">Show Details</div>
-            <div className="w-[130px] shrink-0" />
+            {!showsCardsCollapse && <div className="w-[70px] shrink-0" />}
           </div>
 
           <div className="overflow-y-auto flex-1 custom-scrollbar min-h-0 divide-y divide-slate-150">
@@ -1585,12 +1658,12 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                 }}
               >
                   {/* Day & Time Column */}
-                  <div className="flex flex-col gap-1.5 justify-center w-[120px] shrink-0">
-                    <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-150 rounded text-xs font-black uppercase tracking-wide text-center leading-none">
+                  <div className="flex flex-col gap-1 justify-center w-[85px] shrink-0">
+                    <span className="px-1 py-0.5 bg-blue-50 text-blue-700 border border-blue-150 rounded text-[11px] font-black uppercase tracking-wide text-center leading-none">
                       {show.day}
                     </span>
-                    <span className="flex items-center justify-center gap-1 text-xs font-mono text-slate-500 font-bold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 leading-none">
-                      <Clock className="w-3 h-3 text-slate-400" />
+                    <span className="flex items-center justify-center gap-0.5 text-[11px] font-mono text-slate-500 font-bold bg-slate-100 px-1 py-0.5 rounded border border-slate-200 leading-none">
+                      <Clock className="w-3 h-3 text-slate-400 shrink-0" />
                       {show.startHour !== undefined && show.startMinute !== undefined ? (
                         <span>
                           {show.startHour.toString().padStart(2, '0')}:{show.startMinute.toString().padStart(2, '0')}
@@ -1600,20 +1673,35 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                     <span className="text-[10px] text-slate-400 font-mono font-bold uppercase text-center leading-none">
                       {show.durationHours}h {show.durationMinutes}m
                     </span>
+
+                    {/* Stack Edit & Active at bottom of Day & Time column when < 450px */}
+                    {showsCardsCollapse && (
+                      <div className="flex flex-col items-center gap-1 mt-1 pt-1 border-t border-slate-200/80">
+                        <button
+                          type="button"
+                          onClick={() => startEditShow(show)}
+                          className="flex items-center gap-1 py-0.5 px-1.5 hover:bg-blue-600 hover:text-white bg-white border border-blue-300 rounded text-blue-700 transition-all shadow-2xs group/btn cursor-pointer shrink-0"
+                        >
+                          <FileText className="w-3 h-3" />
+                          <span className="text-[10px] font-black uppercase tracking-tight">Edit</span>
+                        </button>
+                        <span className={cn(
+                          "text-[9px] font-black uppercase px-1 py-0.5 rounded border leading-none shrink-0 text-center",
+                          show.active 
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                            : "bg-slate-100 text-slate-400 border-slate-200"
+                        )}>
+                          {show.active ? "Active" : "Inactive"}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Info / Description Column */}
                   <div className="flex-1 min-w-0 flex flex-col justify-center">
-                    <div className="flex items-baseline gap-2 mb-0.5">
-                      <h3 className="text-sm font-black text-slate-800 tracking-tight leading-tight">
-                        {show.name}
-                      </h3>
-                      {show.host && (
-                        <span className="text-xs text-slate-500 font-bold leading-none">
-                          by <strong className="text-slate-700">{show.host}</strong>
-                        </span>
-                      )}
-                    </div>
+                    <h3 className="text-sm font-black text-slate-800 tracking-tight leading-tight mb-0.5">
+                      {show.name}{show.host ? ` by ${show.host}` : ''}
+                    </h3>
                     {show.description && (
                       <p className="text-xs text-slate-500 leading-normal font-medium font-sans line-clamp-1">
                         {show.description}
@@ -1624,25 +1712,27 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                     </div>
                   </div>
 
-                  {/* Status & Actions Column */}
-                  <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0 justify-end w-[130px]">
-                    <span className={cn(
-                      "text-[10px] font-black uppercase px-1.5 py-0.5 rounded border leading-none shrink-0",
-                      show.active 
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
-                        : "bg-slate-100 text-slate-400 border-slate-200"
-                    )}>
-                      {show.active ? "Active" : "Inactive"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => startEditShow(show)}
-                      className="flex items-center gap-1 py-1 px-2 hover:bg-blue-600 hover:text-white bg-white border border-blue-300 rounded text-blue-700 transition-all shadow-sm group/btn cursor-pointer shrink-0"
-                    >
-                      <FileText className="w-3 h-3" />
-                      <span className="text-xs font-black uppercase tracking-tight">Edit</span>
-                    </button>
-                  </div>
+                  {/* Status & Actions Column (when >= 450px) */}
+                  {!showsCardsCollapse && (
+                    <div className="flex flex-col items-center justify-center gap-1.5 shrink-0 w-[70px]">
+                      <button
+                        type="button"
+                        onClick={() => startEditShow(show)}
+                        className="flex items-center gap-1 py-1 px-2 hover:bg-blue-600 hover:text-white bg-white border border-blue-300 rounded text-blue-700 transition-all shadow-sm group/btn cursor-pointer shrink-0"
+                      >
+                        <FileText className="w-3 h-3" />
+                        <span className="text-xs font-black uppercase tracking-tight">Edit</span>
+                      </button>
+                      <span className={cn(
+                        "text-[10px] font-black uppercase px-1.5 py-0.5 rounded border leading-none shrink-0 text-center",
+                        show.active 
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                          : "bg-slate-100 text-slate-400 border-slate-200"
+                      )}>
+                        {show.active ? "Active" : "Inactive"}
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1672,79 +1762,151 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
         renderShowEditForm()
       ) : !editingId ? (
         <div className="flex flex-col h-full min-h-0 flex-1">
-          <div ref={headerContainerRef} className="flex items-center justify-between mb-3 px-1 shrink-0 flex-nowrap gap-2 overflow-hidden w-full">
-            <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
-              <button
-                type="button"
-                onClick={() => setViewMode('calendar')}
-                className={cn(
-                  "px-3 py-1.5 flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border shrink-0",
-                  viewMode === 'calendar'
-                    ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
-                )}
-              >
-                <span className={cn(
-                  "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
-                  viewMode === 'calendar'
-                    ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
-                    : "bg-slate-800"
-                )} />
-                {(!hideCalendarIcon || modeIconsOnly) && <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
-                {!modeIconsOnly && <span>Calendar</span>}
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('list')}
-                className={cn(
-                  "px-3 py-1.5 flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border shrink-0",
-                  viewMode === 'list'
-                    ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
-                )}
-              >
-                <span className={cn(
-                  "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
-                  viewMode === 'list'
-                    ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
-                    : "bg-slate-800"
-                )} />
-                {(!hideInterstitialsIcons || modeIconsOnly) && <Music className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
-                {!modeIconsOnly && <span>Interstitials</span>}
-                {(!hideInterstitialsIcons || modeIconsOnly) && <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('shows')}
-                className={cn(
-                  "px-3 py-1.5 flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border shrink-0",
-                  viewMode === 'shows'
-                    ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
-                    : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
-                )}
-              >
-                <span className={cn(
-                  "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
-                  viewMode === 'shows'
-                    ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
-                    : "bg-slate-800"
-                )} />
-                {(!hideShowsIcon || modeIconsOnly) && <BookOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
-                {!modeIconsOnly && <span>Shows</span>}
-              </button>
-            </div>
-            
-            <div className="flex gap-2 items-center flex-nowrap shrink-0">
+          <div ref={headerContainerRef} className={cn("mb-3 px-1 shrink-0 overflow-hidden w-full", isHeaderStacked ? "flex flex-col gap-2" : "flex items-center justify-between flex-nowrap gap-2")}>
+            {isHeaderStacked ? (
+              <div className="flex items-center justify-between w-full gap-2">
+                <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('calendar')}
+                    className={cn(
+                      "px-3 py-1.5 flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border shrink-0",
+                      viewMode === 'calendar'
+                        ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
+                        : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
+                    )}
+                  >
+                    <span className={cn(
+                      "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
+                      viewMode === 'calendar'
+                        ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                        : "bg-slate-800"
+                    )} />
+                    {(!hideCalendarIcon || modeIconsOnly) && <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                    {!modeIconsOnly && <span>Calendar</span>}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('list')}
+                    className={cn(
+                      "px-3 py-1.5 flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border shrink-0",
+                      viewMode === 'list'
+                        ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
+                        : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
+                    )}
+                  >
+                    <span className={cn(
+                      "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
+                      viewMode === 'list'
+                        ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                        : "bg-slate-800"
+                    )} />
+                    {(!hideInterstitialsIcons || modeIconsOnly) && <Music className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                    {!modeIconsOnly && <span>Interstitials</span>}
+                    {(!hideInterstitialsIcons || modeIconsOnly) && <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('shows')}
+                    className={cn(
+                      "px-3 py-1.5 flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border shrink-0",
+                      viewMode === 'shows'
+                        ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
+                        : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
+                    )}
+                  >
+                    <span className={cn(
+                      "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
+                      viewMode === 'shows'
+                        ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                        : "bg-slate-800"
+                    )} />
+                    {(!hideShowsIcon || modeIconsOnly) && <BookOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                    {!modeIconsOnly && <span>Shows</span>}
+                  </button>
+                </div>
+                
+                <button 
+                  onClick={viewMode === 'shows' ? createNewShow : createNew}
+                  className="p-1.5 px-3 bg-blue-600 text-white rounded text-xs font-black tracking-tighter shadow-sm hover:bg-blue-700 transition-colors uppercase cursor-pointer h-8 border border-blue-700 shrink-0 whitespace-nowrap"
+                >
+                  {addTextIconOnly ? "+" : addTextShort ? "+ ADD" : (viewMode === 'shows' ? "+ ADD SHOW" : "+ ADD NEW")}
+                </button>
+              </div>
+            ) : (
+              <div className="flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('calendar')}
+                  className={cn(
+                    "px-3 py-1.5 flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border shrink-0",
+                    viewMode === 'calendar'
+                      ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
+                      : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
+                  )}
+                >
+                  <span className={cn(
+                    "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
+                    viewMode === 'calendar'
+                      ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                      : "bg-slate-800"
+                  )} />
+                  {(!hideCalendarIcon || modeIconsOnly) && <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                  {!modeIconsOnly && <span>Calendar</span>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('list')}
+                  className={cn(
+                    "px-3 py-1.5 flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border shrink-0",
+                    viewMode === 'list'
+                      ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
+                      : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
+                  )}
+                >
+                  <span className={cn(
+                    "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
+                    viewMode === 'list'
+                      ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                      : "bg-slate-800"
+                  )} />
+                  {(!hideInterstitialsIcons || modeIconsOnly) && <Music className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                  {!modeIconsOnly && <span>Interstitials</span>}
+                  {(!hideInterstitialsIcons || modeIconsOnly) && <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('shows')}
+                  className={cn(
+                    "px-3 py-1.5 flex items-center gap-1.5 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border shrink-0",
+                    viewMode === 'shows'
+                      ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)] border-blue-500"
+                      : "bg-transparent border-transparent text-slate-400 hover:text-slate-300"
+                  )}
+                >
+                  <span className={cn(
+                    "w-1.5 h-1.5 rounded-full transition-all duration-300 shrink-0",
+                    viewMode === 'shows'
+                      ? "bg-red-500 shadow-[0_0_8px_#EF4444,0_0_3px_#EF4444]"
+                      : "bg-slate-800"
+                  )} />
+                  {(!hideShowsIcon || modeIconsOnly) && <BookOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                  {!modeIconsOnly && <span>Shows</span>}
+                </button>
+              </div>
+            )}
+
+            <div className={cn("flex gap-2 items-center flex-nowrap shrink-0", isHeaderStacked && "w-full")}>
+              <Search className="w-3.5 h-3.5 text-slate-450 shrink-0" />
               {viewMode === 'calendar' ? (
                 <>
-                  <div className={cn("relative shrink-0 transition-all", halfFilter ? "w-20 sm:w-22" : "w-36 sm:w-44")}>
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                  <div className={cn("relative shrink-0 transition-all", isHeaderStacked ? "flex-1" : halfFilter ? "w-24" : "w-36 sm:w-44")}>
                     <input 
                       type="text" 
-                      placeholder="Filter interstitials..." 
+                      placeholder={halfFilter ? "Interstitials..." : "Filter interstitials..."} 
                       value={interstitialFilterQuery}
                       onChange={e => setInterstitialFilterQuery(e.target.value)}
-                      className="w-full pl-8 pr-6 py-1 bg-white border border-slate-350 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans text-slate-850 placeholder-slate-450 h-8"
+                      className="w-full px-2.5 pr-6 py-1 bg-white border border-slate-350 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans text-slate-850 placeholder-slate-450 h-8"
                     />
                     {interstitialFilterQuery && (
                       <button 
@@ -1757,14 +1919,13 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                     )}
                   </div>
 
-                  <div className={cn("relative shrink-0 transition-all", halfFilter ? "w-20 sm:w-22" : "w-36 sm:w-44")}>
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                  <div className={cn("relative shrink-0 transition-all", isHeaderStacked ? "flex-1" : halfFilter ? "w-24" : "w-36 sm:w-44")}>
                     <input 
                       type="text" 
-                      placeholder="Filter shows..." 
+                      placeholder={halfFilter ? "Shows..." : "Filter shows..."} 
                       value={showFilterQuery}
                       onChange={e => setShowFilterQuery(e.target.value)}
-                      className="w-full pl-8 pr-6 py-1 bg-white border border-slate-350 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans text-slate-850 placeholder-slate-450 h-8"
+                      className="w-full px-2.5 pr-6 py-1 bg-white border border-slate-350 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans text-slate-850 placeholder-slate-450 h-8"
                     />
                     {showFilterQuery && (
                       <button 
@@ -1778,14 +1939,13 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                   </div>
                 </>
               ) : (
-                <div className={cn("relative shrink-0 transition-all", halfFilter ? "w-24 sm:w-28" : "w-48 sm:w-56")}>
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                <div className={cn("relative shrink-0 transition-all", isHeaderStacked ? "flex-1" : halfFilter ? "w-28" : "w-48 sm:w-56")}>
                   <input 
                     type="text" 
-                    placeholder={viewMode === 'shows' ? "Filter shows..." : "Filter interstitials..."} 
+                    placeholder={halfFilter ? (viewMode === 'shows' ? "Shows..." : "Interstitials...") : (viewMode === 'shows' ? "Filter shows..." : "Filter interstitials...")} 
                     value={viewMode === 'shows' ? showFilterQuery : interstitialFilterQuery}
                     onChange={e => viewMode === 'shows' ? setShowFilterQuery(e.target.value) : setInterstitialFilterQuery(e.target.value)}
-                    className="w-full pl-8 pr-6 py-1 bg-white border border-slate-350 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans text-slate-850 placeholder-slate-450 h-8"
+                    className="w-full px-2.5 pr-6 py-1 bg-white border border-slate-350 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans text-slate-850 placeholder-slate-450 h-8"
                   />
                   {((viewMode === 'shows' && showFilterQuery) || (viewMode !== 'shows' && interstitialFilterQuery)) && (
                     <button 
@@ -1799,14 +1959,66 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                 </div>
               )}
 
-              <button 
-                onClick={viewMode === 'shows' ? createNewShow : createNew}
-                className="p-1.5 px-3 bg-blue-600 text-white rounded text-xs font-black tracking-tighter shadow-sm hover:bg-blue-700 transition-colors uppercase cursor-pointer h-8 border border-blue-700 shrink-0 whitespace-nowrap"
-              >
-                {addTextIconOnly ? "+" : addTextShort ? "+ ADD" : (viewMode === 'shows' ? "+ ADD SHOW" : "+ ADD NEW")}
-              </button>
+              {!isHeaderStacked && (
+                <button 
+                  onClick={viewMode === 'shows' ? createNewShow : createNew}
+                  className="p-1.5 px-3 bg-blue-600 text-white rounded text-xs font-black tracking-tighter shadow-sm hover:bg-blue-700 transition-colors uppercase cursor-pointer h-8 border border-blue-700 shrink-0 whitespace-nowrap"
+                >
+                  {addTextIconOnly ? "+" : addTextShort ? "+ ADD" : (viewMode === 'shows' ? "+ ADD SHOW" : "+ ADD NEW")}
+                </button>
+              )}
             </div>
           </div>
+
+          {/* Debug Pixel Ruler */}
+          {showPixelRuler && (
+            <div className="my-2 p-1.5 bg-slate-900 text-slate-100 rounded-lg text-[10px] font-mono select-none overflow-hidden shrink-0 border border-slate-700 shadow-sm">
+              <div className="flex justify-between items-center px-1 mb-1 text-[11px] font-bold text-amber-400">
+                <span className="flex items-center gap-2">
+                  <span>DEBUG PIXEL RULER</span>
+                  <span className="text-[10px] font-normal text-slate-400">
+                    ({isFullStacked ? 'Full Stacked <380' : isNavStacked ? 'Nav Stacked <970' : isCell3Below ? 'Cell 3 Below <528' : isFilterModeSplit ? 'Filter/Mode Split <970' : 'Full Width ≥970'})
+                  </span>
+                </span>
+                <span>
+                  Trigger Value: <span className="text-cyan-300 font-extrabold text-xs">{Math.round(activeTriggerWidth)}px</span>
+                </span>
+              </div>
+              <div className="relative h-8 bg-slate-800/80 rounded border border-slate-700/80 overflow-x-auto overflow-y-hidden">
+                <div className="absolute inset-y-0 left-0 flex items-center" style={{ width: `${Math.max(headerContainerWidth, controlsContainerWidth, 1050)}px` }}>
+                  {[380, 420, 460, 462, 480, 520, 528, 590, 618, 697, 734, 766, 810, 860, 890, 913, 970].map((px, idx) => {
+                    const isTop = idx % 2 === 0;
+                    return (
+                      <div key={px} className="absolute inset-y-0 flex flex-col items-center -translate-x-1/2 pointer-events-none" style={{ left: `${px}px` }}>
+                        {isTop ? (
+                          <>
+                            <span className="text-[9px] leading-none text-amber-300 font-bold bg-slate-900/90 px-0.5 rounded-xs mt-0.5">{px}</span>
+                            <div className="w-px flex-1 bg-amber-400/80 my-0.5" />
+                          </>
+                        ) : (
+                          <>
+                            <div className="w-px flex-1 bg-amber-400/80 my-0.5" />
+                            <span className="text-[9px] leading-none text-amber-300 font-bold bg-slate-900/90 px-0.5 rounded-xs mb-0.5">{px}</span>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Live Trigger Value Indicator Line & Badge */}
+                  <div 
+                    className="absolute inset-y-0 flex flex-col items-center z-10 pointer-events-none -translate-x-1/2" 
+                    style={{ left: `${activeTriggerWidth}px` }}
+                  >
+                    <span className="text-[9px] font-extrabold text-slate-900 bg-cyan-300 px-1 rounded-xs -mt-0.5 shadow-xs whitespace-nowrap z-20">
+                      {Math.round(activeTriggerWidth)}px
+                    </span>
+                    <div className="w-0.5 flex-1 bg-cyan-300 shadow-[0_0_4px_rgba(103,232,249,0.8)]" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {viewMode === 'calendar' ? (
             <div className="flex flex-col flex-1 min-h-0">
@@ -1836,9 +2048,14 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                 </div>
               )}
               {/* Calendar View Controls */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 flex flex-col sm:flex-row justify-between items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <div className="inline-flex bg-slate-200/70 p-0.5 rounded border border-slate-300/40 font-black text-xs uppercase select-none shrink-0 gap-0.5 mr-1">
+              <div ref={controlsContainerRef} className={cn("mb-3 flex items-center justify-between gap-3", isCell3Below ? "flex-wrap" : "flex-nowrap")}>
+                {/* Group 1 Card: Week/Day & Prev/Today/Next */}
+                <div className={cn(
+                  "bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex items-center gap-2.5 shrink-0 shadow-2xs min-w-max",
+                  isFullStacked && "w-full justify-center min-w-0"
+                )}>
+                  {/* Cell 1: Week / Day */}
+                  <div className={cn("inline-flex bg-slate-200/70 p-0.5 rounded border border-slate-300/40 font-black uppercase select-none shrink-0 gap-0.5", controlsNavShort ? "text-[11px]" : "text-xs", isWeekDayStacked ? "flex-col" : "flex-row mr-1")}>
                     <button
                       type="button"
                       onClick={() => {
@@ -1846,7 +2063,8 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                         localStorage.setItem('interstitial_calendar_timeframe', 'weekly');
                       }}
                       className={cn(
-                        "relative px-2 py-0.5 rounded text-xs font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
+                        "relative rounded font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
+                        controlsNavShort ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs",
                         calendarTimeframe === 'weekly' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
                       )}
                     >
@@ -1859,7 +2077,8 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                         localStorage.setItem('interstitial_calendar_timeframe', 'daily');
                       }}
                       className={cn(
-                        "relative px-2 py-0.5 rounded text-xs font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
+                        "relative rounded font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
+                        controlsNavShort ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs",
                         calendarTimeframe === 'daily' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
                       )}
                     >
@@ -1867,176 +2086,254 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                     </button>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => navigateCalendar(-1)}
-                    className="px-2.5 py-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer text-xs font-black uppercase tracking-tighter whitespace-nowrap flex items-center"
-                    title={calendarTimeframe === 'daily' ? "Previous Day" : "Previous Week"}
-                  >
-                    <span>&larr;</span>
-                    <span className="hidden min-[480px]:inline ml-1">PREV</span>
-                    <span className="hidden md:inline ml-1">{calendarTimeframe === 'daily' ? "DAY" : "WEEK"}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={jumpToToday}
-                    className="px-3 py-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 font-black cursor-pointer text-xs uppercase tracking-tighter whitespace-nowrap"
-                  >
-                    Today
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigateCalendar(1)}
-                    className="px-2.5 py-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer text-xs font-black uppercase tracking-tighter whitespace-nowrap flex items-center"
-                    title={calendarTimeframe === 'daily' ? "Next Day" : "Next Week"}
-                  >
-                    <span className="hidden min-[480px]:inline mr-1">NEXT</span>
-                    <span className="hidden md:inline mr-1">{calendarTimeframe === 'daily' ? "DAY" : "WEEK"}</span>
-                    <span>&rarr;</span>
-                  </button>
+                  {/* Cell 2: Prev / Today / Next */}
+                  {isNavStacked ? (
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      <div className="flex items-center gap-1.5 w-full">
+                        <button
+                          type="button"
+                          onClick={() => navigateCalendar(-1)}
+                          className={cn(
+                            "flex-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
+                            controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
+                          )}
+                          title={calendarTimeframe === 'daily' ? "Previous Day" : "Previous Week"}
+                        >
+                          <span>&larr;</span>
+                          {!controlsNavIconOnly && (
+                            <span className="ml-1">
+                              PREV{!controlsNavShort ? ` ${calendarTimeframe === 'daily' ? "DAY" : "WEEK"}` : ""}
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigateCalendar(1)}
+                          className={cn(
+                            "flex-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
+                            controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
+                          )}
+                          title={calendarTimeframe === 'daily' ? "Next Day" : "Next Week"}
+                        >
+                          {!controlsNavIconOnly && (
+                            <span className="mr-1">
+                              NEXT{!controlsNavShort ? ` ${calendarTimeframe === 'daily' ? "DAY" : "WEEK"}` : ""}
+                            </span>
+                          )}
+                          <span>&rarr;</span>
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={jumpToToday}
+                        className={cn(
+                          "w-full rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 font-black cursor-pointer uppercase tracking-tighter whitespace-nowrap text-center transition-all",
+                          controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-xs"
+                        )}
+                      >
+                        Today
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 shrink-0 flex-row">
+                      <button
+                        type="button"
+                        onClick={() => navigateCalendar(-1)}
+                        className={cn(
+                          "rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
+                          controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
+                        )}
+                        title={calendarTimeframe === 'daily' ? "Previous Day" : "Previous Week"}
+                      >
+                        <span>&larr;</span>
+                        {!controlsNavIconOnly && (
+                          <span className="ml-1">
+                            PREV{!controlsNavShort ? ` ${calendarTimeframe === 'daily' ? "DAY" : "WEEK"}` : ""}
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={jumpToToday}
+                        className={cn(
+                          "rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 font-black cursor-pointer uppercase tracking-tighter whitespace-nowrap text-center transition-all",
+                          controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-xs"
+                        )}
+                      >
+                        Today
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => navigateCalendar(1)}
+                        className={cn(
+                          "rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
+                          controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
+                        )}
+                        title={calendarTimeframe === 'daily' ? "Next Day" : "Next Week"}
+                      >
+                        {!controlsNavIconOnly && (
+                          <span className="mr-1">
+                            NEXT{!controlsNavShort ? ` ${calendarTimeframe === 'daily' ? "DAY" : "WEEK"}` : ""}
+                          </span>
+                        )}
+                        <span>&rarr;</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2.5 text-xs font-black uppercase tracking-tighter">
-                  <span className="text-slate-450">Filter:</span>
-                  <select
-                    value={calendarDate.getMonth()}
-                    onChange={handleMonthChange}
-                    className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                  >
-                    {months.map((m, idx) => (
-                      <option key={idx} value={idx}>{m}</option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={calendarDate.getFullYear()}
-                    onChange={handleYearChange}
-                    className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                  >
-                    {years.map(y => (
-                      <option key={y} value={y}>{y}</option>
-                    ))}
-                  </select>
-
-                  <div className="relative inline-block text-left mr-1">
-                    <button
-                      type="button"
-                      onClick={() => setIsHoursDropdownOpen(!isHoursDropdownOpen)}
-                      className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 hover:bg-slate-50 cursor-pointer flex items-center gap-1 min-w-[110px] justify-between"
+                {/* Group 2 Card: Filters & Mode */}
+                <div className={cn(
+                  "bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex flex-wrap items-center gap-2.5 text-xs font-black uppercase tracking-tighter shadow-2xs",
+                  isCell3Below ? "w-full justify-between" : (isFilterModeSplit ? "flex-col items-start gap-2 shrink-0" : "justify-end shrink-0"),
+                  isFullStacked && "w-full flex-col items-stretch"
+                )}>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="text-slate-450">Filter:</span>
+                    <select
+                      value={calendarDate.getMonth()}
+                      onChange={handleMonthChange}
+                      className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                     >
-                      <span>
-                        {selectedHours.length === 24
-                          ? "All (24h)"
-                          : selectedHours.length === 0
-                          ? "None selected"
-                          : `${selectedHours.length} selected`}
-                      </span>
-                      <span className="text-slate-440 text-[9px]">▼</span>
-                    </button>
+                      {months.map((m, idx) => (
+                        <option key={idx} value={idx}>{m}</option>
+                      ))}
+                    </select>
 
-                    {isHoursDropdownOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-10 cursor-default"
-                          onClick={() => setIsHoursDropdownOpen(false)}
-                        />
-                        <div className="absolute right-0 mt-1 w-64 bg-white border border-slate-250 rounded-xl shadow-lg z-25 p-2.5 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-2">
-                          <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                            <span className="text-xs font-black text-slate-700 uppercase tracking-tighter">
-                              Select Hours
-                            </span>
-                            <div className="flex gap-1.5 text-xs font-black uppercase tracking-tighter">
-                              <button
-                                type="button"
-                                onClick={() => setSelectedHours(Array.from({ length: 24 }, (_, i) => i))}
-                                className="text-blue-600 hover:text-blue-700 cursor-pointer"
-                              >
-                                All
-                              </button>
-                              <span className="text-slate-300">|</span>
-                              <button
-                                type="button"
-                                onClick={() => setSelectedHours([])}
-                                className="text-slate-500 hover:text-slate-600 cursor-pointer"
-                              >
-                                None
-                              </button>
+                    <select
+                      value={calendarDate.getFullYear()}
+                      onChange={handleYearChange}
+                      className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                    >
+                      {years.map(y => (
+                        <option key={y} value={y}>{y}</option>
+                      ))}
+                    </select>
+
+                    <div className="relative inline-block text-left mr-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsHoursDropdownOpen(!isHoursDropdownOpen)}
+                        className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 hover:bg-slate-50 cursor-pointer flex items-center gap-1 min-w-[110px] justify-between"
+                      >
+                        <span>
+                          {selectedHours.length === 24
+                            ? "All (24h)"
+                            : selectedHours.length === 0
+                            ? "None selected"
+                            : `${selectedHours.length} selected`}
+                        </span>
+                        <span className="text-slate-440 text-[9px]">▼</span>
+                      </button>
+
+                      {isHoursDropdownOpen && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-10 cursor-default"
+                            onClick={() => setIsHoursDropdownOpen(false)}
+                          />
+                          <div className="absolute right-0 mt-1 w-64 bg-white border border-slate-250 rounded-xl shadow-lg z-25 p-2.5 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-2">
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                              <span className="text-xs font-black text-slate-700 uppercase tracking-tighter">
+                                Select Hours
+                              </span>
+                              <div className="flex gap-1.5 text-xs font-black uppercase tracking-tighter">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedHours(Array.from({ length: 24 }, (_, i) => i))}
+                                  className="text-blue-600 hover:text-blue-700 cursor-pointer"
+                                >
+                                  All
+                                </button>
+                                <span className="text-slate-300">|</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedHours([])}
+                                  className="text-slate-500 hover:text-slate-600 cursor-pointer"
+                                >
+                                  None
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-4 gap-1 max-h-[180px] overflow-y-auto custom-scrollbar">
+                              {Array.from({ length: 24 }).map((_, h) => {
+                                const isSelected = selectedHours.includes(h);
+                                return (
+                                  <button
+                                    key={h}
+                                    type="button"
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        setSelectedHours(selectedHours.filter(item => item !== h));
+                                      } else {
+                                        setSelectedHours([...selectedHours, h].sort((a, b) => a - b));
+                                      }
+                                    }}
+                                    className={cn(
+                                      "p-1 py-1 rounded text-xs font-black font-mono tracking-tight text-center border cursor-pointer select-none transition-all",
+                                      isSelected
+                                        ? "bg-blue-600 text-white border-blue-600 font-extrabold"
+                                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                                    )}
+                                  >
+                                    {h.toString().padStart(2, '0')}:00
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
-
-                          <div className="grid grid-cols-4 gap-1 max-h-[180px] overflow-y-auto custom-scrollbar">
-                            {Array.from({ length: 24 }).map((_, h) => {
-                              const isSelected = selectedHours.includes(h);
-                              return (
-                                <button
-                                  key={h}
-                                  type="button"
-                                  onClick={() => {
-                                    if (isSelected) {
-                                      setSelectedHours(selectedHours.filter(item => item !== h));
-                                    } else {
-                                      setSelectedHours([...selectedHours, h].sort((a, b) => a - b));
-                                    }
-                                  }}
-                                  className={cn(
-                                    "p-1 py-1 rounded text-xs font-black font-mono tracking-tight text-center border cursor-pointer select-none transition-all",
-                                    isSelected
-                                      ? "bg-blue-600 text-white border-blue-600 font-extrabold"
-                                      : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
-                                  )}
-                                >
-                                  {h.toString().padStart(2, '0')}:00
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Mode toggle grouped to keep label with selector */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-slate-450 ml-1">Mode:</span>
-                    <div className="inline-flex bg-slate-200/70 p-0.5 rounded border border-slate-300/40 font-black text-xs uppercase select-none shrink-0 gap-0.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCalendarLayoutMode('full');
-                          localStorage.setItem('interstitial_calendar_layout_mode', 'full');
-                        }}
-                        className={cn(
-                          "relative px-2 py-0.5 rounded text-xs font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
-                          calendarLayoutMode === 'full' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
-                        )}
-                      >
-                        Full
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCalendarLayoutMode('compact');
-                          localStorage.setItem('interstitial_calendar_layout_mode', 'compact');
-                        }}
-                        className={cn(
-                          "relative px-2 py-0.5 rounded text-xs font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
-                          calendarLayoutMode === 'compact' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
-                        )}
-                      >
-                        Compact
-                      </button>
+                        </>
+                      )}
                     </div>
                   </div>
 
-                  <label className="flex items-center gap-1.5 text-slate-650 cursor-pointer select-none text-xs font-black uppercase tracking-tighter ml-1 shrink-0">
-                    <input
-                      type="checkbox"
-                      checked={showInactive}
-                      onChange={(e) => setShowInactive(e.target.checked)}
-                      className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                    />
-                    <span>Show Inactive</span>
-                  </label>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Mode toggle grouped to keep label with selector */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-slate-450 ml-1">Mode:</span>
+                      <div className="inline-flex bg-slate-200/70 p-0.5 rounded border border-slate-300/40 font-black text-xs uppercase select-none shrink-0 gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCalendarLayoutMode('full');
+                            localStorage.setItem('interstitial_calendar_layout_mode', 'full');
+                          }}
+                          className={cn(
+                            "relative px-2 py-0.5 rounded text-xs font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
+                            calendarLayoutMode === 'full' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
+                          )}
+                        >
+                          Full
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCalendarLayoutMode('compact');
+                            localStorage.setItem('interstitial_calendar_layout_mode', 'compact');
+                          }}
+                          className={cn(
+                            "relative px-2 py-0.5 rounded text-xs font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
+                            calendarLayoutMode === 'compact' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
+                          )}
+                        >
+                          Compact
+                        </button>
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-1.5 text-slate-650 cursor-pointer select-none text-xs font-black uppercase tracking-tighter ml-1 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={showInactive}
+                        onChange={(e) => setShowInactive(e.target.checked)}
+                        className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                      />
+                      <span>Show Inactive</span>
+                    </label>
+                  </div>
                 </div>
               </div>
               {/* The Calendar Grid Container! */}
@@ -2646,21 +2943,25 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                           <div className="flex-1 min-w-0 flex flex-col justify-between py-2 pr-3 pl-3.5">
                             {/* Title of schedule first, category tag on the right attached to details tag */}
                             <div className="flex justify-between items-center mb-1 gap-2">
-                              <span className="text-base font-black text-slate-800 truncate leading-none">
+                              <span className="text-base font-black text-slate-800 truncate leading-none flex-1 min-w-0">
                                 {s.name}
                               </span>
                               <div className="text-xs font-bold uppercase tracking-tighter shrink-0 text-right flex items-center gap-1.5 leading-none">
-                                <span className={cn(
-                                  "px-1.5 py-0.5 rounded text-xs uppercase font-bold tracking-tighter leading-none inline-block border border-slate-300",
-                                  s.type === InterstitialType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black border-purple-300" :
-                                  s.type === InterstitialType.BASIC_HOURLY ? "bg-blue-100 text-blue-700 border-blue-200" :
-                                  "bg-orange-100 text-orange-700 border-orange-200"
-                                )}>
-                                  {s.type === InterstitialType.ONE_TIME ? "One-Time" : s.type === InterstitialType.BASIC_HOURLY ? "Hourly" : "Advanced"}
-                                </span>
-                                <span className="text-slate-550 font-bold">
-                                  {getInterstitialSummary(s)}
-                                </span>
+                                {!listCardHideTypeTag && (
+                                  <span className={cn(
+                                    "px-1.5 py-0.5 rounded text-xs uppercase font-bold tracking-tighter leading-none inline-block border border-slate-300",
+                                    s.type === InterstitialType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black border-purple-300" :
+                                    s.type === InterstitialType.BASIC_HOURLY ? "bg-blue-100 text-blue-700 border-blue-200" :
+                                    "bg-orange-100 text-orange-700 border-orange-200"
+                                  )}>
+                                    {s.type === InterstitialType.ONE_TIME ? "One-Time" : s.type === InterstitialType.BASIC_HOURLY ? "Hourly" : "Advanced"}
+                                  </span>
+                                )}
+                                {!listCardHideSummaryTag && (
+                                  <span className="text-slate-550 font-bold">
+                                    {getInterstitialSummary(s)}
+                                  </span>
+                                )}
                               </div>
                             </div>
 
@@ -2677,19 +2978,29 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                       e.stopPropagation();
                                       startEdit(s);
                                     }}
-                                    className="flex items-center gap-1 py-0.5 px-2 hover:bg-blue-600 hover:text-white bg-white border border-blue-300 rounded text-blue-700 transition-all shadow-sm group/btn cursor-pointer"
+                                    className={cn(
+                                      "flex items-center gap-1 py-0.5 hover:bg-blue-600 hover:text-white bg-white border border-blue-300 rounded text-blue-700 transition-all shadow-sm group/btn cursor-pointer",
+                                      listCardCollapseViewEditText ? "px-1.5" : "px-2"
+                                    )}
                                     title="View or Edit Interstitial"
                                   >
-                                    <FileText className="w-2.5 h-2.5" />
-                                    <span className="text-xs font-black uppercase">View/Edit</span>
+                                    <FileText className="w-2.5 h-2.5 shrink-0" />
+                                    {!listCardCollapseViewEditText && (
+                                      <span className="text-xs font-black uppercase">View/Edit</span>
+                                    )}
                                   </button>
                                   <button 
                                     onClick={(e) => duplicate(s, e)}
-                                    className="flex items-center gap-1 py-0.5 px-2 hover:bg-blue-50 bg-white border border-slate-350 rounded text-blue-700 transition-all shadow-sm cursor-pointer"
+                                    className={cn(
+                                      "flex items-center gap-1 py-0.5 hover:bg-blue-50 bg-white border border-slate-350 rounded text-blue-700 transition-all shadow-sm cursor-pointer",
+                                      listCardCollapseCopyText ? "px-1.5" : "px-2"
+                                    )}
                                     title="Copy Interstitial"
                                   >
-                                    <Copy className="w-2.5 h-2.5" />
-                                    <span className="text-xs font-black uppercase">Copy</span>
+                                    <Copy className="w-2.5 h-2.5 shrink-0" />
+                                    {!listCardCollapseCopyText && (
+                                      <span className="text-xs font-black uppercase">Copy</span>
+                                    )}
                                   </button>
                                 </div>
                               </div>
@@ -2714,7 +3025,8 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                        }}
                                        disabled={!isVerified}
                                        className={cn(
-                                         "flex items-center gap-2 py-0.5 px-3 rounded border shadow-sm transition-all group/play min-w-0 cursor-pointer w-full justify-start",
+                                         "flex items-center gap-2 py-0.5 rounded border shadow-sm transition-all group/play min-w-0 cursor-pointer w-full justify-start",
+                                         listCardCollapsePreviewText ? "px-2" : "px-3",
                                          !isScript && previewUrl === s.mp3Url 
                                            ? "bg-slate-900 text-white border-slate-900" 
                                            : isVerified
@@ -2752,22 +3064,24 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                        <div className="flex items-center gap-1.5 shrink-0 order-[-1]">
                                          {isScript ? (
                                            isVerified ? (
-                                             <Eye className="w-2.5 h-2.5 fill-none" />
+                                             <Eye className="w-2.5 h-2.5 fill-none shrink-0" />
                                            ) : (
-                                             <XCircle className="w-2.5 h-2.5" />
+                                             <XCircle className="w-2.5 h-2.5 shrink-0" />
                                            )
                                          ) : (
                                            previewUrl === s.mp3Url ? (
-                                             <Square className="w-2.5 h-2.5 fill-current" />
+                                             <Square className="w-2.5 h-2.5 fill-current shrink-0" />
                                            ) : isVerified ? (
-                                             <Play className="w-2.5 h-2.5 fill-current" />
+                                             <Play className="w-2.5 h-2.5 fill-current shrink-0" />
                                            ) : (
-                                             <XCircle className="w-2.5 h-2.5" />
+                                             <XCircle className="w-2.5 h-2.5 shrink-0" />
                                            )
                                          )}
-                                         <span className="text-xs font-black uppercase whitespace-nowrap">
-                                           {isScript ? (isVerified ? 'Preview' : 'Locked') : (previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked')}
-                                         </span>
+                                         {!listCardCollapsePreviewText && (
+                                           <span className="text-xs font-black uppercase whitespace-nowrap">
+                                             {isScript ? (isVerified ? 'Preview' : 'Locked') : (previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked')}
+                                           </span>
+                                         )}
                                        </div>
                                      </button>
                                    </div>
@@ -2908,21 +3222,25 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                               <div className="flex-1 min-w-0 flex flex-col justify-between py-2 pr-3 pl-3.5 opacity-90">
                                 {/* Title of schedule first, category tag on the right attached to details tag */}
                                 <div className="flex justify-between items-center mb-1 gap-2">
-                                  <span className="text-base font-black text-slate-750 truncate leading-none">
+                                  <span className="text-base font-black text-slate-750 truncate leading-none flex-1 min-w-0">
                                     {s.name}
                                   </span>
                                   <div className="text-xs font-bold uppercase tracking-tighter shrink-0 text-right flex items-center gap-1.5 leading-none">
-                                    <span className={cn(
-                                      "px-1.5 py-0.5 rounded text-xs uppercase font-bold tracking-tighter leading-none inline-block opacity-75 border border-slate-300",
-                                      s.type === InterstitialType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black border-purple-200" :
-                                      s.type === InterstitialType.BASIC_HOURLY ? "bg-blue-100 text-blue-700 border-blue-200" :
-                                      "bg-orange-100 text-orange-700 border-orange-200"
-                                    )}>
-                                      {s.type === InterstitialType.ONE_TIME ? "One-Time" : s.type === InterstitialType.BASIC_HOURLY ? "Hourly" : "Advanced"}
-                                    </span>
-                                    <span className="text-slate-500 font-bold">
-                                      {getInterstitialSummary(s)} • {isExpired ? <span className="text-red-650 font-black">EXPIRED</span> : 'SUSPENDED'}
-                                    </span>
+                                    {!listCardHideTypeTag && (
+                                      <span className={cn(
+                                        "px-1.5 py-0.5 rounded text-xs uppercase font-bold tracking-tighter leading-none inline-block opacity-75 border border-slate-300",
+                                        s.type === InterstitialType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black border-purple-200" :
+                                        s.type === InterstitialType.BASIC_HOURLY ? "bg-blue-100 text-blue-700 border-blue-200" :
+                                        "bg-orange-100 text-orange-700 border-orange-200"
+                                      )}>
+                                        {s.type === InterstitialType.ONE_TIME ? "One-Time" : s.type === InterstitialType.BASIC_HOURLY ? "Hourly" : "Advanced"}
+                                      </span>
+                                    )}
+                                    {!listCardHideSummaryTag && (
+                                      <span className="text-slate-500 font-bold">
+                                        {getInterstitialSummary(s)} • {isExpired ? <span className="text-red-650 font-black">EXPIRED</span> : 'SUSPENDED'}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
 
@@ -2939,19 +3257,29 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                           e.stopPropagation();
                                           startEdit(s);
                                         }}
-                                        className="flex items-center gap-1 py-0.5 px-2 hover:bg-slate-300 bg-white border border-slate-350 rounded text-slate-700 transition-all shadow-sm cursor-pointer"
+                                        className={cn(
+                                          "flex items-center gap-1 py-0.5 hover:bg-slate-300 bg-white border border-slate-350 rounded text-slate-700 transition-all shadow-sm cursor-pointer",
+                                          listCardCollapseViewEditText ? "px-1.5" : "px-2"
+                                        )}
                                         title="View or Edit Interstitial"
                                       >
-                                        <FileText className="w-2.5 h-2.5" />
-                                        <span className="text-xs font-black uppercase">View/Edit</span>
+                                        <FileText className="w-2.5 h-2.5 shrink-0" />
+                                        {!listCardCollapseViewEditText && (
+                                          <span className="text-xs font-black uppercase">View/Edit</span>
+                                        )}
                                       </button>
                                       <button 
                                         onClick={(e) => duplicate(s, e)}
-                                        className="flex items-center gap-1 py-0.5 px-2 hover:bg-white bg-slate-100/50 border border-slate-350 rounded text-slate-700 transition-all shadow-sm cursor-pointer"
+                                        className={cn(
+                                          "flex items-center gap-1 py-0.5 hover:bg-white bg-slate-100/50 border border-slate-350 rounded text-slate-700 transition-all shadow-sm cursor-pointer",
+                                          listCardCollapseCopyText ? "px-1.5" : "px-2"
+                                        )}
                                         title="Copy Interstitial"
                                       >
-                                        <Copy className="w-2.5 h-2.5" />
-                                        <span className="text-xs font-black uppercase">Copy</span>
+                                        <Copy className="w-2.5 h-2.5 shrink-0" />
+                                        {!listCardCollapseCopyText && (
+                                          <span className="text-xs font-black uppercase">Copy</span>
+                                        )}
                                       </button>
                                     </div>
                                   </div>
@@ -2976,7 +3304,8 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                           }}
                                           disabled={!isVerified}
                                           className={cn(
-                                            "flex items-center gap-2 py-0.5 px-3 rounded border shadow-sm transition-all group/play min-w-0 cursor-pointer w-full justify-start",
+                                            "flex items-center gap-2 py-0.5 rounded border shadow-sm transition-all group/play min-w-0 cursor-pointer w-full justify-start",
+                                            listCardCollapsePreviewText ? "px-2" : "px-3",
                                             !isScript && previewUrl === s.mp3Url 
                                               ? "bg-slate-900 text-white border-slate-900 opacity-100" 
                                               : isVerified
@@ -3014,22 +3343,24 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                           <div className="flex items-center gap-1.5 shrink-0 order-[-1]">
                                             {isScript ? (
                                               isVerified ? (
-                                                <Eye className="w-2.5 h-2.5 fill-none" />
+                                                <Eye className="w-2.5 h-2.5 fill-none shrink-0" />
                                               ) : (
-                                                <XCircle className="w-2.5 h-2.5" />
+                                                <XCircle className="w-2.5 h-2.5 shrink-0" />
                                               )
                                             ) : (
                                               previewUrl === s.mp3Url ? (
-                                                <Square className="w-2.5 h-2.5 fill-current" />
+                                                <Square className="w-2.5 h-2.5 fill-current shrink-0" />
                                               ) : isVerified ? (
-                                                <Play className="w-2.5 h-2.5 fill-current" />
+                                                <Play className="w-2.5 h-2.5 fill-current shrink-0" />
                                               ) : (
-                                                <XCircle className="w-2.5 h-2.5" />
+                                                <XCircle className="w-2.5 h-2.5 shrink-0" />
                                               )
                                             )}
-                                            <span className="text-xs font-black uppercase whitespace-nowrap">
-                                              {isScript ? (isVerified ? 'Preview' : 'Locked') : (previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked')}
-                                            </span>
+                                            {!listCardCollapsePreviewText && (
+                                              <span className="text-xs font-black uppercase whitespace-nowrap">
+                                                {isScript ? (isVerified ? 'Preview' : 'Locked') : (previewUrl === s.mp3Url ? 'Stop' : isVerified ? 'Preview' : 'Locked')}
+                                              </span>
+                                            )}
                                           </div>
                                         </button>
                                       </div>

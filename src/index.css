@@ -201,9 +201,16 @@
   animation: slide-in-from-top 0.3s ease-out;
 }
 
-@media (max-width: 340px) {
+@media (max-width: 380px) {
   .hide-app-name {
     display: none !important;
+  }
+}
+@media (max-width: 300px) {
+  .live-refresh-container {
+    flex-direction: column !important;
+    align-items: flex-end !important;
+    gap: 2px !important;
   }
 }
 @media (max-width: 290px) {

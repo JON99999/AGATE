@@ -556,15 +556,13 @@ async function listFilesInFolder(folderId: string): Promise<Array<{ id: string; 
  * Searches for a file/folder case-insensitively inside a specific folder
  */
 async function findFileInFolderCaseInsensitive(name: string, folderId: string): Promise<string | null> {
-  try {
-    const files = await listFilesInFolder(folderId);
-    const target = name.toLowerCase();
-    const found = files.find(f => f.name.toLowerCase() === target);
-    return found ? found.id : null;
-  } catch (err) {
-    console.error('Error finding file case-insensitively:', err);
-    return null;
+  if (!folderId) {
+    throw new Error('Target parent folder ID is missing or empty.');
   }
+  const files = await listFilesInFolder(folderId);
+  const target = name.toLowerCase();
+  const found = files.find(f => f.name.toLowerCase() === target);
+  return found ? found.id : null;
 }
 
 /**
@@ -1146,8 +1144,8 @@ export const validateGoogleDriveAccess = async (): Promise<boolean> => {
   const prefsFolder = DRIVE_FOLDERS.preferences;
 
   if (!logsFolder || !mp3sFolder || !prefsFolder) {
-    // Gracefully handle unconfigured folders to allow chooser screen to load with 'To be set'
-    return true;
+    console.warn('One or more Google Drive folder paths are not configured.');
+    return false;
   }
 
   try {
@@ -1191,6 +1189,10 @@ export const getOrCreateDriveInterstitialsFolder = async (): Promise<string> => 
   if (!mp3sFolder) {
     throw new Error('Google Drive Media & Scripts folder is not configured. Please set it in Settings.');
   }
+  const isConnValid = await validateGoogleDriveAccess();
+  if (!isConnValid) {
+    throw new Error('Google Drive connection validation failed. Cannot safely check or create Interstitials folder.');
+  }
   let interstitialsId = await findFileInFolderCaseInsensitive('Interstitials', mp3sFolder);
   if (!interstitialsId) {
     interstitialsId = await findFileInFolderCaseInsensitive('interstitials', mp3sFolder);
@@ -1206,6 +1208,10 @@ export const getOrCreateDriveEvergreensFolder = async (): Promise<string> => {
   if (!mp3sFolder) {
     throw new Error('Google Drive Media & Scripts folder is not configured. Please set it in Settings.');
   }
+  const isConnValid = await validateGoogleDriveAccess();
+  if (!isConnValid) {
+    throw new Error('Google Drive connection validation failed. Cannot safely check or create Evergreens folder.');
+  }
   let evergreensId = await findFileInFolderCaseInsensitive('Evergreens', mp3sFolder);
   if (!evergreensId) {
     evergreensId = await createFileInFolder('Evergreens', mp3sFolder, 'application/vnd.google-apps.folder');
@@ -1217,6 +1223,10 @@ export const getOrCreateDrivePlaylistsFolder = async (): Promise<string> => {
   const mp3sFolder = DRIVE_FOLDERS.mp3s;
   if (!mp3sFolder) {
     throw new Error('Google Drive Media & Scripts folder is not configured. Please set it in Settings.');
+  }
+  const isConnValid = await validateGoogleDriveAccess();
+  if (!isConnValid) {
+    throw new Error('Google Drive connection validation failed. Cannot safely check or create Playlists folder.');
   }
   let playlistsId = await findFileInFolderCaseInsensitive('Playlists', mp3sFolder);
   if (!playlistsId) {
@@ -1330,6 +1340,10 @@ export const verifyEvergreensOnDrive = async (shows: Show[]): Promise<{
     const mp3sFolder = DRIVE_FOLDERS.mp3s;
     if (!mp3sFolder) {
       throw new Error('Google Drive Media & Scripts folder is not configured. Please set it in Settings.');
+    }
+    const isConnValid = await validateGoogleDriveAccess();
+    if (!isConnValid) {
+      throw new Error('Google Drive connection validation failed. Aborting evergreen/interstitials folder verification to prevent duplicates.');
     }
     let evergreensFolderCreated = false;
     let evergreensId = await findFileInFolderCaseInsensitive('Evergreens', mp3sFolder);
