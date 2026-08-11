@@ -20,7 +20,7 @@ interface PlayerTabProps {
   prerecordDate?: Date | null;
   prerecordLengthMinutes?: number;
   onConfigureTimeframe?: () => void;
-  onExecuteExport?: () => void;
+  onExecuteExport?: (items?: any[], txtSummary?: string) => void;
   isAdmin?: boolean;
   onRefresh?: () => Promise<any> | void;
   shows?: Show[];
@@ -2361,35 +2361,93 @@ export default function PlayerTab({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const itemsToExport = useMemo(() => {
+    if (playMode !== 'Export' || !prerecordDate) return [];
+    
+    const items: Array<{
+      slotTime: string;
+      fileName: string;
+      interstitialName: string;
+      interstitialId: string;
+      minute: number;
+      exists: boolean;
+      targetFileName: string;
+      slotISO: string;
+      assetType?: 'audio' | 'script';
+      approximateReadTime?: string;
+      isEvergreen?: boolean;
+      showNameShort?: string;
+      showName?: string;
+    }> = [];
+
+    playlistTimeline.forEach((item) => {
+      if (item.type === 'break') {
+        item.interstitials.forEach((s) => {
+          const itemIdx = items.length + 1;
+          const slotTimeStr = format(item.slotTime, 'HH:mm');
+          const safeSlotTime = slotTimeStr.replace(/:/g, '-');
+          const rawName = s.name || 'Unnamed Break';
+          const safeInterstitialName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
+          const sourceFileName = s.mp3Url || '';
+          const dotIndex = sourceFileName.lastIndexOf('.');
+          const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex) : '.mp3';
+          const paddedIdx = String(itemIdx).padStart(2, '0');
+          const targetFileName = `Break ${paddedIdx} at ${safeSlotTime} - ${safeInterstitialName}${ext}`;
+          const exists = getMP3Status(s.mp3Url).exists;
+
+          const backupMp3Exists = s.backupMp3Url ? getMP3Status(s.backupMp3Url).exists : false;
+
+          items.push({
+            slotTime: slotTimeStr,
+            fileName: s.mp3Url,
+            interstitialName: rawName,
+            interstitialId: s.id,
+            minute: s.minute,
+            exists,
+            targetFileName,
+            slotISO: item.slotTime.toISOString(),
+            assetType: s.assetType,
+            approximateReadTime: s.approximateReadTime,
+            backupMp3Url: s.backupMp3Url,
+            backupMp3Exists,
+            isEvergreen: false,
+          });
+        });
+      } else if (item.type === 'track') {
+        const itemIdx = items.length + 1;
+        const slotTimeStr = format(item.startTime, 'HH:mm');
+        const safeSlotTime = slotTimeStr.replace(/:/g, '-');
+        const rawName = item.track.title || item.track.fileName || 'Evergreen Track';
+        const safeTrackName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
+        const sourceFileName = item.track.fileName || '';
+        const dotIndex = sourceFileName.lastIndexOf('.');
+        const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex) : '.mp3';
+        const paddedIdx = String(itemIdx).padStart(2, '0');
+        const targetFileName = `Track ${paddedIdx} at ${safeSlotTime} - ${safeTrackName}${ext}`;
+        const exists = getMP3Status(sourceFileName).exists;
+
+        items.push({
+          slotTime: slotTimeStr,
+          fileName: sourceFileName,
+          interstitialName: rawName,
+          interstitialId: item.track.id,
+          minute: item.startTime.getMinutes(),
+          exists,
+          targetFileName,
+          slotISO: item.startTime.toISOString(),
+          assetType: 'audio',
+          isEvergreen: true,
+          showNameShort: playlistShow?.shortName,
+          showName: playlistShow?.name,
+        });
+      }
+    });
+
+    return items;
+  }, [playMode, prerecordDate, playlistTimeline, playlistShow]);
+
   const previewText = useMemo(() => {
     if (playMode !== 'Export' || !prerecordDate) return '';
-    
-    // 1. Recreate timeline slots exactly like in runExportPrerecord
-    const slots = [];
-    let current = new Date(prerecordDate);
-    current.setSeconds(0, 0);
-    
-    const end = new Date(current.getTime() + prerecordLengthMinutes * 60 * 1000);
-    
-    while (current.getTime() < end.getTime()) {
-      slots.push(new Date(current));
-      current = new Date(current.getTime() + 60 * 1000);
-    }
-
-    // 2. Filter & map slot matching interstitials
-    const itemsToExport: any[] = [];
-    slots.forEach(slot => {
-      const sForSlot = getInterstitialsForSlot(slot);
-      sForSlot.forEach(s => {
-        itemsToExport.push({
-          slotTime: format(slot, 'HH:mm'),
-          fileName: s.mp3Url,
-          interstitialName: s.name,
-          interstitialId: s.id,
-          minute: s.minute
-        });
-      });
-    });
 
     const year = prerecordDate.getFullYear();
     const month = String(prerecordDate.getMonth() + 1).padStart(2, '0');
@@ -2411,114 +2469,52 @@ export default function PlayerTab({
       `Duration: ${prerecordLengthMinutes} minutes`,
       '========================================================================',
       '',
-      'SEQUENCE OF SCHEDULED SPECIALS & BREAKS:',
+      'SEQUENCE OF SCHEDULED EVERGREENS, SPECIALS & BREAKS:',
       '------------------------------------------------------------------------'
     ];
 
     if (itemsToExport.length === 0) {
-      txtLines.push('No active scheduled breaks found in this timeframe.');
+      txtLines.push('No active scheduled items or breaks found in this timeframe.');
     } else {
       itemsToExport.forEach((item: any, idx: number) => {
         const itemIdx = idx + 1;
         const itemSlotTime = item.slotTime;
-        const safeSlotTime = typeof itemSlotTime === 'string' ? itemSlotTime.replace(/:/g, '-') : '00-00';
-        
-        const rawName = item.interstitialName || 'Unnamed Break';
-        const safeInterstitialName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
+        const rawName = item.interstitialName || 'Unnamed Item';
         const sourceFileName = item.fileName || '';
-        const dotIndex = sourceFileName.lastIndexOf('.');
-        const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex) : '.mp3';
-        const targetFileName = `Break ${itemIdx} - (${safeSlotTime}) - (${safeInterstitialName})${ext}`;
-        
-        const status = getMP3Status(sourceFileName).exists ? 'Found' : 'Missing';
+        const targetFileName = item.targetFileName || sourceFileName;
+        const isScript = item.assetType === 'script';
+        const typeLabel = item.isEvergreen ? 'EVERGREEN TRACK' : (isScript ? 'LIVE READ BREAK' : 'BREAK');
+        const status = item.exists ? 'Found' : 'Missing';
 
         if (status === 'Found') {
-          txtLines.push(`${itemIdx}. Slot: ${itemSlotTime}`);
-          txtLines.push(`   Exported File: ${targetFileName}`);
+          txtLines.push(`${itemIdx}. [${typeLabel}] Slot: ${itemSlotTime}`);
+          txtLines.push(`   Exported ${isScript ? 'Script' : 'File'}: ${targetFileName}`);
           txtLines.push(`   Title: ${rawName}`);
-          txtLines.push(`   Source File: ${sourceFileName}`);
+          txtLines.push(`   Source ${isScript ? 'Script' : 'File'}: ${sourceFileName}`);
         } else {
-          txtLines.push(`${itemIdx}. MISSING FILE - THIS FILE COULD NOT BE FOUND.  PLEASE REVERIFY AND EXPORT.`);
+          txtLines.push(`${itemIdx}. [${typeLabel}] MISSING FILE - THIS FILE COULD NOT BE FOUND.`);
           txtLines.push(`   Slot: ${itemSlotTime}`);
-          txtLines.push(`   Exported File: ${targetFileName}`);
+          txtLines.push(`   Exported ${isScript ? 'Script' : 'File'}: ${targetFileName}`);
           txtLines.push(`   Title: ${rawName}`);
-          txtLines.push(`   Source File: ${sourceFileName}`);
+          txtLines.push(`   Source ${isScript ? 'Script' : 'File'}: ${sourceFileName}`);
         }
+
+        if (isScript && item.backupMp3Url) {
+          const dotIdx = targetFileName.lastIndexOf('.');
+          const baseName = dotIdx !== -1 ? targetFileName.substring(0, dotIdx) : targetFileName;
+          const backupExt = item.backupMp3Url.lastIndexOf('.') !== -1 ? item.backupMp3Url.substring(item.backupMp3Url.lastIndexOf('.')) : '.mp3';
+          const backupTargetName = `${baseName} (Backup)${backupExt}`;
+          const backupStatus = item.backupMp3Exists ? 'Found' : 'Missing';
+          txtLines.push(`   Alternate Backup MP3: ${backupTargetName} (${backupStatus})`);
+          txtLines.push(`   Source Backup MP3: ${item.backupMp3Url}`);
+        }
+
         txtLines.push('------------------------------------------------------------------------');
       });
     }
 
     return txtLines.join('\n');
-  }, [playMode, prerecordDate, prerecordLengthMinutes, interstitials]);
-
-  const itemsToExport = useMemo(() => {
-    if (playMode !== 'Export' || !prerecordDate) return [];
-    
-    const items: Array<{
-      slotTime: string;
-      fileName: string;
-      interstitialName: string;
-      interstitialId: string;
-      minute: number;
-      exists: boolean;
-      targetFileName: string;
-      slotISO: string;
-      assetType?: 'audio' | 'script';
-      approximateReadTime?: string;
-      isEvergreen?: boolean;
-    }> = [];
-
-    playlistTimeline.forEach((item) => {
-      if (item.type === 'break') {
-        item.interstitials.forEach((s) => {
-          const itemIdx = items.length + 1;
-          const slotTimeStr = format(item.slotTime, 'HH:mm');
-          const safeSlotTime = slotTimeStr.replace(/:/g, '-');
-          const rawName = s.name || 'Unnamed Break';
-          const safeInterstitialName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
-          const sourceFileName = s.mp3Url || '';
-          const dotIndex = sourceFileName.lastIndexOf('.');
-          const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex) : '.mp3';
-          const targetFileName = `Break ${itemIdx} - (${safeSlotTime}) - (${safeInterstitialName})${ext}`;
-          const exists = getMP3Status(s.mp3Url).exists;
-
-          items.push({
-            slotTime: slotTimeStr,
-            fileName: s.mp3Url,
-            interstitialName: rawName,
-            interstitialId: s.id,
-            minute: s.minute,
-            exists,
-            targetFileName,
-            slotISO: item.slotTime.toISOString(),
-            assetType: s.assetType,
-            approximateReadTime: s.approximateReadTime,
-            isEvergreen: false,
-          });
-        });
-      } else if (item.type === 'track') {
-        const slotTimeStr = format(item.startTime, 'HH:mm');
-        const rawName = item.track.title || item.track.fileName || 'Evergreen Track';
-        const sourceFileName = item.track.fileName || '';
-        const exists = getMP3Status(sourceFileName).exists;
-
-        items.push({
-          slotTime: slotTimeStr,
-          fileName: sourceFileName,
-          interstitialName: rawName,
-          interstitialId: item.track.id,
-          minute: item.startTime.getMinutes(),
-          exists,
-          targetFileName: sourceFileName,
-          slotISO: item.startTime.toISOString(),
-          assetType: 'audio',
-          isEvergreen: true,
-        });
-      }
-    });
-
-    return items;
-  }, [playMode, prerecordDate, playlistTimeline]);
+  }, [playMode, prerecordDate, prerecordLengthMinutes, itemsToExport]);
 
   const exportActiveShow = useMemo(() => {
     if (playMode !== 'Export' || !prerecordDate) return null;
@@ -2657,7 +2653,7 @@ export default function PlayerTab({
           <div className="sticky top-0 bg-slate-50 z-10 space-y-1.5 pt-1.5 pb-2 px-1.5 border-b border-slate-200">
             <button
               id="bg-btn-execute-export"
-              onClick={onExecuteExport}
+              onClick={() => onExecuteExport ? onExecuteExport(itemsToExport, previewText) : undefined}
               className="w-full h-10 flex items-center justify-center gap-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded border-b-[4px] border-blue-800 hover:brightness-110 active:border-b-0 active:translate-y-[4px] transition-all font-black uppercase text-sm tracking-wide font-sans cursor-pointer select-none shadow-sm"
             >
               <Download className="w-5 h-5 shrink-0" />

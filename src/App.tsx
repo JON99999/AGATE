@@ -582,6 +582,7 @@ export default function App() {
 
   // Export Prerecord states
   const [showExportModal, setShowExportModal] = useState(false);
+  const [pendingExportItems, setPendingExportItems] = useState<any[] | null>(null);
   const [exportState, setExportState] = useState<
     "idle" | "configuring" | "exporting" | "success" | "error"
   >("idle");
@@ -1929,8 +1930,13 @@ export default function App() {
     };
   };
 
-  const handleExportPrerecord = async () => {
+  const handleExportPrerecord = async (items?: any[]) => {
     if (!prerecordDate) return;
+    if (items && Array.isArray(items) && items.length > 0) {
+      setPendingExportItems(items);
+    } else {
+      setPendingExportItems(null);
+    }
     setExportFolderPrefixInput("Show");
     setExportTextPrefixInput("Show");
     setExportPlaylistPrefixInput("Show");
@@ -1974,87 +1980,90 @@ export default function App() {
     setExportResult(null);
 
     try {
-      // 1. Recreate timeline slots exactly like in PlayerTab
-      const slots = [];
-      let current = new Date(prerecordDate);
-      current.setSeconds(0, 0);
+      let itemsToExport: any[] = pendingExportItems || [];
 
-      const end = new Date(
-        current.getTime() + prerecordLengthMinutes * 60 * 1000,
-      );
+      if (itemsToExport.length === 0) {
+        // Fallback slot reconstruction if items were not pre-calculated
+        const slots = [];
+        let current = new Date(prerecordDate);
+        current.setSeconds(0, 0);
 
-      while (current.getTime() < end.getTime()) {
-        slots.push(new Date(current));
-        current = new Date(current.getTime() + 60 * 1000);
-      }
+        const end = new Date(
+          current.getTime() + prerecordLengthMinutes * 60 * 1000,
+        );
 
-      // 2. Filter & map slot matching interstitials
-      const itemsToExport: any[] = [];
-      slots.forEach((slot) => {
-        const day = slot.getDay();
-        const hour = slot.getHours();
-        const minute = slot.getMinutes();
-        const dateStr = format(slot, "yyyy-MM-dd");
+        while (current.getTime() < end.getTime()) {
+          slots.push(new Date(current));
+          current = new Date(current.getTime() + 60 * 1000);
+        }
 
-        const activeInterstitials = interstitials.filter((s) => {
-          if (!s.enabled) return false;
-          if (s.type === InterstitialType.ONE_TIME) {
-            const hourStr = format(slot, "HH");
-            return (
-              s.date === dateStr && s.minute === minute && s.time === hourStr
-            );
-          }
-          if (s.type === InterstitialType.BASIC_HOURLY) {
-            const afterStart = s.startDate
-              ? !isBefore(slot, parseISO(s.startDate))
-              : true;
-            const beforeEnd = s.endDate
-              ? !isAfter(slot, parseISO(s.endDate))
-              : true;
-            return s.minute === minute && afterStart && beforeEnd;
-          }
-          if (s.type === InterstitialType.ADVANCED) {
-            const afterStart = s.startDate
-              ? !isBefore(slot, parseISO(s.startDate))
-              : true;
-            const beforeEnd = s.endDate
-              ? !isAfter(slot, parseISO(s.endDate))
-              : true;
+        slots.forEach((slot) => {
+          const day = slot.getDay();
+          const hour = slot.getHours();
+          const minute = slot.getMinutes();
+          const dateStr = format(slot, "yyyy-MM-dd");
 
-            let ruleMatch = false;
-            if (s.gridRules && s.gridRules.length > 0) {
-              ruleMatch = s.gridRules.includes(`${day}-${hour}`);
-            } else {
-              const dayMatch = s.days?.includes(day);
-              const hourMatch = s.hours?.includes(hour);
-              ruleMatch = !!(dayMatch && hourMatch);
+          const activeInterstitials = interstitials.filter((s) => {
+            if (!s.enabled) return false;
+            if (s.type === InterstitialType.ONE_TIME) {
+              const hourStr = format(slot, "HH");
+              return (
+                s.date === dateStr && s.minute === minute && s.time === hourStr
+              );
             }
+            if (s.type === InterstitialType.BASIC_HOURLY) {
+              const afterStart = s.startDate
+                ? !isBefore(slot, parseISO(s.startDate))
+                : true;
+              const beforeEnd = s.endDate
+                ? !isAfter(slot, parseISO(s.endDate))
+                : true;
+              return s.minute === minute && afterStart && beforeEnd;
+            }
+            if (s.type === InterstitialType.ADVANCED) {
+              const afterStart = s.startDate
+                ? !isBefore(slot, parseISO(s.startDate))
+                : true;
+              const beforeEnd = s.endDate
+                ? !isAfter(slot, parseISO(s.endDate))
+                : true;
 
-            return s.minute === minute && ruleMatch && afterStart && beforeEnd;
-          }
-          return false;
-        });
+              let ruleMatch = false;
+              if (s.gridRules && s.gridRules.length > 0) {
+                ruleMatch = s.gridRules.includes(`${day}-${hour}`);
+              } else {
+                const dayMatch = s.days?.includes(day);
+                const hourMatch = s.hours?.includes(hour);
+                ruleMatch = !!(dayMatch && hourMatch);
+              }
 
-        activeInterstitials.forEach((s) => {
-          itemsToExport.push({
-            slotTime: format(slot, "HH:mm"),
-            fileName: s.mp3Url,
-            interstitialName: s.name,
-            interstitialId: s.id,
-            minute: s.minute,
+              return s.minute === minute && ruleMatch && afterStart && beforeEnd;
+            }
+            return false;
+          });
+
+          activeInterstitials.forEach((s) => {
+            itemsToExport.push({
+              slotTime: format(slot, "HH:mm"),
+              fileName: s.mp3Url,
+              interstitialName: s.name,
+              interstitialId: s.id,
+              minute: s.minute,
+              isEvergreen: false,
+            });
           });
         });
-      });
+      }
 
       if (itemsToExport.length === 0) {
         setExportState("error");
         setExportError(
-          "No active scheduled breaks found in this prerecord timeframe.",
+          "No active scheduled items or breaks found in this timeframe.",
         );
         return;
       }
 
-      // 3. Make post request to endpoint
+      // Make post request to endpoint
       const response = await fetch("/api/export-prerecord", {
         method: "POST",
         headers: {

@@ -2134,6 +2134,63 @@ async function startServer() {
     }
   });
 
+  // Helper to locate Evergreen track source file strictly inside Evergreens directory
+  function findEvergreenSourceFile(folderPath: string, fileName: string, showNameShort?: string, showName?: string): string | null {
+    if (!fileName) return null;
+    if (fs.existsSync(fileName)) return fileName;
+
+    const evergreensRoot = path.join(folderPath, 'Evergreens');
+    if (!fs.existsSync(evergreensRoot)) return null;
+
+    const baseName = path.basename(fileName);
+
+    // 1. Check inside show folder if resolved
+    const showFolder = findShowPlaylistFolder(evergreensRoot, showNameShort, showName);
+    if (showFolder) {
+      const candidate = path.join(showFolder, baseName);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+
+    // 2. Search subfolders inside Evergreens
+    try {
+      const entries = fs.readdirSync(evergreensRoot);
+      for (const entry of entries) {
+        const fullPath = path.join(evergreensRoot, entry);
+        if (fs.statSync(fullPath).isDirectory()) {
+          const candidate = path.join(fullPath, baseName);
+          if (fs.existsSync(candidate)) return candidate;
+        } else if (entry.toLowerCase() === baseName.toLowerCase()) {
+          return fullPath;
+        }
+      }
+    } catch (e) {}
+
+    return null;
+  }
+
+  // Helper to locate Interstitial source file
+  function findInterstitialSourceFile(folderPath: string, fileName: string): string | null {
+    if (!fileName) return null;
+    if (fs.existsSync(fileName)) return fileName;
+
+    const baseName = path.basename(fileName);
+    const candidate = path.join(folderPath, baseName);
+    if (fs.existsSync(candidate)) return candidate;
+
+    try {
+      const entries = fs.readdirSync(folderPath);
+      for (const entry of entries) {
+        if (entry === 'Evergreens' || entry === 'Playlists') continue;
+        const fullPath = path.join(folderPath, entry);
+        if (fs.statSync(fullPath).isFile() && entry.toLowerCase() === baseName.toLowerCase()) {
+          return fullPath;
+        }
+      }
+    } catch (e) {}
+
+    return null;
+  }
+
   // API - Export prerecord playlist and files
   app.post('/api/export-prerecord', (req, res) => {
     try {
@@ -2207,22 +2264,28 @@ async function startServer() {
         const itemSlotTime = item.slotTime; // e.g. "12:00"
         const safeSlotTime = typeof itemSlotTime === 'string' ? itemSlotTime.replace(/:/g, '-') : '00-00';
         
-        // Remove prohibited file characters in scheduleName
-        const rawName = item.interstitialName || 'Unnamed Break';
-        const safeInterstitialName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
+        const isScript = item.assetType === 'script';
+        const rawName = item.interstitialName || (item.isEvergreen ? 'Unnamed Evergreen Track' : (isScript ? 'Unnamed Live Read' : 'Unnamed Break'));
+        const safeName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
         
         const sourceFileName = item.fileName || '';
-        const ext = path.extname(sourceFileName) || '.mp3';
+        const ext = path.extname(sourceFileName) || (isScript ? '.txt' : '.mp3');
         
-        // Construct sequential file name as requested
         const paddedIdx = String(itemIdx).padStart(2, '0');
-        const targetFileName = `Break ${paddedIdx} at ${safeSlotTime} - ${safeInterstitialName}${ext}`;
+        const typePrefix = item.isEvergreen ? 'Track' : 'Break';
+        const targetFileName = item.targetFileName || `${typePrefix} ${paddedIdx} at ${safeSlotTime} - ${safeName}${ext}`;
         
-        const sourceFilePath = path.join(sourceFolder, path.basename(sourceFileName));
+        let sourceFilePath: string | null = null;
+        if (item.isEvergreen) {
+          sourceFilePath = findEvergreenSourceFile(sourceFolder, sourceFileName, item.showNameShort, item.showName);
+        } else {
+          sourceFilePath = findInterstitialSourceFile(sourceFolder, sourceFileName);
+        }
+
         const destFilePath = path.join(exportFolderPath, targetFileName);
 
         let status = 'Missing';
-        if (sourceFileName && fs.existsSync(sourceFilePath)) {
+        if (sourceFilePath && fs.existsSync(sourceFilePath)) {
           try {
             fs.copyFileSync(sourceFilePath, destFilePath);
             copiedCount++;
@@ -2236,34 +2299,76 @@ async function startServer() {
           missingCount++;
         }
 
+        // Handle optional backup MP3 for Live Read script breaks
+        let backupStatus = '';
+        let backupTargetFileName = '';
+        if (isScript && item.backupMp3Url) {
+          const backupExt = path.extname(item.backupMp3Url) || '.mp3';
+          const dotIdx = targetFileName.lastIndexOf('.');
+          const baseTargetWithoutExt = dotIdx !== -1 ? targetFileName.substring(0, dotIdx) : targetFileName;
+          backupTargetFileName = `${baseTargetWithoutExt} (Backup)${backupExt}`;
+
+          const backupSourcePath = findInterstitialSourceFile(sourceFolder, item.backupMp3Url);
+          const backupDestPath = path.join(exportFolderPath, backupTargetFileName);
+
+          if (backupSourcePath && fs.existsSync(backupSourcePath)) {
+            try {
+              fs.copyFileSync(backupSourcePath, backupDestPath);
+              copiedCount++;
+              backupStatus = 'Found & Copied';
+            } catch (copyErr: any) {
+              console.error(`Error copying backup MP3 ${item.backupMp3Url}:`, copyErr);
+              backupStatus = `Copy Error: ${copyErr.message}`;
+            }
+          } else {
+            backupStatus = 'Missing';
+          }
+        }
+
         fileReport.push({
           index: itemIdx,
           slotTime: itemSlotTime,
           interstitialName: rawName,
           originalFile: sourceFileName,
           exportedFile: targetFileName,
+          isEvergreen: !!item.isEvergreen,
+          assetType: item.assetType,
+          backupMp3Url: item.backupMp3Url,
+          backupExportedFile: backupTargetFileName || undefined,
+          backupStatus: backupStatus || undefined,
           status
         });
 
-        // Add to m3u playlist lines if it's an MP3 (referencing only the local target name in export folder)
+        // Add to m3u playlist lines (only MP3 files go into the playlist)
         if (ext.toLowerCase() === '.mp3') {
-          m3uLines.push(`#EXTINF:-1,Break ${itemIdx} - ${itemSlotTime} - ${rawName}`);
+          m3uLines.push(`#EXTINF:-1,${typePrefix} ${itemIdx} - ${itemSlotTime} - ${rawName}`);
           m3uLines.push(targetFileName);
+        } else if (isScript && backupTargetFileName && backupStatus === 'Found & Copied') {
+          // Put the backup MP3 into the playlist for live read script breaks
+          m3uLines.push(`#EXTINF:-1,${typePrefix} ${itemIdx} - ${itemSlotTime} - ${rawName} (Backup MP3)`);
+          m3uLines.push(backupTargetFileName);
         }
 
         // Add to summary text file
+        const itemTypeHeader = item.isEvergreen ? 'EVERGREEN TRACK' : (isScript ? 'LIVE READ BREAK' : 'BREAK');
         if (status === 'Found & Copied') {
-          txtLines.push(`${itemIdx}. Slot: ${itemSlotTime}`);
-          txtLines.push(`   Exported File: ${targetFileName}`);
+          txtLines.push(`${itemIdx}. [${itemTypeHeader}] Slot: ${itemSlotTime}`);
+          txtLines.push(`   Exported ${isScript ? 'Script' : 'File'}: ${targetFileName}`);
           txtLines.push(`   Title: ${rawName}`);
-          txtLines.push(`   Source File: ${sourceFileName || ''}`);
+          txtLines.push(`   Source ${isScript ? 'Script' : 'File'}: ${sourceFileName || ''}`);
         } else {
-          txtLines.push(`${itemIdx}. MISSING FILE - THIS FILE COULD NOT BE FOUND.  PLEASE REVERIFY AND EXPORT.`);
+          txtLines.push(`${itemIdx}. [${itemTypeHeader}] MISSING FILE - THIS FILE COULD NOT BE FOUND.`);
           txtLines.push(`   Slot: ${itemSlotTime}`);
-          txtLines.push(`   Exported File: ${targetFileName}`);
+          txtLines.push(`   Exported ${isScript ? 'Script' : 'File'}: ${targetFileName}`);
           txtLines.push(`   Title: ${rawName}`);
-          txtLines.push(`   Source File: ${sourceFileName || ''}`);
+          txtLines.push(`   Source ${isScript ? 'Script' : 'File'}: ${sourceFileName || ''}`);
         }
+
+        if (isScript && item.backupMp3Url) {
+          txtLines.push(`   Alternate Backup MP3: ${backupTargetFileName} (${backupStatus || 'Not Found'})`);
+          txtLines.push(`   Source Backup MP3: ${item.backupMp3Url}`);
+        }
+
         txtLines.push('------------------------------------------------------------------------');
       });
 
