@@ -1937,9 +1937,22 @@ export default function App() {
     } else {
       setPendingExportItems(null);
     }
-    setExportFolderPrefixInput("Show");
-    setExportTextPrefixInput("Show");
-    setExportPlaylistPrefixInput("Show");
+
+    const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+    const dayName = daysOrder[prerecordDate.getDay()];
+    const hour = prerecordDate.getHours();
+    const minute = prerecordDate.getMinutes();
+    const activeShow = shows.find((s) => isTimeInShow(s, dayName, hour, minute));
+
+    const initialPrefix = activeShow?.nameShort?.trim() 
+      || (items && items.length > 0 && items[0]?.showNameShort?.trim())
+      || activeShow?.name?.trim() 
+      || (items && items.length > 0 && items[0]?.showName?.trim())
+      || "Show";
+
+    setExportFolderPrefixInput(initialPrefix);
+    setExportTextPrefixInput(initialPrefix);
+    setExportPlaylistPrefixInput(initialPrefix);
     setExportState("configuring");
     setExportError(null);
     setExportResult(null);
@@ -1956,6 +1969,16 @@ export default function App() {
     } catch (e) {
       setExportDestinationInput(localPathMP3s || "");
     }
+  };
+
+  const handleCloseExportModal = () => {
+    setShowExportModal(false);
+    setTimeout(() => {
+      setExportState("configuring");
+      setExportError(null);
+      setExportResult(null);
+      setPendingExportItems(null);
+    }, 200);
   };
 
   const handleBrowseExportDestination = async () => {
@@ -4844,7 +4867,7 @@ export default function App() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowExportModal(false)}
+                  onClick={handleCloseExportModal}
                   className="text-slate-550 hover:text-slate-350 font-bold text-sm"
                 >
                   ✕
@@ -5122,7 +5145,7 @@ export default function App() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => setShowExportModal(false)}
+                              onClick={handleCloseExportModal}
                               className="w-full p-[2px] bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer text-center"
                             >
                               Cancel
@@ -5136,7 +5159,7 @@ export default function App() {
                           <div className="flex gap-[2px] justify-between pt-3 border-t border-slate-800/40 w-full">
                             <button
                               type="button"
-                              onClick={() => setShowExportModal(false)}
+                              onClick={handleCloseExportModal}
                               className="flex-1 px-[2px] py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer text-center"
                             >
                               Cancel
@@ -5157,7 +5180,7 @@ export default function App() {
                         <div className="flex gap-2 justify-end pt-3 border-t border-slate-800/40">
                           <button
                             type="button"
-                            onClick={() => setShowExportModal(false)}
+                            onClick={handleCloseExportModal}
                             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer"
                           >
                             Cancel
@@ -5203,8 +5226,8 @@ export default function App() {
                   <div className="flex gap-2 justify-end pt-2">
                     <button
                       type="button"
-                      onClick={() => setShowExportModal(false)}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
+                      onClick={handleCloseExportModal}
+                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
                     >
                       Close
                     </button>
@@ -5294,8 +5317,8 @@ export default function App() {
                   <div className="flex gap-2 justify-end pt-2 border-t border-slate-800/40">
                     <button
                       type="button"
-                      onClick={() => setShowExportModal(false)}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-755 text-slate-300 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
+                      onClick={handleCloseExportModal}
+                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
                     >
                       Done
                     </button>

@@ -654,11 +654,26 @@ export default function LiveReadPopout({
                 </div>
               ) : (
                 <>
-                  <div className="text-xs font-black text-slate-400 uppercase tracking-widest block select-none shrink-0">
-                    Logged Time:
+                  <div className="flex flex-col justify-between h-9 shrink-0 select-none py-0.5">
+                    <div className="text-[10px] sm:text-xs font-black text-slate-400 uppercase tracking-wider leading-none">
+                      Logged Time:
+                    </div>
+                    {isEditingLogTime && (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setIsEditingLogTime(false);
+                          setLoggedTime(''); // Reset logged status so we tick live
+                        }}
+                        className="text-[9px] bg-slate-200 hover:bg-slate-300 text-slate-700 px-1 py-0.5 rounded font-black uppercase transition-colors text-center w-fit leading-none cursor-pointer"
+                        title="Reset to live ticking clock"
+                      >
+                        Reset
+                      </button>
+                    )}
                   </div>
                   <div className={cn(
-                    "relative flex items-center bg-white border rounded px-2 py-1 focus-within:ring-1 max-w-[150px] w-full transition-all h-9",
+                    "relative flex items-center bg-white border rounded px-2 py-1 focus-within:ring-1 w-[115px] shrink-0 transition-all h-9",
                     isLogTimeValid 
                       ? "border-slate-300 focus-within:ring-purple-500 focus-within:border-purple-500" 
                       : "border-rose-500 focus-within:ring-rose-500 focus-within:border-rose-500 ring-1 ring-rose-500"
@@ -674,23 +689,11 @@ export default function LiveReadPopout({
                         setIsEditingLogTime(true);
                       }}
                       className={cn(
-                        "w-full bg-transparent outline-none border-0 font-mono font-bold text-xs",
+                        "w-full bg-transparent outline-none border-0 font-mono font-bold text-xs text-center",
                         isLogTimeValid ? "text-slate-700" : "text-rose-600"
                       )}
                       title="Click to manually edit log execution time"
                     />
-                    {isEditingLogTime && (
-                      <button 
-                        onClick={() => {
-                          setIsEditingLogTime(false);
-                          setLoggedTime(''); // Reset logged status so we tick live
-                        }}
-                        className="text-[10px] bg-slate-200 text-slate-600 px-1 py-0.5 rounded font-black uppercase hover:bg-slate-300 transition-colors ml-1"
-                        title="Reset to live ticking clock"
-                      >
-                        Reset
-                      </button>
-                    )}
                   </div>
                 </>
               )}

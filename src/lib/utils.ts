@@ -8,39 +8,54 @@ export function cn(...inputs: ClassValue[]) {
 
 export const getMP3Status = (url: string | undefined) => {
   if (!url) return { exists: false, valid: false, filename: 'None selected' };
-  
-  // 1. Direct match by filename in availableFilesCache
-  const fileInCache = availableFilesCache.get(url);
+
+  // 1. Direct match by raw url in availableFilesCache
+  let fileInCache = availableFilesCache.get(url);
+
+  // 2. Extract clean filename / decoded file parameter if url is a stream URL or path
+  let cleanName = url;
+  if (cleanName.includes('/api/stream-local')) {
+    const parts = cleanName.split('file=');
+    if (parts.length > 1) {
+      cleanName = decodeURIComponent(parts[1].split('&')[0]);
+    }
+  }
+  const baseName = cleanName.split('?')[0].split('/').pop() || cleanName;
+
+  if (!fileInCache && availableFilesCache.has(cleanName)) {
+    fileInCache = availableFilesCache.get(cleanName);
+  }
+  if (!fileInCache && availableFilesCache.has(baseName)) {
+    fileInCache = availableFilesCache.get(baseName);
+  }
+
   if (fileInCache) {
     return {
       exists: true,
-      valid: url.toLowerCase().endsWith('.mp3') || fileInCache.path.toLowerCase().split('?')[0].endsWith('.mp3') || true,
-      filename: url
+      valid: true,
+      filename: baseName || url
     };
   }
 
-  // 2. Direct match by path/URL in availableFilesCache
-  let isFromCache = false;
-  let cachedFilename = '';
+  // 3. Search availableFilesCache values and keys case-insensitively
   for (const [name, info] of Array.from(availableFilesCache.entries())) {
-    if (info.path === url) {
-      isFromCache = true;
-      cachedFilename = name;
-      break;
+    if (
+      info.path === url ||
+      info.path === cleanName ||
+      name.toLowerCase() === baseName.toLowerCase() ||
+      name.toLowerCase() === cleanName.toLowerCase()
+    ) {
+      return {
+        exists: true,
+        valid: true,
+        filename: name
+      };
     }
   }
 
-  if (isFromCache) {
-    return {
-      exists: true,
-      valid: cachedFilename.toLowerCase().endsWith('.mp3') || url.toLowerCase().split('?')[0].endsWith('.mp3') || true,
-      filename: cachedFilename
-    };
-  }
-
-  // Fallback to old URL-based lookup logic
+  // Fallback to driveFileNameCache or web/local URLs
   const cleanUrl = url.split('?')[0];
-  let filename = cleanUrl.split('/').pop() || 'Unknown';
+  let filename = baseName || cleanUrl.split('/').pop() || 'Unknown';
   
   const isDrive = url.includes('googleapis.com') || url.includes('drive.google.com') || url.includes('id=');
   const isLocal = url.includes('/api/stream-local');
@@ -48,10 +63,12 @@ export const getMP3Status = (url: string | undefined) => {
   
   if (driveFileNameCache.has(url)) {
     filename = driveFileNameCache.get(url)!;
+  } else if (driveFileNameCache.has(baseName)) {
+    filename = driveFileNameCache.get(baseName)!;
   }
   
-  const exists = driveFileNameCache.has(url) || isExternalWeb;
-  const valid = cleanUrl.toLowerCase().endsWith('.mp3') || isDrive || isLocal || isExternalWeb || url.includes('alt=media') || url.includes('id=');
+  const exists = driveFileNameCache.has(url) || driveFileNameCache.has(baseName) || isExternalWeb || isLocal;
+  const valid = cleanUrl.toLowerCase().endsWith('.mp3') || cleanUrl.toLowerCase().endsWith('.txt') || isDrive || isLocal || isExternalWeb || url.includes('alt=media') || url.includes('id=');
   
   return { exists, valid, filename };
 };

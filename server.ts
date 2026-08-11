@@ -1803,7 +1803,7 @@ async function startServer() {
   // API - Dedicated Playlist Show JSON Log Save
   app.post('/api/shows/playlist/save-log-json', (req, res) => {
     try {
-      const { showNameShort, showName, showStartTime, logData, folderType } = req.body;
+      const { showNameShort, showName, showStartTime, logData, folderType, logFileName: clientLogFileName } = req.body;
       if (!showNameShort && !showName) {
         return res.status(400).json({ error: 'showNameShort or showName is required' });
       }
@@ -1837,7 +1837,8 @@ async function startServer() {
       const HH = String(dateObj.getHours()).padStart(2, '0');
       const min = String(dateObj.getMinutes()).padStart(2, '0');
       const safeShowName = String(showNameShort || showName || 'Show').replace(/[\/\\?%*:|"<>]/g, '_');
-      const logFileName = `Log_${safeShowName}_${YYYY}_${MM}_${DD}_at_${HH}_${min}.json`;
+      const fallbackFileName = `Log_${safeShowName}_${YYYY}_${MM}_${DD}_at_${HH}_${min}.json`;
+      const logFileName = clientLogFileName || logData?.logFileName || fallbackFileName;
 
       if (showFolderPath) {
         const filePath = path.join(showFolderPath, logFileName);
@@ -1863,7 +1864,7 @@ async function startServer() {
   // API - Dedicated Playlist Show JSON Log Load
   app.post('/api/shows/playlist/load-log-json', (req, res) => {
     try {
-      const { showNameShort, showName, showStartTime, folderType } = req.body;
+      const { showNameShort, showName, showStartTime, folderType, logFileName: clientLogFileName } = req.body;
       if (!showNameShort && !showName) {
         return res.status(400).json({ error: 'showNameShort or showName is required' });
       }
@@ -1875,7 +1876,32 @@ async function startServer() {
       const HH = String(dateObj.getHours()).padStart(2, '0');
       const min = String(dateObj.getMinutes()).padStart(2, '0');
       const safeShowName = String(showNameShort || showName || 'Show').replace(/[\/\\?%*:|"<>]/g, '_');
-      const logFileName = `Log_${safeShowName}_${YYYY}_${MM}_${DD}_at_${HH}_${min}.json`;
+      const fallbackFileName = `Log_${safeShowName}_${YYYY}_${MM}_${DD}_at_${HH}_${min}.json`;
+      const logFileName = clientLogFileName || fallbackFileName;
+      const datePrefix = `${YYYY}_${MM}_${DD}`;
+
+      const findFileInDir = (dirPath: string, fileName: string): string | null => {
+        if (!dirPath || !fs.existsSync(dirPath)) return null;
+        const exact = path.join(dirPath, fileName);
+        if (fs.existsSync(exact)) return exact;
+
+        try {
+          const files = fs.readdirSync(dirPath);
+          const lowerName = fileName.toLowerCase();
+          for (const f of files) {
+            if (f.toLowerCase() === lowerName) {
+              return path.join(dirPath, f);
+            }
+          }
+          // Date prefix fallback
+          for (const f of files) {
+            if (f.startsWith('Log_') && f.includes(datePrefix) && f.endsWith('.json')) {
+              return path.join(dirPath, f);
+            }
+          }
+        } catch (e) {}
+        return null;
+      };
 
       const folderPath = currentSettings.localPathMP3s;
       let foundData: any = null;
@@ -1888,9 +1914,9 @@ async function startServer() {
         }
         const showFolderPath = findShowPlaylistFolder(playlistsPath, showNameShort, showName);
         if (showFolderPath) {
-          const filePath = path.join(showFolderPath, logFileName);
-          if (fs.existsSync(filePath)) {
-            const raw = fs.readFileSync(filePath, 'utf-8');
+          const matchedFilePath = findFileInDir(showFolderPath, logFileName);
+          if (matchedFilePath) {
+            const raw = fs.readFileSync(matchedFilePath, 'utf-8');
             foundData = JSON.parse(raw);
           }
         }
@@ -1899,9 +1925,10 @@ async function startServer() {
       if (!foundData) {
         const baseLogFilePath = getLogFilePath();
         const baseLogDir = baseLogFilePath ? path.dirname(baseLogFilePath) : LOG_DIR;
-        const backupPath = path.join(baseLogDir, 'Playlists', logFileName);
-        if (fs.existsSync(backupPath)) {
-          const raw = fs.readFileSync(backupPath, 'utf-8');
+        const playlistLogsDir = path.join(baseLogDir, 'Playlists');
+        const backupFilePath = findFileInDir(playlistLogsDir, logFileName);
+        if (backupFilePath) {
+          const raw = fs.readFileSync(backupFilePath, 'utf-8');
           foundData = JSON.parse(raw);
         }
       }
@@ -2139,10 +2166,16 @@ async function startServer() {
     if (!fileName) return null;
     if (fs.existsSync(fileName)) return fileName;
 
-    const evergreensRoot = path.join(folderPath, 'Evergreens');
-    if (!fs.existsSync(evergreensRoot)) return null;
+    let cleanName = fileName;
+    if (cleanName.includes('/api/stream-local')) {
+      const parts = cleanName.split('file=');
+      if (parts.length > 1) {
+        cleanName = decodeURIComponent(parts[1].split('&')[0]);
+      }
+    }
 
-    const baseName = path.basename(fileName);
+    const evergreensRoot = path.join(folderPath, 'Evergreens');
+    const baseName = path.basename(cleanName);
 
     // 1. Check inside show folder if resolved
     const showFolder = findShowPlaylistFolder(evergreensRoot, showNameShort, showName);
@@ -2151,19 +2184,28 @@ async function startServer() {
       if (fs.existsSync(candidate)) return candidate;
     }
 
-    // 2. Search subfolders inside Evergreens
-    try {
-      const entries = fs.readdirSync(evergreensRoot);
-      for (const entry of entries) {
-        const fullPath = path.join(evergreensRoot, entry);
-        if (fs.statSync(fullPath).isDirectory()) {
-          const candidate = path.join(fullPath, baseName);
-          if (fs.existsSync(candidate)) return candidate;
-        } else if (entry.toLowerCase() === baseName.toLowerCase()) {
-          return fullPath;
+    // 2. Search Evergreens root and subfolders inside Evergreens
+    if (fs.existsSync(evergreensRoot)) {
+      const candidateRoot = path.join(evergreensRoot, baseName);
+      if (fs.existsSync(candidateRoot)) return candidateRoot;
+
+      try {
+        const entries = fs.readdirSync(evergreensRoot);
+        for (const entry of entries) {
+          const fullPath = path.join(evergreensRoot, entry);
+          if (fs.statSync(fullPath).isDirectory()) {
+            const candidate = path.join(fullPath, baseName);
+            if (fs.existsSync(candidate)) return candidate;
+          } else if (entry.toLowerCase() === baseName.toLowerCase()) {
+            return fullPath;
+          }
         }
-      }
-    } catch (e) {}
+      } catch (e) {}
+    }
+
+    // 3. Fallback check directly in folderPath
+    const candidateDirect = path.join(folderPath, baseName);
+    if (fs.existsSync(candidateDirect)) return candidateDirect;
 
     return null;
   }
@@ -2173,16 +2215,40 @@ async function startServer() {
     if (!fileName) return null;
     if (fs.existsSync(fileName)) return fileName;
 
-    const baseName = path.basename(fileName);
-    const candidate = path.join(folderPath, baseName);
-    if (fs.existsSync(candidate)) return candidate;
+    let cleanName = fileName;
+    if (cleanName.includes('/api/stream-local')) {
+      const parts = cleanName.split('file=');
+      if (parts.length > 1) {
+        cleanName = decodeURIComponent(parts[1].split('&')[0]);
+      }
+    }
 
+    const baseName = path.basename(cleanName);
+
+    // 1. Check inside Interstitials / interstitials subfolders
+    const subdirs = ['Interstitials', 'interstitials'];
+    for (const sub of subdirs) {
+      const dirPath = path.join(folderPath, sub);
+      if (fs.existsSync(dirPath)) {
+        const candidate = path.join(dirPath, baseName);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+
+    // 2. Check directly in folderPath
+    const candidateDirect = path.join(folderPath, baseName);
+    if (fs.existsSync(candidateDirect)) return candidateDirect;
+
+    // 3. Search recursively inside all subdirectories of folderPath (except Evergreens and Playlists)
     try {
       const entries = fs.readdirSync(folderPath);
       for (const entry of entries) {
         if (entry === 'Evergreens' || entry === 'Playlists') continue;
         const fullPath = path.join(folderPath, entry);
-        if (fs.statSync(fullPath).isFile() && entry.toLowerCase() === baseName.toLowerCase()) {
+        if (fs.statSync(fullPath).isDirectory()) {
+          const candidate = path.join(fullPath, baseName);
+          if (fs.existsSync(candidate)) return candidate;
+        } else if (entry.toLowerCase() === baseName.toLowerCase()) {
           return fullPath;
         }
       }

@@ -365,6 +365,7 @@ export default function PlayerTab({
               showNameShort,
               showName,
               showStartTime: showStart.toISOString(),
+              logFileName: logPayload.logFileName,
               logData: logPayload,
               folderType: playlistFolderType
             })
@@ -441,12 +442,14 @@ export default function PlayerTab({
               showNameShort,
               showName,
               showStartTime: showStart.toISOString(),
+              logFileName: formatShowPlaylistLogFileName(showNameShort || showName, showStart),
               folderType: playlistFolderType
             })
           });
           if (currentSyncId !== syncRequestIdRef.current) return;
           if (resp.ok) {
-            existingLog = await resp.json();
+            const data = await resp.json();
+            existingLog = data?.logData || data;
           }
         } catch (e) {
           console.warn('No existing show playlist JSON log found or failed to fetch:', e);
@@ -1395,6 +1398,8 @@ export default function PlayerTab({
           endTime: Date;
           interstitials: Interstitial[];
           isOverrun?: boolean;
+          played?: boolean;
+          playedAt?: string;
         }
       | {
           type: 'show-end';
@@ -1426,7 +1431,10 @@ export default function PlayerTab({
 
     let maxPlayedEnd = new Date(showStart);
 
-    // 2. Add Played Tracks at their actual playedAt timestamp
+    // 2. Add Played Tracks and Played Interstitial Breaks sorted by playedAt timestamp
+    const playedItems: PlaylistTimelineEntry[] = [];
+
+    // 2.a. Played Music Tracks
     const playedTracks = (playMode === 'Export') ? [] : playlistTracks.filter(t => !!playedPlaylistTracks[t.id] || !!playedPlaylistTracks[t.fileName]);
     for (const track of playedTracks) {
       const exactCachedDurationStr = mp3DurationCache.get(track.streamUrl) || availableFilesCache.get(track.fileName)?.duration;
@@ -1444,7 +1452,7 @@ export default function PlayerTab({
       const playedInfo = playedPlaylistTracks[track.id] || playedPlaylistTracks[track.fileName];
       const playedDate = new Date(playedInfo.playedAt);
       const playedEnd = new Date(playedDate.getTime() + trackDur * 1000);
-      items.push({
+      playedItems.push({
         type: 'track',
         id: track.id,
         track,
@@ -1459,6 +1467,66 @@ export default function PlayerTab({
         maxPlayedEnd = new Date(playedEnd);
       }
     }
+
+    // 2.b. Played Interstitial Breaks
+    const playedBreakIds = new Set<string>();
+    if (playMode !== 'Export') {
+      for (const b of scheduledBreaks) {
+        const playedInBreak = b.interstitials.filter(s => {
+          if (playedPlaylistTracks[s.id]) return true;
+          return logs.some(l => 
+            l.interstitialId === s.id && 
+            (l.interstitialTime === b.slotTime.toISOString() || isSameMinute(parseISO(l.timestamp), b.slotTime)) &&
+            (l.status === 'played' || l.status === 'backup play') &&
+            l.playMode !== 'Export'
+          );
+        });
+
+        if (playedInBreak.length > 0) {
+          playedBreakIds.add(b.id);
+          let earliestPlayedAt = b.slotTime;
+          for (const s of playedInBreak) {
+            const pInfo = playedPlaylistTracks[s.id];
+            if (pInfo?.playedAt) {
+              const d = new Date(pInfo.playedAt);
+              if (!isNaN(d.getTime())) earliestPlayedAt = d;
+            } else {
+              const pLog = logs.find(l => 
+                l.interstitialId === s.id && 
+                (l.interstitialTime === b.slotTime.toISOString() || isSameMinute(parseISO(l.timestamp), b.slotTime)) &&
+                (l.status === 'played' || l.status === 'backup play') &&
+                l.playMode !== 'Export'
+              );
+              if (pLog?.timestamp) {
+                const d = new Date(pLog.timestamp);
+                if (!isNaN(d.getTime())) earliestPlayedAt = d;
+              }
+            }
+          }
+
+          const bEnd = new Date(earliestPlayedAt.getTime() + b.totalDurationSec * 1000);
+          playedItems.push({
+            type: 'break',
+            id: b.id,
+            slotTime: b.slotTime,
+            startTime: earliestPlayedAt,
+            endTime: bEnd,
+            interstitials: b.interstitials,
+            played: true,
+            playedAt: earliestPlayedAt.toISOString()
+          });
+          if (bEnd.getTime() > maxPlayedEnd.getTime()) {
+            maxPlayedEnd = new Date(bEnd);
+          }
+        }
+      }
+    }
+
+    // Sort played items chronologically by playedAt / startTime
+    playedItems.sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    items.push(...playedItems);
+
+    const unplayedScheduledBreaks = scheduledBreaks.filter(b => !playedBreakIds.has(b.id));
 
     // Reference now time cursor
     let totalPlayedSec = 0;
@@ -1475,8 +1543,8 @@ export default function PlayerTab({
 
     // 3. Separate Missed Interstitial Breaks vs Upcoming Interstitial Breaks
     // Rule 4.a: Missed interstitials sort AFTER played items and BEFORE the NOW indicator
-    const missedBreaks = scheduledBreaks.filter(b => b.slotTime.getTime() < unplayedStartCursor.getTime());
-    const upcomingBreaks = scheduledBreaks.filter(b => b.slotTime.getTime() >= unplayedStartCursor.getTime());
+    const missedBreaks = unplayedScheduledBreaks.filter(b => b.slotTime.getTime() < unplayedStartCursor.getTime());
+    const upcomingBreaks = unplayedScheduledBreaks.filter(b => b.slotTime.getTime() >= unplayedStartCursor.getTime());
 
     let missedCursor = new Date(maxPlayedEnd);
     for (const b of missedBreaks) {
@@ -2066,6 +2134,28 @@ export default function PlayerTab({
           onLogCommit={(logEntry) => {
             if (playMode !== 'Export' && activeLiveReadOverlay.playMode !== 'Export' && !activeLiveReadOverlay.isPreview) {
               onLog(logEntry);
+              const activeShow = effectiveShow || playlistShow;
+              if ((playMode === 'Playlist' || playMode === 'Prerecord') && activeShow && logEntry.interstitialId) {
+                const targetInterstitial = interstitials.find(s => s.id === logEntry.interstitialId);
+                const durSec = targetInterstitial ? parseInt(targetInterstitial.duration, 10) || 60 : 60;
+                const mins = Math.floor(durSec / 60);
+                const secs = durSec % 60;
+                const durFmt = `${mins}:${secs.toString().padStart(2, '0')}`;
+                const updatedPlayed = {
+                  ...playedPlaylistTracksRef.current,
+                  [logEntry.interstitialId]: {
+                    id: logEntry.interstitialId,
+                    playedAt: logEntry.timestamp,
+                    fileName: logEntry.mp3Name || targetInterstitial?.mp3Url || 'Live Read',
+                    title: logEntry.interstitialName || targetInterstitial?.name || 'Live Read',
+                    durationSeconds: durSec,
+                    durationFormatted: durFmt,
+                    isInterstitial: true
+                  }
+                };
+                setPlayedPlaylistTracks(updatedPlayed);
+                saveCurrentShowPlaylistLog(updatedPlayed);
+              }
             }
             setActiveLiveReadOverlay(null);
           }}
