@@ -753,7 +753,18 @@ export default function PlayerTab({
 
   useEffect(() => {
     const handleLogged = (logEntry?: any) => {
-      setActiveLiveReadOverlay(null);
+      setActiveLiveReadOverlay(prev => {
+        if (logEntry && logEntry.status === 'backup play' && prev) {
+          if (prev.interstitialId && prev.slotKey && prev.slotISO) {
+            const targetInterstitial = interstitials.find(s => s.id === prev.interstitialId);
+            if (targetInterstitial) {
+              const slotDate = new Date(prev.slotISO);
+              playBackupAudioTrack(logEntry.mp3Name || prev.backupMp3Url, prev.slotKey, targetInterstitial, slotDate);
+            }
+          }
+        }
+        return null;
+      });
       if (logEntry && onLog) {
         onLog(logEntry);
       }
@@ -2033,6 +2044,13 @@ export default function PlayerTab({
 
   const renderLiveReadOverlay = () => {
     if (!activeLiveReadOverlay) return null;
+
+    // In Desktop App (Mac/Win), spawnLiveRead creates a standalone BrowserWindow.
+    // Do NOT render the in-app modal overlay inside the main window when Electron window is spawned.
+    if ((window as any).electronAPI && (window as any).electronAPI.spawnLiveRead) {
+      return null;
+    }
+
     return (
       <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50">
         <LiveReadPopout

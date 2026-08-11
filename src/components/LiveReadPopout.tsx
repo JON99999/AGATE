@@ -1,3 +1,19 @@
+/**
+ * ARCHITECTURAL MANDATE: Shared LiveReadPopout Component
+ * ----------------------------------------------------------------------------------
+ * This component handles Live Read script displays for BOTH execution environments:
+ * 1. AI Studio Web (Iframe): Rendered as an in-app modal overlay (isOverlay={true}).
+ * 2. Desktop Apps (macOS Silicon/Intel & Windows 10/11): Rendered in a standalone
+ *    floating BrowserWindow spawned via Electron IPC (?popout=true).
+ *
+ * MAINTENANCE DIRECTIVE:
+ * - Shared Codebase: Both modes share this exact same file for script rendering,
+ *   font/image zoom controls, timestamp editing, preview audio playback, and logging.
+ * - Parity Guarantee: Any UI layout refinement, bug fix, or feature enhancement 
+ *   made for one window environment MUST be verified and maintained for the other.
+ * ----------------------------------------------------------------------------------
+ */
+
 import React, { useState, useEffect } from 'react';
 import { cn, parseCustomTimeText } from '../lib/utils';
 import { 
@@ -127,7 +143,7 @@ export default function LiveReadPopout({
     }
   };
 
-  const handlePlayBackupMp3Action = () => {
+  const handlePlayBackupMp3Action = async () => {
     if (!backupMp3Url) return;
 
     if (isPreviewMode) {
@@ -155,6 +171,10 @@ export default function LiveReadPopout({
       assetType: 'audio'
     };
 
+    if ((window as any).electronAPI && (window as any).electronAPI.logLiveReadCommit) {
+      await (window as any).electronAPI.logLiveReadCommit(logEntry);
+    }
+
     if (onLogCommit) {
       onLogCommit(logEntry);
     }
@@ -165,6 +185,8 @@ export default function LiveReadPopout({
 
     if (onClose) {
       onClose();
+    } else if ((window as any).electronAPI && (window as any).electronAPI.closeLiveReadWindow) {
+      await (window as any).electronAPI.closeLiveReadWindow();
     }
   };
 
@@ -234,6 +256,7 @@ export default function LiveReadPopout({
             setInterstitialName(ipcData.interstitialName || ipcData.scheduleName || '');
             setInterstitialTime(ipcData.interstitialTime || ipcData.scheduledTime || '');
             setLoggedTime(ipcData.initialLoggedTime || '');
+            setBackupMp3Url(ipcData.backupMp3Url || '');
             if (ipcData.isPreview || ipcData.playMode === 'Export') {
               setIsPreviewMode(true);
             }
