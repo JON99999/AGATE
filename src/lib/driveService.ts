@@ -1499,9 +1499,16 @@ export const loadPlaylistTracksFromDrive = async (
             }
           } else if (!trimmed.startsWith('#')) {
             const cleanPath = trimmed.replace(/\\/g, '/');
-            const targetName = cleanPath.split('/').pop() || cleanPath;
+            let targetName = cleanPath.split('/').pop() || cleanPath;
+            try {
+              targetName = decodeURIComponent(targetName);
+            } catch (e) {}
 
-            const matchedAudio = files.find(f => f.name.toLowerCase() === targetName.toLowerCase());
+            const normTarget = targetName.toLowerCase().trim();
+            const matchedAudio = files.find(f => {
+              const normF = f.name.toLowerCase().trim();
+              return normF === normTarget || normF === normTarget.replace(/%20/g, ' ');
+            });
             if (matchedAudio) {
               const streamUrl = `https://www.googleapis.com/drive/v3/files/${matchedAudio.id}?alt=media`;
               const durationSec = pendingDuration || 180;

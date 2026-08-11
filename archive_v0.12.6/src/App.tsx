@@ -1722,31 +1722,30 @@ export default function App() {
   }, [showPlaylistModal, shows]);
 
   const handleConfirmPlaylistShow = () => {
+    if (!playlistShowOptions) return;
     let targetShow: Show | null = null;
-    if (playlistShowOptions) {
-      if (chosenPlaylistShowId === playlistShowOptions.currentShow?.id) {
-        targetShow = playlistShowOptions.currentShow;
-      } else if (chosenPlaylistShowId === playlistShowOptions.nextShow?.id) {
-        targetShow = playlistShowOptions.nextShow;
-      }
+    if (chosenPlaylistShowId === playlistShowOptions.currentShow?.id) {
+      targetShow = playlistShowOptions.currentShow;
+    } else if (chosenPlaylistShowId === playlistShowOptions.nextShow?.id) {
+      targetShow = playlistShowOptions.nextShow;
     }
-    if (!targetShow && chosenPlaylistShowId && shows && shows.length > 0) {
-      targetShow = shows.find((s) => s.id === chosenPlaylistShowId) || null;
-    }
-    if (!targetShow && playlistShowOptions) {
-      targetShow = playlistShowOptions.currentShow || playlistShowOptions.nextShow || null;
-    }
-    if (targetShow) {
-      setSelectedPlaylistShow(targetShow);
-    }
+    setSelectedPlaylistShow(targetShow);
     setPlayMode("Playlist");
     setShowPlaylistModal(false);
+    setShowCachingModal(true);
+    setCachingTargetMode("Playlist");
+    setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
+    triggerCachingForMode("Playlist");
   };
 
   const handleSelectAndConfirmShow = (targetShow: Show) => {
     setSelectedPlaylistShow(targetShow);
     setPlayMode("Playlist");
     setShowPlaylistModal(false);
+    setShowCachingModal(true);
+    setCachingTargetMode("Playlist");
+    setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
+    triggerCachingForMode("Playlist");
   };
 
   const handleEditTimeframeModal = () => {
@@ -1862,6 +1861,10 @@ export default function App() {
       setShowPrerecordModal(false);
       setPrerecordConfirmDetails(null);
       handleRefresh();
+      setShowCachingModal(true);
+      setCachingTargetMode(prerecordModalTarget);
+      setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
+      triggerCachingForMode(prerecordModalTarget);
     } catch (err: any) {
       setPrerecordError(
         err.message || "Error occurred while validating date and time.",
@@ -1878,6 +1881,10 @@ export default function App() {
       setShowPrerecordModal(false);
       setPrerecordConfirmDetails(null);
       handleRefresh();
+      setShowCachingModal(true);
+      setCachingTargetMode(prerecordModalTarget);
+      setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
+      triggerCachingForMode(prerecordModalTarget);
     }
   };
 

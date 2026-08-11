@@ -1411,19 +1411,9 @@ async function startServer() {
         return res.json({ success: true, tracks: [], playlistFile: null });
       }
 
-      let { m3uFiles, audioFiles } = getAllAudioAndPlaylistFiles(showFolderPath);
+      const { m3uFiles, audioFiles } = getAllAudioAndPlaylistFiles(showFolderPath);
       let rawTracks: Array<{ fileName: string; title: string; durationSeconds: number }> = [];
       let playlistFileName: string | null = null;
-
-      // Retry up to 3 times if folder is found but files are still hydrating from Google Drive Desktop
-      let retryCount = 0;
-      while (m3uFiles.length === 0 && audioFiles.length === 0 && retryCount < 3) {
-        retryCount++;
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-        const rescan = getAllAudioAndPlaylistFiles(showFolderPath);
-        m3uFiles = rescan.m3uFiles;
-        audioFiles = rescan.audioFiles;
-      }
 
       if (m3uFiles.length > 0) {
         playlistFileName = path.basename(m3uFiles[0]);
