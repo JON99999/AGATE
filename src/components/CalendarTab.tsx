@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, ShieldAlert, Copy, Check, XCircle, X, FolderOpen, Music, Search, Play, Square, ChevronUp, ChevronDown, RefreshCw, Eye, User, BookOpen, ArrowRight, Edit3 } from 'lucide-react';
-import { Interstitial, InterstitialType, InterstitialMetadata, Show, TimeGatedMp3 } from '../types';
-import { cn, getMP3Status, formatDuration, getFilenameFromUrlOrPath, isTimeInShow, getSortedShows, getShowShade, readMp3ID3Metadata, parseID3Bytes, normalizeInterstitial, normalizeInterstitials, formatToDatetimeLocal, getCurrentDatetimeLocal, getDatePart, getTimePart, sortMp3sByStartDate, findFirstGapOrEnd, validateTimeGatedMp3s, getActiveMp3ForSlot } from '../lib/utils';
+import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, AlertTriangle, ShieldAlert, Copy, Check, XCircle, X, FolderOpen, Music, Search, Play, Square, ChevronUp, ChevronDown, RefreshCw, Eye, User, BookOpen, ArrowRight, Edit3, ListChecks, CheckSquare } from 'lucide-react';
+import { Interstitial, InterstitialType, InterstitialMetadata, Show, TimeGatedMp3, ScheduleIssue } from '../types';
+import { cn, getMP3Status, formatDuration, getFilenameFromUrlOrPath, isTimeInShow, getSortedShows, getShowShade, readMp3ID3Metadata, parseID3Bytes, normalizeInterstitial, normalizeInterstitials, formatToDatetimeLocal, getCurrentDatetimeLocal, getDatePart, getTimePart, sortMp3sByStartDate, findFirstGapOrEnd, validateTimeGatedMp3s, getActiveMp3ForSlot, getGatedAssetType } from '../lib/utils';
+import { evaluateScheduleDiagnostics } from '../lib/scheduleDiagnostics';
 import { getPlayableUrl, DRIVE_FOLDERS, getSavedSettings, verifyEvergreensOnDrive, checkEvergreenFolderOnDrive, applyEvergreenChangeOnDrive, availableFilesCache, driveFileNameCache } from '../lib/driveService';
 import LiveReadPopout from './LiveReadPopout';
+import ScheduleAuditModal from './ScheduleAuditModal';
 
 export interface SchedulePresetOption {
   id: string;
@@ -581,6 +583,22 @@ interface CalendarTabProps {
 }
 
 export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminToggle, now, driveMP3s = [], isDriveActive = false, onRefresh, shows = [], onSaveShows, currentViewMode, onViewModeChange, showPixelRuler = false }: CalendarTabProps) {
+  // Synchronous cache hydration: ensure availableFilesCache and driveFileNameCache are populated synchronously during render
+  if (driveMP3s && driveMP3s.length > 0) {
+    driveMP3s.forEach(f => {
+      if (f && f.name) {
+        availableFilesCache.set(f.name, {
+          path: f.path || f.name,
+          size: f.size || '0.1 MB',
+          duration: f.duration || ''
+        });
+        if (f.path) {
+          driveFileNameCache.set(f.path, f.name);
+        }
+      }
+    });
+  }
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Interstitial>>({});
   const [isSavingInterstitial, setIsSavingInterstitial] = useState(false);
@@ -588,6 +606,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
 
   const [initialFormDataJson, setInitialFormDataJson] = useState<string>('');
   const [showCancelConfirm, setShowCancelConfirm] = useState<boolean>(false);
+  const [openedFromAudit, setOpenedFromAudit] = useState<boolean>(false);
 
   const isFormModified = useMemo(() => {
     if (!editingId || !initialFormDataJson) return false;
@@ -600,6 +619,10 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
       setShowCancelConfirm(true);
     } else {
       setEditingId(null);
+      if (openedFromAudit) {
+        setOpenedFromAudit(false);
+        setIsScheduleAuditOpen(true);
+      }
     }
   };
 
@@ -607,7 +630,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
     if (!formData.name) return false;
     if (formData.type === InterstitialType.ONE_TIME && (!formData.date || !formData.time)) return false;
     const currentMp3s = formData.timeGatedMp3s || [];
-    const validation = validateTimeGatedMp3s(currentMp3s);
+    const validation = validateTimeGatedMp3s(currentMp3s, undefined, formData.endDate);
     return !validation.hasErrors;
   })();
   const isNew = editingId ? !interstitials.some(s => s.id === editingId) : false;
@@ -849,6 +872,18 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
   const showConflicts = React.useMemo(() => getShowConflicts(shows), [shows]);
   const showGaps = React.useMemo(() => getShowGaps(shows), [shows]);
 
+  // Diagnostic evaluation across default lookahead window for the audit summary button badge
+  const auditSummaryDiagnostics = React.useMemo(() => {
+    return evaluateScheduleDiagnostics({
+      interstitials,
+      shows,
+      now,
+      mediaFiles: driveMP3s,
+      lookaheadDays: 14,
+      includePastHours: true
+    });
+  }, [interstitials, shows, now, driveMP3s]);
+
   const headerContainerRef = useRef<HTMLDivElement>(null);
   const [headerContainerWidth, setHeaderContainerWidth] = useState<number>(() => {
     if (typeof window !== 'undefined') {
@@ -930,20 +965,24 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
 
   const activeTriggerWidth = isCalendarView ? controlsContainerWidth : headerContainerWidth;
 
-  const isCell3Below = controlsContainerWidth < 528;
+  const dropShowIssuesText = controlsContainerWidth < 1360;
+  const dropAuditWord = controlsContainerWidth < 1180;
 
-  const isFilterModeSplit = controlsContainerWidth < 970;
+  const isCell3Below = controlsContainerWidth < 630;
 
-  const controlsNavShort = controlsContainerWidth < 1110;
+  const isFilterModeSplit = controlsContainerWidth < 1130;
+  const isIssuesAuditStacked = controlsContainerWidth < 1130;
 
-  const controlsNavIconOnly = controlsContainerWidth < 590;
+  const controlsNavShort = controlsContainerWidth < 1300;
+
+  const controlsNavIconOnly = controlsContainerWidth < 690;
 
   const showsCardsCollapse = headerContainerWidth < 450;
 
-  const isWeekDayStacked = controlsContainerWidth < 970;
+  const isWeekDayStacked = controlsContainerWidth < 1130;
 
-  const isNavStacked = controlsContainerWidth < 970;
-  const isFullStacked = controlsContainerWidth < 380;
+  const isNavStacked = controlsContainerWidth < 1130;
+  const isFullStacked = controlsContainerWidth < 390;
 
   // Shows related states
   const [showFilterQuery, setShowFilterQuery] = useState('');
@@ -967,6 +1006,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
       setIsPickerOpen(false);
       setDeleteConfirmId(null);
       setShowCancelConfirm(false);
+      setOpenedFromAudit(false);
     };
     return () => {
       (window as any).interstitialerHasUnsavedChanges = undefined;
@@ -1337,11 +1377,79 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
     }
   }, [currentViewMode]);
   const [showInactive, setShowInactive] = useState<boolean>(false);
+  const [showIssues, setShowIssues] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('interstitial_calendar_show_issues');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+  const [isScheduleAuditOpen, setIsScheduleAuditOpen] = useState<boolean>(false);
   const [calendarDate, setCalendarDate] = useState<Date>(() => new Date(now));
   const [selectedCalendarInterstitial, setSelectedCalendarInterstitial] = useState<Interstitial | null>(null);
   const [selectedCalendarShow, setSelectedCalendarShow] = useState<Show | null>(null);
   const [selectedHours, setSelectedHours] = useState<number[]>(() => Array.from({ length: 24 }, (_, i) => i));
   const [isHoursDropdownOpen, setIsHoursDropdownOpen] = useState(false);
+
+  // Visible on-screen calendar diagnostics
+  // Computes status across all visible on-screen calendar days and all 24 hours of each day
+  const visibleCalendarDays = React.useMemo(() => {
+    if (calendarTimeframe === 'daily') {
+      return [calendarDate];
+    }
+    const currentDay = calendarDate.getDay();
+    const weekStart = new Date(calendarDate);
+    weekStart.setDate(calendarDate.getDate() - currentDay);
+    const days: Date[] = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
+      days.push(d);
+    }
+    return days;
+  }, [calendarDate, calendarTimeframe]);
+
+  const scheduleDiagnostics = React.useMemo(() => {
+    if (visibleCalendarDays.length === 0) {
+      return auditSummaryDiagnostics;
+    }
+    const firstDay = visibleCalendarDays[0];
+    const lastDay = visibleCalendarDays[visibleCalendarDays.length - 1];
+    return evaluateScheduleDiagnostics({
+      interstitials,
+      shows,
+      now,
+      mediaFiles: driveMP3s,
+      startDate: firstDay,
+      endDate: lastDay,
+      includePastHours: true
+    });
+  }, [interstitials, shows, now, visibleCalendarDays, driveMP3s, auditSummaryDiagnostics]);
+
+  const handleLocateScheduleIssue = (issue: ScheduleIssue) => {
+    setIsScheduleAuditOpen(false);
+    setViewMode('calendar');
+
+    // 1. Parse issue timestamp and update calendarDate
+    const targetDate = new Date(issue.timestamp);
+    if (!isNaN(targetDate.getTime())) {
+      setCalendarDate(targetDate);
+    }
+
+    // 2. Ensure target hour is visible
+    if (!selectedHours.includes(issue.hour)) {
+      setSelectedHours(prev => [...prev, issue.hour].sort((a, b) => a - b));
+    }
+
+    // 3. Directly navigate to Edit Interstitial instead of showing details modal
+    const targetInterstitial = interstitials.find(s => s.id === issue.interstitialId);
+    if (targetInterstitial) {
+      // Commented out per user instructions:
+      // setSelectedCalendarInterstitial(targetInterstitial);
+      startEdit(targetInterstitial, true);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -1432,11 +1540,12 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
     return nameLower.includes(searchQuery.toLowerCase());
   });
 
-  const startEdit = (s: Interstitial) => {
+  const startEdit = (s: Interstitial, fromAudit: boolean = false) => {
     const norm = normalizeInterstitial(s);
     setEditingId(s.id);
     setFormData(norm);
     setInitialFormDataJson(JSON.stringify(norm));
+    setOpenedFromAudit(fromAudit);
   };
 
   const getInterstitialSummary = (s: Interstitial) => {
@@ -1577,7 +1686,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
     }
 
     const currentMp3s = formData.timeGatedMp3s || [];
-    const validation = validateTimeGatedMp3s(currentMp3s);
+    const validation = validateTimeGatedMp3s(currentMp3s, undefined, formData.endDate);
     if (validation.hasErrors) {
       return;
     }
@@ -1637,6 +1746,10 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
       const result = await onSave(newInterstitials);
       if (result !== false) {
         setEditingId(null);
+        if (openedFromAudit) {
+          setOpenedFromAudit(false);
+          setIsScheduleAuditOpen(true);
+        }
       }
     } catch (err) {
       console.error("Save interstitial failed:", err);
@@ -1652,6 +1765,10 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
       const result = await onSave(interstitials.filter(s => s.id !== id));
       if (result !== false) {
         setEditingId(null);
+        if (openedFromAudit) {
+          setOpenedFromAudit(false);
+          setIsScheduleAuditOpen(true);
+        }
       }
     } catch (err) {
       console.error("Delete interstitial failed:", err);
@@ -2603,7 +2720,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                 <span className="flex items-center gap-2">
                   <span>DEBUG PIXEL RULER</span>
                   <span className="text-[10px] font-normal text-slate-400">
-                    ({isFullStacked ? 'Full Stacked <380' : isNavStacked ? 'Nav Stacked <970' : isCell3Below ? 'Cell 3 Below <528' : isFilterModeSplit ? 'Filter/Mode Split <970' : 'Full Width ≥970'})
+                    ({isFullStacked ? 'Full Stacked <390' : isNavStacked ? 'Nav/Filter Stacked <1130' : isCell3Below ? 'Cell 3 Below <630' : isFilterModeSplit ? 'Filter/Mode Split <1130' : 'Full Width ≥1130'})
                   </span>
                 </span>
                 <span>
@@ -2611,8 +2728,8 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                 </span>
               </div>
               <div className="relative h-8 bg-slate-800/80 rounded border border-slate-700/80 overflow-x-auto overflow-y-hidden">
-                <div className="absolute inset-y-0 left-0 flex items-center" style={{ width: `${Math.max(headerContainerWidth, controlsContainerWidth, 1050)}px` }}>
-                  {[380, 420, 460, 462, 480, 520, 528, 590, 618, 697, 734, 766, 810, 860, 890, 913, 970].map((px, idx) => {
+                <div className="absolute inset-y-0 left-0 flex items-center" style={{ width: `${Math.max(headerContainerWidth, controlsContainerWidth, 1360)}px` }}>
+                  {[390, 420, 460, 462, 480, 520, 618, 630, 690, 697, 734, 766, 810, 860, 890, 913, 1130, 1180, 1300, 1360].map((px, idx) => {
                     const isTop = idx % 2 === 0;
                     return (
                       <div key={px} className="absolute inset-y-0 flex flex-col items-center -translate-x-1/2 pointer-events-none" style={{ left: `${px}px` }}>
@@ -2675,52 +2792,103 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
               )}
               {/* Calendar View Controls */}
               <div ref={controlsContainerRef} className={cn("mb-3 flex items-center justify-between gap-3", isCell3Below ? "flex-wrap" : "flex-nowrap")}>
-                {/* Group 1 Card: Week/Day & Prev/Today/Next */}
+                {/* Left Controls: Group 1 Card (Nav) + Group 3 Card (Issues & Audit when isCell3Below) */}
                 <div className={cn(
-                  "bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex items-center gap-2.5 shrink-0 shadow-2xs min-w-max",
-                  isFullStacked && "w-full justify-center min-w-0"
+                  "flex items-center gap-3",
+                  isCell3Below ? "w-full justify-between" : "shrink-0"
                 )}>
-                  {/* Cell 1: Week / Day */}
-                  <div className={cn("inline-flex bg-slate-200/70 p-0.5 rounded border border-slate-300/40 font-black uppercase select-none shrink-0 gap-0.5", controlsNavShort ? "text-[11px]" : "text-xs", isWeekDayStacked ? "flex-col" : "flex-row mr-1")}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCalendarTimeframe('weekly');
-                        localStorage.setItem('interstitial_calendar_timeframe', 'weekly');
-                      }}
-                      className={cn(
-                        "relative rounded font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
-                        controlsNavShort ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs",
-                        calendarTimeframe === 'weekly' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
-                      )}
-                    >
-                      Week
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCalendarTimeframe('daily');
-                        localStorage.setItem('interstitial_calendar_timeframe', 'daily');
-                      }}
-                      className={cn(
-                        "relative rounded font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
-                        controlsNavShort ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs",
-                        calendarTimeframe === 'daily' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
-                      )}
-                    >
-                      Day
-                    </button>
-                  </div>
+                  {/* Group 1 Card: Week/Day & Prev/Today/Next */}
+                  <div className={cn(
+                    "bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex items-center gap-2.5 shrink-0 shadow-2xs min-w-max",
+                    isIssuesAuditStacked && "self-stretch"
+                  )}>
+                    {/* Cell 1: Week / Day */}
+                    <div className={cn("inline-flex bg-slate-200/70 p-0.5 rounded border border-slate-300/40 font-black uppercase select-none shrink-0 gap-0.5", controlsNavShort ? "text-[11px]" : "text-xs", isWeekDayStacked ? "flex-col" : "flex-row mr-1")}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCalendarTimeframe('weekly');
+                          localStorage.setItem('interstitial_calendar_timeframe', 'weekly');
+                        }}
+                        className={cn(
+                          "relative rounded font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
+                          controlsNavShort ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs",
+                          calendarTimeframe === 'weekly' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
+                        )}
+                      >
+                        Week
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCalendarTimeframe('daily');
+                          localStorage.setItem('interstitial_calendar_timeframe', 'daily');
+                        }}
+                        className={cn(
+                          "relative rounded font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
+                          controlsNavShort ? "px-1.5 py-0.5 text-[11px]" : "px-2 py-0.5 text-xs",
+                          calendarTimeframe === 'daily' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
+                        )}
+                      >
+                        Day
+                      </button>
+                    </div>
 
-                  {/* Cell 2: Prev / Today / Next */}
-                  {isNavStacked ? (
-                    <div className="flex flex-col gap-1.5 shrink-0">
-                      <div className="flex items-center gap-1.5 w-full">
+                    {/* Cell 2: Prev / Today / Next */}
+                    {isNavStacked ? (
+                      <div className="flex flex-col gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1.5 w-full">
+                          <button
+                            type="button"
+                            onClick={() => navigateCalendar(-1)}
+                            className={cn(
+                              "flex-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
+                              controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
+                            )}
+                            title={calendarTimeframe === 'daily' ? "Previous Day" : "Previous Week"}
+                          >
+                            <span>&larr;</span>
+                            {!controlsNavIconOnly && (
+                              <span className="ml-1">
+                                PREV{!controlsNavShort ? ` ${calendarTimeframe === 'daily' ? "DAY" : "WEEK"}` : ""}
+                              </span>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => navigateCalendar(1)}
+                            className={cn(
+                              "flex-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
+                              controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
+                            )}
+                            title={calendarTimeframe === 'daily' ? "Next Day" : "Next Week"}
+                          >
+                            {!controlsNavIconOnly && (
+                              <span className="mr-1">
+                                NEXT{!controlsNavShort ? ` ${calendarTimeframe === 'daily' ? "DAY" : "WEEK"}` : ""}
+                              </span>
+                            )}
+                            <span>&rarr;</span>
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={jumpToToday}
+                          className={cn(
+                            "w-full rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 font-black cursor-pointer uppercase tracking-tighter whitespace-nowrap text-center transition-all",
+                            controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-xs"
+                          )}
+                        >
+                          Today
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 shrink-0 flex-row">
                         <button
                           type="button"
                           onClick={() => navigateCalendar(-1)}
                           className={cn(
-                            "flex-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
+                            "rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
                             controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
                           )}
                           title={calendarTimeframe === 'daily' ? "Previous Day" : "Previous Week"}
@@ -2732,11 +2900,23 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                             </span>
                           )}
                         </button>
+
+                        <button
+                          type="button"
+                          onClick={jumpToToday}
+                          className={cn(
+                            "rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 font-black cursor-pointer uppercase tracking-tighter whitespace-nowrap text-center transition-all",
+                            controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-xs"
+                          )}
+                        >
+                          Today
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => navigateCalendar(1)}
                           className={cn(
-                            "flex-1 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
+                            "rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
                             controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
                           )}
                           title={calendarTimeframe === 'daily' ? "Next Day" : "Next Week"}
@@ -2749,217 +2929,292 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                           <span>&rarr;</span>
                         </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={jumpToToday}
-                        className={cn(
-                          "w-full rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 font-black cursor-pointer uppercase tracking-tighter whitespace-nowrap text-center transition-all",
-                          controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-xs"
-                        )}
-                      >
-                        Today
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 shrink-0 flex-row">
-                      <button
-                        type="button"
-                        onClick={() => navigateCalendar(-1)}
-                        className={cn(
-                          "rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
-                          controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
-                        )}
-                        title={calendarTimeframe === 'daily' ? "Previous Day" : "Previous Week"}
-                      >
-                        <span>&larr;</span>
-                        {!controlsNavIconOnly && (
-                          <span className="ml-1">
-                            PREV{!controlsNavShort ? ` ${calendarTimeframe === 'daily' ? "DAY" : "WEEK"}` : ""}
-                          </span>
-                        )}
-                      </button>
+                    )}
+                  </div>
 
-                      <button
-                        type="button"
-                        onClick={jumpToToday}
-                        className={cn(
-                          "rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 font-black cursor-pointer uppercase tracking-tighter whitespace-nowrap text-center transition-all",
-                          controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-xs"
-                        )}
-                      >
-                        Today
-                      </button>
+                  {/* Group 3 Card (When isCell3Below is active, it stays on row 1 alongside Group 1) */}
+                  {isCell3Below && (
+                    <div className={cn(
+                      "bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex text-xs font-black uppercase tracking-tighter shadow-2xs shrink-0",
+                      isIssuesAuditStacked ? "flex-col justify-between items-stretch gap-1.5" : "items-center gap-2.5",
+                      isIssuesAuditStacked && "self-stretch"
+                    )}>
+                      <label className="flex items-center gap-1.5 text-slate-650 cursor-pointer select-none text-xs font-black uppercase tracking-tighter shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={showIssues}
+                          onChange={(e) => {
+                            setShowIssues(e.target.checked);
+                            try {
+                              localStorage.setItem('interstitial_calendar_show_issues', String(e.target.checked));
+                            } catch {
+                              // ignore storage errors
+                            }
+                          }}
+                          className="w-3.5 h-3.5 text-amber-600 border-slate-300 rounded focus:ring-amber-500 cursor-pointer"
+                        />
+                        <span>{dropShowIssuesText ? "Issues" : "Show Issues"}</span>
+                      </label>
 
+                      {/* Issues Audit Button Trigger */}
                       <button
                         type="button"
-                        onClick={() => navigateCalendar(1)}
+                        onClick={() => setIsScheduleAuditOpen(true)}
                         className={cn(
-                          "rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer font-black uppercase tracking-tighter whitespace-nowrap flex items-center justify-center transition-all",
-                          controlsNavShort ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs"
+                          "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-black uppercase tracking-tight transition-all cursor-pointer border shrink-0",
+                          isIssuesAuditStacked && "justify-center",
+                          auditSummaryDiagnostics.summary.total > 0
+                            ? (auditSummaryDiagnostics.summary.criticalCount > 0
+                                ? "bg-red-50 hover:bg-red-100 text-red-700 border-red-250 shadow-2xs"
+                                : "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-250 shadow-2xs")
+                            : "bg-white hover:bg-slate-100 text-slate-650 border-slate-250 shadow-2xs"
                         )}
-                        title={calendarTimeframe === 'daily' ? "Next Day" : "Next Week"}
+                        title={`Issues Audit (${auditSummaryDiagnostics.summary.total} issues detected)`}
                       >
-                        {!controlsNavIconOnly && (
-                          <span className="mr-1">
-                            NEXT{!controlsNavShort ? ` ${calendarTimeframe === 'daily' ? "DAY" : "WEEK"}` : ""}
-                          </span>
+                        {auditSummaryDiagnostics.summary.total > 0 ? (
+                          <ListChecks className={cn(
+                            "w-3.5 h-3.5 shrink-0",
+                            auditSummaryDiagnostics.summary.criticalCount > 0 ? "text-red-600" : "text-amber-600"
+                          )} />
+                        ) : (
+                          <CheckSquare className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                         )}
-                        <span>&rarr;</span>
+                        {!dropAuditWord && <span>Audit</span>}
+                        {auditSummaryDiagnostics.summary.total > 0 ? (
+                          <span className={cn(
+                            "px-1.5 py-0.2 rounded-full text-[10px] font-black text-white shrink-0",
+                            auditSummaryDiagnostics.summary.criticalCount > 0 ? "bg-red-600" : "bg-amber-600"
+                          )}>
+                            {auditSummaryDiagnostics.summary.total}
+                          </span>
+                        ) : (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                        )}
                       </button>
                     </div>
                   )}
                 </div>
 
-                {/* Group 2 Card: Filters & Mode */}
+                {/* Right Controls: Group 2 Card (Filter & Mode) + Group 3 Card (when not isCell3Below) */}
                 <div className={cn(
-                  "bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex flex-wrap items-center gap-2.5 text-xs font-black uppercase tracking-tighter shadow-2xs",
-                  isCell3Below ? "w-full justify-between" : (isFilterModeSplit ? "flex-col items-start gap-2 shrink-0" : "justify-end shrink-0"),
+                  "flex items-center gap-3",
+                  isCell3Below ? "w-full justify-start" : "justify-end shrink-0",
                   isFullStacked && "w-full flex-col items-stretch"
                 )}>
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <span className="text-slate-450">Filter:</span>
-                    <select
-                      value={calendarDate.getMonth()}
-                      onChange={handleMonthChange}
-                      className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                    >
-                      {months.map((m, idx) => (
-                        <option key={idx} value={idx}>{m}</option>
-                      ))}
-                    </select>
-
-                    <select
-                      value={calendarDate.getFullYear()}
-                      onChange={handleYearChange}
-                      className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                    >
-                      {years.map(y => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
-
-                    <div className="relative inline-block text-left mr-1">
-                      <button
-                        type="button"
-                        onClick={() => setIsHoursDropdownOpen(!isHoursDropdownOpen)}
-                        className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 hover:bg-slate-50 cursor-pointer flex items-center gap-1 min-w-[110px] justify-between"
+                  {/* Group 2 Card: Filters & Mode */}
+                  <div className={cn(
+                    "bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex flex-wrap items-center gap-2.5 text-xs font-black uppercase tracking-tighter shadow-2xs",
+                    isFilterModeSplit ? "flex-col items-start gap-2" : "items-center",
+                    isIssuesAuditStacked && "self-stretch",
+                    isCell3Below && "w-full justify-between"
+                  )}>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <span className="text-slate-450">Filter:</span>
+                      <select
+                        value={calendarDate.getMonth()}
+                        onChange={handleMonthChange}
+                        className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                       >
-                        <span>
-                          {selectedHours.length === 24
-                            ? "All (24h)"
-                            : selectedHours.length === 0
-                            ? "None selected"
-                            : `${selectedHours.length} selected`}
-                        </span>
-                        <span className="text-slate-440 text-[9px]">▼</span>
-                      </button>
+                        {months.map((m, idx) => (
+                          <option key={idx} value={idx}>{m}</option>
+                        ))}
+                      </select>
 
-                      {isHoursDropdownOpen && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-10 cursor-default"
-                            onClick={() => setIsHoursDropdownOpen(false)}
-                          />
-                          <div className="absolute right-0 mt-1 w-64 bg-white border border-slate-250 rounded-xl shadow-lg z-25 p-2.5 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-2">
-                            <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                              <span className="text-xs font-black text-slate-700 uppercase tracking-tighter">
-                                Select Hours
-                              </span>
-                              <div className="flex gap-1.5 text-xs font-black uppercase tracking-tighter">
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedHours(Array.from({ length: 24 }, (_, i) => i))}
-                                  className="text-blue-600 hover:text-blue-700 cursor-pointer"
-                                >
-                                  All
-                                </button>
-                                <span className="text-slate-300">|</span>
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedHours([])}
-                                  className="text-slate-500 hover:text-slate-600 cursor-pointer"
-                                >
-                                  None
-                                </button>
+                      <select
+                        value={calendarDate.getFullYear()}
+                        onChange={handleYearChange}
+                        className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                      >
+                        {years.map(y => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+
+                      <div className="relative inline-block text-left mr-1">
+                        <button
+                          type="button"
+                          onClick={() => setIsHoursDropdownOpen(!isHoursDropdownOpen)}
+                          className="bg-white border border-slate-250 rounded px-2 py-1 text-xs font-black text-slate-700 hover:bg-slate-50 cursor-pointer flex items-center gap-1 min-w-[110px] justify-between"
+                        >
+                          <span>
+                            {selectedHours.length === 24
+                              ? "All (24h)"
+                              : selectedHours.length === 0
+                              ? "None selected"
+                              : `${selectedHours.length} selected`}
+                          </span>
+                          <span className="text-slate-440 text-[9px]">▼</span>
+                        </button>
+
+                        {isHoursDropdownOpen && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-10 cursor-default"
+                              onClick={() => setIsHoursDropdownOpen(false)}
+                            />
+                            <div className="absolute right-0 mt-1 w-64 bg-white border border-slate-250 rounded-xl shadow-lg z-25 p-2.5 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-2">
+                              <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                                <span className="text-xs font-black text-slate-700 uppercase tracking-tighter">
+                                  Select Hours
+                                </span>
+                                <div className="flex gap-1.5 text-xs font-black uppercase tracking-tighter">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedHours(Array.from({ length: 24 }, (_, i) => i))}
+                                    className="text-blue-600 hover:text-blue-700 cursor-pointer"
+                                  >
+                                    All
+                                  </button>
+                                  <span className="text-slate-300">|</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedHours([])}
+                                    className="text-slate-500 hover:text-slate-600 cursor-pointer"
+                                  >
+                                    None
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-4 gap-1 max-h-[180px] overflow-y-auto custom-scrollbar">
+                                {Array.from({ length: 24 }).map((_, h) => {
+                                  const isSelected = selectedHours.includes(h);
+                                  return (
+                                    <button
+                                      key={h}
+                                      type="button"
+                                      onClick={() => {
+                                        if (isSelected) {
+                                          setSelectedHours(selectedHours.filter(item => item !== h));
+                                        } else {
+                                          setSelectedHours([...selectedHours, h].sort((a, b) => a - b));
+                                        }
+                                      }}
+                                      className={cn(
+                                        "p-1 py-1 rounded text-xs font-black font-mono tracking-tight text-center border cursor-pointer select-none transition-all",
+                                        isSelected
+                                          ? "bg-blue-600 text-white border-blue-600 font-extrabold"
+                                          : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
+                                      )}
+                                    >
+                                      {h.toString().padStart(2, '0')}:00
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
-
-                            <div className="grid grid-cols-4 gap-1 max-h-[180px] overflow-y-auto custom-scrollbar">
-                              {Array.from({ length: 24 }).map((_, h) => {
-                                const isSelected = selectedHours.includes(h);
-                                return (
-                                  <button
-                                    key={h}
-                                    type="button"
-                                    onClick={() => {
-                                      if (isSelected) {
-                                        setSelectedHours(selectedHours.filter(item => item !== h));
-                                      } else {
-                                        setSelectedHours([...selectedHours, h].sort((a, b) => a - b));
-                                      }
-                                    }}
-                                    className={cn(
-                                      "p-1 py-1 rounded text-xs font-black font-mono tracking-tight text-center border cursor-pointer select-none transition-all",
-                                      isSelected
-                                        ? "bg-blue-600 text-white border-blue-600 font-extrabold"
-                                        : "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100"
-                                    )}
-                                  >
-                                    {h.toString().padStart(2, '0')}:00
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    {/* Mode toggle grouped to keep label with selector */}
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-slate-450 ml-1">Mode:</span>
-                      <div className="inline-flex bg-slate-200/70 p-0.5 rounded border border-slate-300/40 font-black text-xs uppercase select-none shrink-0 gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCalendarLayoutMode('full');
-                            localStorage.setItem('interstitial_calendar_layout_mode', 'full');
-                          }}
-                          className={cn(
-                            "relative px-2 py-0.5 rounded text-xs font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
-                            calendarLayoutMode === 'full' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
-                          )}
-                        >
-                          Full
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCalendarLayoutMode('compact');
-                            localStorage.setItem('interstitial_calendar_layout_mode', 'compact');
-                          }}
-                          className={cn(
-                            "relative px-2 py-0.5 rounded text-xs font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
-                            calendarLayoutMode === 'compact' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
-                          )}
-                        >
-                          Compact
-                        </button>
+                          </>
+                        )}
                       </div>
                     </div>
 
-                    <label className="flex items-center gap-1.5 text-slate-650 cursor-pointer select-none text-xs font-black uppercase tracking-tighter ml-1 shrink-0">
-                      <input
-                        type="checkbox"
-                        checked={showInactive}
-                        onChange={(e) => setShowInactive(e.target.checked)}
-                        className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                      />
-                      <span>Show Inactive</span>
-                    </label>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {/* Mode toggle grouped to keep label with selector */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-slate-450 ml-1">Mode:</span>
+                        <div className="inline-flex bg-slate-200/70 p-0.5 rounded border border-slate-300/40 font-black text-xs uppercase select-none shrink-0 gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCalendarLayoutMode('full');
+                              localStorage.setItem('interstitial_calendar_layout_mode', 'full');
+                            }}
+                            className={cn(
+                              "relative px-2 py-0.5 rounded text-xs font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
+                              calendarLayoutMode === 'full' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
+                            )}
+                          >
+                            Full
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCalendarLayoutMode('compact');
+                              localStorage.setItem('interstitial_calendar_layout_mode', 'compact');
+                            }}
+                            className={cn(
+                              "relative px-2 py-0.5 rounded text-xs font-black tracking-tight uppercase transition-colors z-10 text-center cursor-pointer",
+                              calendarLayoutMode === 'compact' ? "bg-white text-slate-800 shadow-sm font-extrabold" : "text-slate-500 hover:text-slate-700"
+                            )}
+                          >
+                            Compact
+                          </button>
+                        </div>
+                      </div>
+
+                      <label className="flex items-center gap-1.5 text-slate-650 cursor-pointer select-none text-xs font-black uppercase tracking-tighter ml-1 shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={showInactive}
+                          onChange={(e) => setShowInactive(e.target.checked)}
+                          className="w-3.5 h-3.5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                        />
+                        <span>{dropShowIssuesText ? "Inactive" : "Show Inactive"}</span>
+                      </label>
+                    </div>
                   </div>
+
+                  {/* Group 3 Card: Issues & Audit Blob (When not isCell3Below) */}
+                  {!isCell3Below && (
+                    <div className={cn(
+                      "bg-slate-50 border border-slate-200 rounded-xl p-2.5 flex text-xs font-black uppercase tracking-tighter shadow-2xs shrink-0",
+                      isIssuesAuditStacked ? "flex-col justify-between items-stretch gap-1.5" : "items-center gap-2.5",
+                      isIssuesAuditStacked && "self-stretch"
+                    )}>
+                      <label className="flex items-center gap-1.5 text-slate-650 cursor-pointer select-none text-xs font-black uppercase tracking-tighter shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={showIssues}
+                          onChange={(e) => {
+                            setShowIssues(e.target.checked);
+                            try {
+                              localStorage.setItem('interstitial_calendar_show_issues', String(e.target.checked));
+                            } catch {
+                              // ignore storage errors
+                            }
+                          }}
+                          className="w-3.5 h-3.5 text-amber-600 border-slate-300 rounded focus:ring-amber-500 cursor-pointer"
+                        />
+                        <span>{dropShowIssuesText ? "Issues" : "Show Issues"}</span>
+                      </label>
+
+                      {/* Issues Audit Button Trigger */}
+                      <button
+                        type="button"
+                        onClick={() => setIsScheduleAuditOpen(true)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-black uppercase tracking-tight transition-all cursor-pointer border shrink-0",
+                          isIssuesAuditStacked && "justify-center",
+                          auditSummaryDiagnostics.summary.total > 0
+                            ? (auditSummaryDiagnostics.summary.criticalCount > 0
+                                ? "bg-red-50 hover:bg-red-100 text-red-700 border-red-250 shadow-2xs"
+                                : "bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-250 shadow-2xs")
+                            : "bg-white hover:bg-slate-100 text-slate-650 border-slate-250 shadow-2xs"
+                        )}
+                        title={`Issues Audit (${auditSummaryDiagnostics.summary.total} issues detected)`}
+                      >
+                        {auditSummaryDiagnostics.summary.total > 0 ? (
+                          <ListChecks className={cn(
+                            "w-3.5 h-3.5 shrink-0",
+                            auditSummaryDiagnostics.summary.criticalCount > 0 ? "text-red-600" : "text-amber-600"
+                          )} />
+                        ) : (
+                          <CheckSquare className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        )}
+                        {!dropAuditWord && <span>Audit</span>}
+                        {auditSummaryDiagnostics.summary.total > 0 ? (
+                          <span className={cn(
+                            "px-1.5 py-0.2 rounded-full text-[10px] font-black text-white shrink-0",
+                            auditSummaryDiagnostics.summary.criticalCount > 0 ? "bg-red-600" : "bg-amber-600"
+                          )}>
+                            {auditSummaryDiagnostics.summary.total}
+                          </span>
+                        ) : (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
               {/* The Calendar Grid Container! */}
@@ -2981,13 +3236,13 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                           className={cn(
                             "p-2 text-center border-r border-slate-200 last:border-r-0 flex items-center justify-center min-w-0 transition-colors",
                             isToday 
-                              ? "bg-blue-500/10 text-blue-700" 
+                              ? "bg-blue-500/10 text-blue-700 font-black" 
                               : isPast 
-                                ? "bg-slate-200/50 text-slate-400 opacity-80" 
+                                ? "bg-slate-200/50 text-slate-400 opacity-80 italic font-normal" 
                                 : "text-slate-650"
                           )}
                         >
-                          <span className="font-black text-xs leading-tight truncate">
+                          <span className={cn("text-xs leading-tight truncate", isPast ? "italic" : "font-black")}>
                             {dayName} <span className="opacity-80 font-normal ml-1">{dateStr}</span>
                           </span>
                         </div>
@@ -3180,17 +3435,23 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                               {/* Hour column */}
                               {defIdx === 0 ? (
                                 <div className={cn(
-                                  "border-r border-slate-200 flex items-center justify-center bg-slate-50/50 select-none font-black font-mono text-slate-455 uppercase shrink-0",
+                                  "border-r border-slate-200 flex items-center justify-center select-none font-black font-mono uppercase shrink-0 transition-colors",
                                   calendarLayoutMode === 'compact'
                                     ? "p-1 px-0.5 text-xs min-h-[26px]"
-                                    : "p-1.5 px-0.5 text-xs min-h-[28px]"
+                                    : "p-1.5 px-0.5 text-xs min-h-[28px]",
+                                  (calendarTimeframe === 'daily' ? isHourPast(calendarDays[0], hour) : calendarDays.every(d => isHourPast(d, hour)))
+                                    ? "bg-slate-150/70 text-slate-400 opacity-75 italic"
+                                    : (calendarTimeframe === 'daily' && !isHourPast(calendarDays[0], hour) && calendarDays[0].toISOString().split('T')[0] === now.toISOString().split('T')[0] && hour === now.getHours())
+                                      ? "bg-blue-500/10 text-blue-700 font-extrabold"
+                                      : "bg-slate-50/50 text-slate-455"
                                 )}>
                                   {hour.toString().padStart(2, '0')}:00
                                 </div>
                               ) : (
                                 <div className={cn(
-                                  "border-r border-slate-200 bg-slate-50/50 shrink-0",
-                                  calendarLayoutMode === 'compact' ? "min-h-[26px]" : "min-h-[28px]"
+                                  "border-r border-slate-200 shrink-0",
+                                  calendarLayoutMode === 'compact' ? "min-h-[26px]" : "min-h-[28px]",
+                                  (calendarTimeframe === 'daily' ? isHourPast(calendarDays[0], hour) : calendarDays.every(d => isHourPast(d, hour))) ? "bg-slate-150/40" : "bg-slate-50/50"
                                 )} />
                               )}
 
@@ -3247,7 +3508,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                       title={showSummaryText}
                                       className={cn(
                                         "text-slate-800 flex flex-col justify-center text-xs font-black tracking-normal leading-tight w-full uppercase mb-0.5 text-left cursor-pointer transition-all hover:translate-x-0.5 border-0 border-b-2 rounded-none shrink-0 py-0.5 px-1 overflow-hidden",
-                                        cellIsPast && "opacity-80 contrast-90",
+                                        cellIsPast && "opacity-80 contrast-90 italic",
                                         calendarLayoutMode === 'compact' ? "h-[1.75rem] text-xs" : "h-[2.25rem]"
                                       )}
                                       style={{ backgroundColor: getShowShade(show, getSortedShows(shows)).bg, borderBottomColor: getShowShade(show, getSortedShows(shows)).border }}
@@ -3255,6 +3516,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                       <div 
                                         className={cn(
                                           "font-sans break-words [overflow-wrap:anywhere] [word-break:break-all] [hyphens:manual] [text-overflow:clip] overflow-hidden leading-tight",
+                                          cellIsPast && "italic",
                                           calendarLayoutMode === 'compact' ? "max-h-[1.1rem]" : "max-h-[2.1rem]"
                                         )}
                                       >
@@ -3266,7 +3528,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
 
                                 const renderShowPlaceholder = (key: string) => (
                                   <div 
-                                    key={key}
+                                    key={key} 
                                     className={cn(
                                       "w-full shrink-0 mb-0.5 pointer-events-none opacity-0 select-none",
                                       calendarLayoutMode === 'compact' ? "h-[1.75rem]" : "h-[2.25rem]"
@@ -3280,44 +3542,74 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                   const activeMp3 = getActiveMp3ForSlot(s, slotDateTime);
                                   const activeUrl = activeMp3?.mp3Url?.trim() || '';
                                   const backupUrl = activeMp3?.backupMp3Url?.trim() || '';
-                                  const isScript = s.assetType === 'script';
+                                  const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                                   const fileStatus = activeUrl ? getMP3Status(activeUrl) : null;
                                   const fileName = fileStatus ? (fileStatus.filename || activeUrl) : (s.mp3Url ? (getMP3Status(s.mp3Url).filename || s.mp3Url) : '');
                                   
                                   const { dayName: dNameHeader, dateStr: dDateHeader } = formatDayHeader(day);
                                   const scheduledTimeStr = `${dNameHeader} ${dDateHeader} at ${hour.toString().padStart(2, '0')}:${formattedMin}`;
                                   
+                                  const yyyy = day.getFullYear();
+                                  const mm = (day.getMonth() + 1).toString().padStart(2, '0');
+                                  const dd = day.getDate().toString().padStart(2, '0');
+                                  const dayKey = `${yyyy}-${mm}-${dd}`;
+                                  const slotLookupKey = `${s.id}_${dayKey}_${hour}`;
+                                  const rawSlotIssues: ScheduleIssue[] = scheduleDiagnostics.issuesBySlotId[slotLookupKey] || [];
+                                  const slotIssues: ScheduleIssue[] = Array.from(new Map(rawSlotIssues.map(iss => [iss.id, iss])).values());
+                                  const hasSlotIssues = slotIssues.length > 0;
+                                  const hasCriticalIssue = slotIssues.some(iss => iss.severity === 'critical');
+
                                   const fileLine = activeUrl
-                                    ? `${isScript ? 'Script' : 'File'}: ${fileName}${!isScript && fileStatus && (!fileStatus.exists || !fileStatus.valid) ? ' [Missing from library]' : ''}`
-                                    : `File: None [No ${isScript ? 'script' : 'audio file'} attached for this date/time]`;
+                                    ? `${isScript ? 'Script' : 'File'}: ${fileName}`
+                                    : `File: None`;
                                   
                                   const backupLine = backupUrl
                                     ? `\nBackup: ${getMP3Status(backupUrl).filename || backupUrl}`
                                     : '';
 
-                                  const summaryText = `ID: ${s.id} — ${s.name}\nScheduled: ${scheduledTimeStr}\n${fileLine}${backupLine}\nType: ${isScript ? 'Live Read (Script)' : 'Audio MP3'}\nMode: ${s.type === InterstitialType.ONE_TIME ? 'One-Time' : s.type === InterstitialType.BASIC_HOURLY ? 'Hourly' : 'Advanced'}\nStatus: ${!s.enabled ? 'Disabled (Inactive)' : 'Active'}${cellIsPast ? ' • Past' : ''}`;
+                                  const issuesSummary = hasSlotIssues
+                                    ? `\n⚠️ ISSUES DETECTED (${slotIssues.length}):\n` + slotIssues.map(iss => `• ${iss.description}`).join('\n')
+                                    : '';
+
+                                  const summaryText = `ID: ${s.id} — ${s.name}\nScheduled: ${scheduledTimeStr}\n${fileLine}${backupLine}\nType: ${isScript ? 'Live Read (Script)' : 'Audio MP3'}\nMode: ${s.type === InterstitialType.ONE_TIME ? 'One-Time' : s.type === InterstitialType.BASIC_HOURLY ? 'Hourly' : 'Advanced'}\nStatus: ${!s.enabled ? 'Disabled (Inactive)' : 'Active'}${cellIsPast ? ' • Past' : ''}${issuesSummary}`;
 
                                   if (calendarLayoutMode === 'compact') {
                                     return (
                                       <div key={s.id} className="inline-flex items-stretch gap-[2px]">
                                         <button
                                           type="button"
-                                          onClick={() => setSelectedCalendarInterstitial(s)}
+                                          onClick={() => {
+                                            // Commented out per user instructions:
+                                            // setSelectedCalendarInterstitial(s);
+                                            startEdit(s);
+                                          }}
                                           className={cn(
-                                            "inline-flex items-center justify-center p-0.5 px-0.5 rounded font-mono text-xs font-black leading-none shadow-sm border cursor-pointer select-none shrink-0 transition-all hover:scale-105",
+                                            "inline-flex items-center justify-center p-0.5 px-0.5 rounded font-mono text-xs font-black leading-none shadow-sm border cursor-pointer select-none shrink-0 transition-all hover:scale-105 relative",
                                             !s.enabled 
                                               ? "bg-slate-100 text-slate-400 border-grid-inactive line-through" 
-                                              : s.type === InterstitialType.ONE_TIME 
-                                                ? "bg-purple-100 text-purple-700 border-grid-onetime font-extrabold" 
-                                                : s.type === InterstitialType.BASIC_HOURLY 
-                                                  ? "bg-blue-100 text-blue-700 border-grid-hourly" 
-                                                  : "bg-orange-100 text-orange-700 border-grid-advanced",
-                                            s.assetType === 'script' ? "border-l-2 border-l-blue-500" : "border-l-2 border-l-purple-500",
-                                            cellIsPast && "opacity-80"
+                                              : (showIssues && hasSlotIssues)
+                                                ? (hasCriticalIssue 
+                                                    ? "bg-red-50 text-red-900 border-red-500 font-extrabold ring-1 ring-red-400" 
+                                                    : "bg-amber-50 text-amber-900 border-amber-500 font-extrabold ring-1 ring-amber-400")
+                                                : s.type === InterstitialType.ONE_TIME 
+                                                  ? "bg-purple-100 text-purple-700 border-grid-onetime font-extrabold" 
+                                                  : s.type === InterstitialType.BASIC_HOURLY 
+                                                    ? "bg-blue-100 text-blue-700 border-grid-hourly" 
+                                                    : "bg-orange-100 text-orange-700 border-grid-advanced",
+                                            isScript ? "border-l-2 border-l-blue-500" : "border-l-2 border-l-purple-500",
+                                            cellIsPast && "opacity-80 italic"
                                           )}
                                           title={summaryText}
                                         >
                                           {formattedMin}
+                                          {showIssues && hasSlotIssues && (
+                                            <span
+                                              className={cn(
+                                                "absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full border border-white shrink-0 pointer-events-none",
+                                                hasCriticalIssue ? "bg-red-600" : "bg-amber-500"
+                                              )}
+                                            />
+                                          )}
                                         </button>
                                       </div>
                                     );
@@ -3327,24 +3619,41 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                     <div key={s.id} className="flex items-stretch gap-1 w-full relative">
                                       <button
                                         type="button"
-                                        onClick={() => setSelectedCalendarInterstitial(s)}
+                                        onClick={() => {
+                                          // Commented out per user instructions:
+                                          // setSelectedCalendarInterstitial(s);
+                                          startEdit(s);
+                                        }}
                                         className={cn(
                                           "flex-1 text-left p-1 rounded font-sans text-xs leading-tight truncate shadow-sm border block cursor-pointer select-none transition-all hover:translate-x-0.5",
                                           !s.enabled 
                                             ? "bg-slate-105 text-slate-400 border-grid-inactive line-through" 
-                                            : s.type === InterstitialType.ONE_TIME 
-                                              ? "bg-purple-50 text-purple-700 border-grid-onetime font-bold" 
-                                              : s.type === InterstitialType.BASIC_HOURLY 
-                                                ? "bg-blue-50 text-blue-700 border-grid-hourly" 
-                                                : "bg-orange-50 text-orange-700 border-grid-advanced",
-                                          s.assetType === 'script' ? "border-l-[4px] border-l-blue-500 rounded-l-sm" : "border-l-[4px] border-l-purple-500 rounded-l-sm",
-                                          cellIsPast && "opacity-85"
+                                            : (showIssues && hasSlotIssues)
+                                              ? (hasCriticalIssue 
+                                                  ? "bg-red-50/90 text-red-900 border-red-400 font-semibold shadow-2xs" 
+                                                  : "bg-amber-50/90 text-amber-900 border-amber-400 font-semibold shadow-2xs")
+                                              : s.type === InterstitialType.ONE_TIME 
+                                                ? "bg-purple-50 text-purple-700 border-grid-onetime font-bold" 
+                                                : s.type === InterstitialType.BASIC_HOURLY 
+                                                  ? "bg-blue-50 text-blue-700 border-grid-hourly" 
+                                                  : "bg-orange-50 text-orange-700 border-grid-advanced",
+                                          isScript ? "border-l-[4px] border-l-blue-500 rounded-l-sm" : "border-l-[4px] border-l-purple-500 rounded-l-sm",
+                                          cellIsPast && "opacity-85 italic"
                                         )}
                                         title={summaryText}
                                       >
-                                        <div className="truncate flex items-center gap-0.5">
-                                          <span className="font-mono font-black text-xs text-slate-455 shrink-0">:{formattedMin}</span>
-                                          <span className="truncate">{s.name}</span>
+                                        <div className={cn("truncate flex items-center gap-0.5", cellIsPast && "italic")}>
+                                          <span className={cn("font-mono font-black text-xs text-slate-455 shrink-0", cellIsPast && "italic")}>:{formattedMin}</span>
+                                          {showIssues && hasSlotIssues && (
+                                            <span className="shrink-0 inline-flex items-center" title={slotIssues[0]?.description}>
+                                              {hasCriticalIssue ? (
+                                                <AlertCircle className="w-3 h-3 text-red-600 shrink-0" />
+                                              ) : (
+                                                <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                                              )}
+                                            </span>
+                                          )}
+                                          <span className={cn("truncate", cellIsPast && "italic")}>{s.name}</span>
                                         </div>
                                       </button>
                                     </div>
@@ -3668,7 +3977,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                  const activeMp3 = getActiveMp3ForSlot(s, now);
                                  const activeUrl = activeMp3?.mp3Url || '';
                                  const status = getMP3Status(activeUrl);
-                                 const isScript = s.assetType === 'script';
+                                 const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                                  const isVerified = isScript ? status.exists : (status.exists && status.valid);
                                  return (
                                    <div className="flex items-center gap-1.5 min-w-0 overflow-hidden text-right justify-end flex-1">
@@ -3953,7 +4262,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                     const activeMp3 = getActiveMp3ForSlot(s, now);
                                     const activeUrl = activeMp3?.mp3Url || '';
                                     const status = getMP3Status(activeUrl);
-                                    const isScript = s.assetType === 'script';
+                                    const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                                     const isVerified = isScript ? status.exists : (status.exists && status.valid);
                                     return (
                                       <div className="flex items-center gap-1.5 overflow-hidden text-right justify-end flex-1 opacity-90">
@@ -4412,7 +4721,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                   <div className="bg-white border-x border-b border-slate-350 rounded-b-lg overflow-hidden shadow-xs divide-y divide-slate-350">
                     {(() => {
                       const currentMp3s = formData.timeGatedMp3s || [];
-                      const validation = validateTimeGatedMp3s(currentMp3s);
+                      const validation = validateTimeGatedMp3s(currentMp3s, undefined, formData.endDate);
 
                       if (currentMp3s.length === 0) {
                         return (
@@ -5511,6 +5820,10 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                 onClick={() => {
                   setShowCancelConfirm(false);
                   setEditingId(null);
+                  if (openedFromAudit) {
+                    setOpenedFromAudit(false);
+                    setIsScheduleAuditOpen(true);
+                  }
                 }}
                 className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-black uppercase tracking-widest transition-all shadow-md shadow-amber-100 cursor-pointer"
               >
@@ -5732,7 +6045,8 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
         </div>
       )}
 
-      {/* Calendar Interstitial Details Modal Overlay */}
+      {/* Calendar Interstitial Details Modal Overlay - Commented out per instructions to navigate directly to Edit Interstitial */}
+      {/*
       {selectedCalendarInterstitial && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[90]">
           <div className="bg-white rounded-xl border border-slate-250 shadow-2xl max-w-md w-full overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
@@ -5777,38 +6091,36 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <span className="text-xs text-slate-400 uppercase font-bold block">
-                  {selectedCalendarInterstitial.assetType === 'script' ? "Target Script / Image File" : "Target Audio Track"}
-                </span>
-                <div className="p-2 border border-slate-200 rounded flex items-center justify-between gap-2 bg-slate-50/50">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {selectedCalendarInterstitial.assetType === 'script' ? (
-                      <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    ) : (
-                      <Music className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    )}
-                    {(() => {
-                      const activeMp3 = getActiveMp3ForSlot(selectedCalendarInterstitial, now);
-                      const activeUrl = activeMp3?.mp3Url || '';
-                      return (
+              {(() => {
+                const activeMp3 = getActiveMp3ForSlot(selectedCalendarInterstitial, now);
+                const activeUrl = activeMp3?.mp3Url || '';
+                const isScript = getGatedAssetType(activeMp3, selectedCalendarInterstitial.assetType) === 'script';
+                const readTime = activeMp3?.approximateReadTime || selectedCalendarInterstitial.approximateReadTime;
+                return (
+                  <div className="space-y-1">
+                    <span className="text-xs text-slate-400 uppercase font-bold block">
+                      {isScript ? "Target Script / Image File" : "Target Audio Track"}
+                    </span>
+                    <div className="p-2 border border-slate-200 rounded flex items-center justify-between gap-2 bg-slate-50/50">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {isScript ? (
+                          <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        ) : (
+                          <Music className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        )}
                         <span className="text-xs font-bold text-slate-650 truncate font-mono" title={activeUrl}>
                           {activeUrl || 'No File Attached'}
                         </span>
-                      );
-                    })()}
+                      </div>
+                      {isScript && (
+                        <span className="text-xs font-mono font-bold text-slate-600 shrink-0">
+                          {readTime ? (readTime.startsWith('~') ? readTime : `~${readTime}`) : '-:--'}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  {selectedCalendarInterstitial.assetType === 'script' && (() => {
-                    const activeMp3 = getActiveMp3ForSlot(selectedCalendarInterstitial, now);
-                    const readTime = activeMp3?.approximateReadTime || selectedCalendarInterstitial.approximateReadTime;
-                    return (
-                      <span className="text-xs font-mono font-bold text-slate-600 shrink-0">
-                        {readTime ? (readTime.startsWith('~') ? readTime : `~${readTime}`) : '-:--'}
-                      </span>
-                    );
-                  })()}
-                </div>
-              </div>
+                );
+              })()}
 
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
@@ -5846,6 +6158,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
           </div>
         </div>
       )}
+      */}
 
       {/* Calendar Show Details Modal Overlay */}
       {selectedCalendarShow && (
@@ -6007,6 +6320,10 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                     if (res !== false) {
                       setEditingId(null);
                       setPendingSaveInterstitial(null);
+                      if (openedFromAudit) {
+                        setOpenedFromAudit(false);
+                        setIsScheduleAuditOpen(true);
+                      }
                     }
                   } finally {
                     setIsSavingInterstitial(false);
@@ -6086,6 +6403,16 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
           </div>
         </div>
       )}
+
+      {/* Issues Audit Modal */}
+      <ScheduleAuditModal
+        isOpen={isScheduleAuditOpen}
+        onClose={() => setIsScheduleAuditOpen(false)}
+        interstitials={interstitials}
+        shows={shows}
+        now={now}
+        onLocateInCalendar={handleLocateScheduleIssue}
+      />
     </div>
   );
 }

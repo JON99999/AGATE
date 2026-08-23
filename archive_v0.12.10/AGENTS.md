@@ -67,6 +67,13 @@ This application is primarily a **Desktop Application** built with Electron and 
 - **Explicit Version Change Authorization Only**: The agent **MUST NOT** increment or modify the application version string unless explicitly instructed to do so by the user. The agent is permitted to suggest or propose version increments when presenting plans or proposals, but must wait for user confirmation before applying version changes to the codebase.
 - **Check Version References Everywhere**: When commanded to update, check, or reset the application's version, the agent **MUST** perform a global search across the workspace to locate and align all instances. This includes modifying `package.json`, `package-lock.json`, `electron-main.cjs`, and companion developer instructions/distribution guides like `HOW_TO_RELEASE_IN_GITHUB_ONLINE.md`. All version tags (e.g., `v0.8.3`) must remain strictly in sync with the core version string.
 
+## Dependency Management & Lockfile Synchronization
+
+- **Strict Lockfile Synchronization**: Whenever any package or dependency is added, updated, or removed in `package.json` (or if `package.json` is edited directly):
+  1. The agent MUST run `npm install` immediately in the workspace root to regenerate, resolve, and balance `package-lock.json`.
+  2. The agent MUST verify lockfile integrity by running `npm ci --dry-run`. This guarantees that virtualized GitHub Actions runners executing `npm ci` will not fail with `EUSAGE` or missing dependency errors.
+  3. Whenever syncing backup/archive directories (such as `archive_v0.12.10/`), both `package.json` and `package-lock.json` MUST be updated together.
+
 
 ## Archive & Backup Guidelines
 

@@ -6,7 +6,7 @@ const https = require('https');
 const pkgPath = path.join(__dirname, 'package.json');
 const pkgBakPath = path.join(__dirname, 'package.json.bak');
 
-console.log('Starting custom double-build process (Player/Admin)...');
+console.log('Starting custom triple-build process (Admin/Live/Studio)...');
 
 // 1. Back up package.json
 try {
@@ -307,15 +307,23 @@ async function syncRemoteIcons() {
     compileAssets('Admin');
     packageApp('Admin');
 
-    // --- Step 2: Build & Package Player ---
+    // --- Step 2: Build & Package Live ---
     console.log('\n=========================================');
-    console.log(' BUILDING INTERSTITIAL-ER PLAYER ');
+    console.log(' BUILDING INTERSTITIAL-ER LIVE ');
     console.log('=========================================\n');
     cleanBuild();
-    compileAssets('Player');
-    packageApp('Player');
+    compileAssets('Live');
+    packageApp('Live');
 
-    console.log('\nDouble-build packaged successfully!');
+    // --- Step 3: Build & Package Studio ---
+    console.log('\n=========================================');
+    console.log(' BUILDING INTERSTITIAL-ER STUDIO ');
+    console.log('=========================================\n');
+    cleanBuild();
+    compileAssets('Studio');
+    packageApp('Studio');
+
+    console.log('\nTriple-build packaged successfully!');
 
   } catch (err) {
     console.error('\nAn error occurred during build/packaging:', err);

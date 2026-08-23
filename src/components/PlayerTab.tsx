@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useMemo, useRef, Fragment } from 
 import { format, addMinutes, subMinutes, subDays, isSameMinute, isBefore, isAfter, startOfMinute, differenceInSeconds, parseISO } from 'date-fns';
 import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download, Ear, FileText, Volume2, ListMusic, ChevronUp, ChevronDown, RotateCcw, Music, Flag, ListPlus } from 'lucide-react';
 import { Interstitial, InterstitialType, LogEntry, Show } from '../types';
-import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getSortedShows, getShowShade, readMp3ID3Metadata, Mp3ID3Metadata, formatDuration, formatTotalTrackTime, getActiveMp3ForSlot } from '../lib/utils';
+import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getSortedShows, getShowShade, readMp3ID3Metadata, Mp3ID3Metadata, formatDuration, formatTotalTrackTime, getActiveMp3ForSlot, getGatedAssetType } from '../lib/utils';
 import LiveReadPopout from './LiveReadPopout';
 import { WaveformVisualizer } from './WaveformVisualizer';
 import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache, updateAudioCache, getAccessToken, driveFileNameCache, loadPlaylistTracksFromDrive, saveShowPlaylistLogToDrive, loadShowPlaylistLogFromDrive, formatShowPlaylistLogFileName, getSavedSettings } from '../lib/driveService';
@@ -2218,9 +2218,11 @@ export default function PlayerTab({
       return;
     }
 
-    if (s.assetType === 'script') {
-      const activeMp3 = getActiveMp3ForSlot(s, slot);
-      const targetScriptUrl = activeMp3?.mp3Url || '';
+    const activeMp3 = getActiveMp3ForSlot(s, slot);
+    const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
+
+    if (isScript) {
+      const targetScriptUrl = activeMp3?.mp3Url || s.mp3Url || '';
       const parts = targetScriptUrl ? targetScriptUrl.split('/') : [];
       const filename = parts[parts.length - 1] || 'Script';
       
@@ -2241,7 +2243,7 @@ export default function PlayerTab({
         interstitialName: s.name,
         interstitialTime: interstitialTimeISO,
         initialLoggedTime: playedLog?.logTimeStamp || playedLog?.timestamp || '',
-        backupMp3Url: activeMp3?.backupMp3Url,
+        backupMp3Url: activeMp3?.backupMp3Url || s.backupMp3Url,
         slotKey,
         slotISO: interstitialTimeISO,
         playMode,
@@ -2275,8 +2277,7 @@ export default function PlayerTab({
       return;
     }
 
-    const activeMp3 = getActiveMp3ForSlot(s, slot);
-    const targetMp3Url = activeMp3?.mp3Url || '';
+    const targetMp3Url = activeMp3?.mp3Url || s.mp3Url || '';
     const playableUrl = getPlayableUrl(targetMp3Url);
     const audio = new Audio(playableUrl);
 
@@ -2434,6 +2435,7 @@ export default function PlayerTab({
           interstitialId: s.id,
           status: 'backup play',
           playMode: playMode,
+          assetType: 'audio',
           ...(activeShow ? {
             showId: activeShow.id,
             showName: activeShow.name,
@@ -2506,6 +2508,7 @@ export default function PlayerTab({
       if (item.type === 'break') {
         item.interstitials.forEach((s) => {
           const activeMp3 = getActiveMp3ForSlot(s, item.slotTime);
+          const itemAssetType = getGatedAssetType(activeMp3, s.assetType);
           const itemIdx = items.length + 1;
           const slotTimeStr = format(item.slotTime, 'HH:mm');
           const safeSlotTime = slotTimeStr.replace(/:/g, '-');
@@ -2513,12 +2516,12 @@ export default function PlayerTab({
           const safeInterstitialName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
           const sourceFileName = activeMp3?.mp3Url || '';
           const dotIndex = sourceFileName.lastIndexOf('.');
-          const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex) : '.mp3';
+          const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex) : (itemAssetType === 'script' ? '.txt' : '.mp3');
           const paddedIdx = String(itemIdx).padStart(2, '0');
           const targetFileName = `${paddedIdx} Break at ${safeSlotTime} - ${safeInterstitialName}${ext}`;
           const exists = sourceFileName ? getMP3Status(sourceFileName).exists : false;
 
-          const backupUrl = activeMp3?.backupMp3Url;
+          const backupUrl = activeMp3?.backupMp3Url || s.backupMp3Url;
           const backupMp3Exists = backupUrl ? getMP3Status(backupUrl).exists : false;
 
           items.push({
@@ -2530,7 +2533,7 @@ export default function PlayerTab({
             exists,
             targetFileName,
             slotISO: item.slotTime.toISOString(),
-            assetType: s.assetType,
+            assetType: itemAssetType,
             approximateReadTime: activeMp3?.approximateReadTime || s.approximateReadTime,
             backupMp3Url: backupUrl,
             backupMp3Exists,
@@ -3125,9 +3128,10 @@ export default function PlayerTab({
                         const breakNum = breakIndexMap[slotKey] || (bIdx + 1);
                         const previewKey = `export-preview-${slotKey}`;
                         const activeMp3 = getActiveMp3ForSlot(s, slot);
+                        const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                         const activeMp3Url = activeMp3?.mp3Url || '';
                         const status = getMP3Status(activeMp3Url);
-                        const isVerified = s.assetType === 'script' ? status.exists : (status.exists && status.valid);
+                        const isVerified = isScript ? status.exists : (status.exists && status.valid);
                         const isCurrentlyPlaying = !!playingStates[previewKey] || playingAudiosRef.current.has(previewKey);
                         const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
 
@@ -3153,12 +3157,12 @@ export default function PlayerTab({
                             onClick={() => isVerified ? handlePlay(s, slot) : null}
                             className={cn(
                               "rounded border shadow-xs p-2 transition-all flex flex-col gap-1.5 mx-1 text-left select-none relative cursor-pointer",
-                              s.assetType !== 'script' && isVerified ? "pb-[1px]" : "",
+                              !isScript && isVerified ? "pb-[1px]" : "",
                               bgClass,
                             )}
                             style={{
                               borderLeftWidth: '4px',
-                              borderLeftColor: s.assetType === 'script'
+                              borderLeftColor: isScript
                                 ? (isVerified ? '#3b82f6' : '#f43f5e')
                                 : (isVerified ? '#a855f7' : '#f43f5e')
                             }}
@@ -3198,7 +3202,7 @@ export default function PlayerTab({
                               </div>
 
                               <div className="shrink-0">
-                                {s.assetType === 'script' ? (
+                                {isScript ? (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -3315,7 +3319,7 @@ export default function PlayerTab({
                                       <>
                                         <CheckCircle className="w-3 h-3 text-green-600" />
                                         <span className="text-xs font-bold text-green-700 uppercase tracking-tighter">
-                                          {s.assetType === 'script' ? (playedLog?.status === 'backup play' ? 'Played' : 'Read') : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : ''}
+                                          {isScript ? (playedLog?.status === 'backup play' ? 'Played' : 'Read') : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : ''}
                                         </span>
                                       </>
                                     ) : (isMissedRecent || isMissedOld) ? (
@@ -3860,9 +3864,10 @@ export default function PlayerTab({
                         const customVal = customScriptTimes[slotKey];
                         const isValid = !customVal || parseCustomTimeText(customVal) !== null;
                         const activeMp3 = getActiveMp3ForSlot(s, slot);
+                        const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                         const activeMp3Url = activeMp3?.mp3Url || '';
                         const status = getMP3Status(activeMp3Url);
-                        const isVerified = s.assetType === 'script' ? status.exists : (status.exists && status.valid);
+                        const isVerified = isScript ? status.exists : (status.exists && status.valid);
                         const isCurrentlyPlaying = !!playingStates[slotKey] || playingAudiosRef.current.has(slotKey);
                         const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
 
@@ -3925,14 +3930,14 @@ export default function PlayerTab({
                               style={{
                                 borderLeftColor: !isVerified
                                   ? '#f43f5e'
-                                  : s.assetType === 'script'
+                                  : isScript
                                     ? '#3b82f6'
                                     : '#a855f7'
                               }}
                               className={cn(
                                 "flex-1 rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 select-none cursor-pointer hover:shadow hover:border-slate-300 active:scale-[99.5%] active:bg-slate-50/30 text-left",
                                 activeShow ? "ml-1" : "", "border-l-[4px] rounded-l-none",
-                                s.assetType !== 'script' && isVerified ? "pb-[1px]" : "",
+                                !isScript && isVerified ? "pb-[1px]" : "",
                                 cardBorderClass,
                                 cardBgClass,
                                 cardOpacityClass
@@ -3963,11 +3968,11 @@ export default function PlayerTab({
                                 <div className={cn(
                                   "text-xs font-bold leading-tight break-words line-clamp-2 flex-1",
                                   isCurrentlyPlaying ? "text-purple-700" : "text-slate-800"
-                                )}>
+                                  )}>
                                   {s.name}
                                 </div>
                                 
-                                {s.assetType === 'script' ? (
+                                {isScript ? (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -4046,7 +4051,7 @@ export default function PlayerTab({
                                           <>
                                             <CheckCircle className="w-2.5 h-2.5 text-green-500" />
                                             <span className="text-xs font-bold text-green-600 uppercase tracking-tighter">
-                                              {s.assetType === 'script' ? (playedLog?.status === 'backup play' ? 'Played' : 'Read') : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
+                                              {isScript ? (playedLog?.status === 'backup play' ? 'Played' : 'Read') : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
                                             </span>
                                           </>
                                         ) : isMissedRecent || isMissedOld ? (
@@ -4057,7 +4062,7 @@ export default function PlayerTab({
                                         ) : (
                                           <>
                                             <Clock className="w-2.5 h-2.5 text-slate-500" />
-                                            <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">{s.assetType === 'script' ? "To be read" : "To be played"}</span>
+                                            <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">{isScript ? "To be read" : "To be played"}</span>
                                           </>
                                         )}
                                       </div>
@@ -4066,7 +4071,7 @@ export default function PlayerTab({
                                     <div className="flex items-center gap-1">
                                       <AlertCircle className="w-2.5 h-2.5 text-red-500" />
                                       <span className="text-xs font-bold text-red-600 uppercase tracking-tighter">
-                                        {!status.exists ? "File not found." : (s.assetType === 'script' ? "Invalid script file." : "File not mp3.")}
+                                        {!status.exists ? "File not found." : (isScript ? "Invalid script file." : "File not mp3.")}
                                       </span>
                                     </div>
                                   )}
@@ -4079,12 +4084,12 @@ export default function PlayerTab({
                                     </div>
                                   ) : isVerified ? (
                                     <span className="text-xs font-mono font-bold text-slate-500 leading-none">
-                                      {s.assetType === 'script' ? ((activeMp3?.approximateReadTime || s.approximateReadTime) ? ((activeMp3?.approximateReadTime || s.approximateReadTime)!.startsWith('~') ? (activeMp3?.approximateReadTime || s.approximateReadTime) : `~${activeMp3?.approximateReadTime || s.approximateReadTime}`) : '-:--') : (mp3DurationCache.get(activeMp3Url) || activeMp3?.duration || '--:--')}
+                                      {isScript ? ((activeMp3?.approximateReadTime || s.approximateReadTime) ? ((activeMp3?.approximateReadTime || s.approximateReadTime)!.startsWith('~') ? (activeMp3?.approximateReadTime || s.approximateReadTime) : `~${activeMp3?.approximateReadTime || s.approximateReadTime}`) : '-:--') : (mp3DurationCache.get(activeMp3Url) || activeMp3?.duration || '--:--')}
                                     </span>
                                   ) : null}
                                 </div>
 
-                                {s.assetType !== 'script' && isVerified && (
+                                {!isScript && isVerified && (
                                   <WaveformVisualizer 
                                     url={resolvedUrl}
                                     currentTime={isCurrentlyPlaying ? (playingStates[slotKey]?.currentTime || 0) : 0}
@@ -4306,9 +4311,10 @@ export default function PlayerTab({
                  const customVal = customScriptTimes[slotKey];
                  const isValid = !customVal || parseCustomTimeText(customVal) !== null;
                  const activeMp3 = getActiveMp3ForSlot(s, slot);
+                 const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                  const activeMp3Url = activeMp3?.mp3Url || '';
                  const status = getMP3Status(activeMp3Url);
-                 const isVerified = s.assetType === 'script' ? status.exists : (status.exists && status.valid);
+                 const isVerified = isScript ? status.exists : (status.exists && status.valid);
                  const isCurrentlyPlaying = !!playingStates[slotKey] || playingAudiosRef.current.has(slotKey);
                  const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
                  
@@ -4382,14 +4388,14 @@ export default function PlayerTab({
                        style={{
                          borderLeftColor: !isVerified
                            ? '#f43f5e'
-                           : s.assetType === 'script'
+                           : isScript
                              ? '#3b82f6'
                              : '#a855f7'
                        }}
                        className={cn(
                          "flex-1 rounded border shadow-sm p-2 transition-all flex flex-col gap-1.5 select-none cursor-pointer hover:shadow hover:border-slate-300 active:scale-[99.5%] active:bg-slate-50/30 text-left",
                          activeShow ? "ml-1" : "", "border-l-[4px] rounded-l-none",
-                         s.assetType !== 'script' && isVerified ? "pb-[1px]" : "",
+                         !isScript && isVerified ? "pb-[1px]" : "",
                          cardBorderClass,
                          cardBgClass,
                          cardOpacityClass
@@ -4432,7 +4438,7 @@ export default function PlayerTab({
                        {s.name}
                      </div>
                      
-                     {s.assetType === 'script' ? (
+                     {isScript ? (
                        <button
                          type="button"
                          onClick={(e) => {
@@ -4510,7 +4516,7 @@ export default function PlayerTab({
                              <>
                                <CheckCircle className="w-2.5 h-2.5 text-green-500" />
                                <span className="text-xs font-bold text-green-600 uppercase tracking-tighter">
-                                 {s.assetType === 'script' ? (playedLog?.status === 'backup play' ? 'Played' : 'Read') : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
+                                 {isScript ? (playedLog?.status === 'backup play' ? 'Played' : 'Read') : 'Played'} {playedLog ? format(parseISO(playedLog.logTimeStamp || playedLog.timestamp), 'HH:mm') : format(new Date(), 'HH:mm')}
                                </span>
                              </>
                            ) : isMissedRecent || isMissedOld ? (
@@ -4521,7 +4527,7 @@ export default function PlayerTab({
                            ) : (
                              <>
                                <Clock className="w-2.5 h-2.5 text-slate-500" />
-                               <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">{s.assetType === 'script' ? "To be read" : "To be played"}</span>
+                               <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">{isScript ? "To be read" : "To be played"}</span>
                              </>
                            )}
                          </div>
@@ -4530,7 +4536,7 @@ export default function PlayerTab({
                        <div className="flex items-center gap-1">
                          <AlertCircle className="w-2.5 h-2.5 text-red-500" />
                          <span className="text-xs font-bold text-red-600 uppercase tracking-tighter">
-                           {!status.exists ? "File not found." : (s.assetType === 'script' ? "Invalid script file." : "File not mp3.")}
+                           {!status.exists ? "File not found." : (isScript ? "Invalid script file." : "File not mp3.")}
                          </span>
                        </div>
                      )}
@@ -4543,12 +4549,12 @@ export default function PlayerTab({
                        </div>
                      ) : isVerified ? (
                        <span className="text-xs font-mono font-bold text-slate-500 leading-none">
-                         {s.assetType === 'script' ? ((activeMp3?.approximateReadTime || s.approximateReadTime) ? ((activeMp3?.approximateReadTime || s.approximateReadTime)!.startsWith('~') ? (activeMp3?.approximateReadTime || s.approximateReadTime) : `~${activeMp3?.approximateReadTime || s.approximateReadTime}`) : '-:--') : (mp3DurationCache.get(activeMp3Url) || activeMp3?.duration || '--:--')}
+                         {isScript ? ((activeMp3?.approximateReadTime || s.approximateReadTime) ? ((activeMp3?.approximateReadTime || s.approximateReadTime)!.startsWith('~') ? (activeMp3?.approximateReadTime || s.approximateReadTime) : `~${activeMp3?.approximateReadTime || s.approximateReadTime}`) : '-:--') : (mp3DurationCache.get(activeMp3Url) || activeMp3?.duration || '--:--')}
                        </span>
                      ) : null}
                    </div>
 
-                   {s.assetType !== 'script' && isVerified && (
+                   {!isScript && isVerified && (
                      <WaveformVisualizer 
                        url={resolvedUrl}
                        currentTime={isCurrentlyPlaying ? (playingStates[slotKey]?.currentTime || 0) : 0}

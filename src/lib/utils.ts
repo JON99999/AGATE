@@ -69,7 +69,10 @@ export const getMP3Status = (url: string | undefined) => {
   }
   
   const exists = driveFileNameCache.has(url) || driveFileNameCache.has(baseName) || isExternalWeb || isLocal;
-  const valid = cleanUrl.toLowerCase().endsWith('.mp3') || cleanUrl.toLowerCase().endsWith('.txt') || isDrive || isLocal || isExternalWeb || url.includes('alt=media') || url.includes('id=');
+  const lower = cleanUrl.toLowerCase();
+  const isAudio = lower.endsWith('.mp3');
+  const isScript = lower.endsWith('.txt') || lower.endsWith('.pdf') || lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg');
+  const valid = isAudio || isScript || isDrive || isLocal || isExternalWeb || url.includes('alt=media') || url.includes('id=');
   
   return { exists, valid, filename };
 };
@@ -518,6 +521,27 @@ export function isTimeInShow(
   }
 }
 
+export function getGatedAssetType(
+  item?: TimeGatedMp3 | null,
+  fallbackAssetType?: 'audio' | 'script'
+): 'audio' | 'script' {
+  if (item?.assetType) return item.assetType;
+  const url = (item?.mp3Url || '').toLowerCase();
+  if (
+    url.endsWith('.txt') ||
+    url.endsWith('.pdf') ||
+    url.endsWith('.png') ||
+    url.endsWith('.jpg') ||
+    url.endsWith('.jpeg')
+  ) {
+    return 'script';
+  }
+  if (url.endsWith('.mp3')) {
+    return 'audio';
+  }
+  return fallbackAssetType || 'audio';
+}
+
 export function normalizeInterstitial(item: Interstitial): Interstitial {
   if (!item) return item;
   return {
@@ -525,7 +549,9 @@ export function normalizeInterstitial(item: Interstitial): Interstitial {
     timeGatedMp3s: Array.isArray(item.timeGatedMp3s)
       ? item.timeGatedMp3s.map(m => ({
           ...m,
-          approximateReadTime: m.approximateReadTime || item.approximateReadTime
+          assetType: m.assetType || getGatedAssetType(m, item.assetType),
+          approximateReadTime: m.approximateReadTime || item.approximateReadTime,
+          backupMp3Url: m.backupMp3Url || item.backupMp3Url
         }))
       : []
   };
@@ -537,12 +563,11 @@ export function normalizeInterstitials(items: Interstitial[]): Interstitial[] {
 }
 
 export function getActiveMp3ForSlot(
-  interstitial: Interstitial,
+  interstitial: Interstitial | undefined | null,
   slotTime?: Date | string | number
 ): TimeGatedMp3 | null {
   if (!interstitial) return null;
-  const mp3s = interstitial.timeGatedMp3s || [];
-  if (mp3s.length === 0) return null;
+  if (interstitial.enabled === false) return null;
 
   let targetMs: number;
   if (!slotTime) {
@@ -555,6 +580,23 @@ export function getActiveMp3ForSlot(
     const parsed = new Date(slotTime).getTime();
     targetMs = isNaN(parsed) ? Date.now() : parsed;
   }
+
+  // Check parent Interstitial date envelope
+  if (interstitial.startDate) {
+    const parentStartMs = new Date(formatToDatetimeLocal(interstitial.startDate)).getTime();
+    if (!isNaN(parentStartMs) && targetMs < parentStartMs) {
+      return null;
+    }
+  }
+  if (interstitial.endDate) {
+    const parentEndMs = new Date(formatToDatetimeLocal(interstitial.endDate)).getTime();
+    if (!isNaN(parentEndMs) && targetMs >= parentEndMs) {
+      return null;
+    }
+  }
+
+  const mp3s = interstitial.timeGatedMp3s || [];
+  if (mp3s.length === 0) return null;
 
   const sorted = sortMp3sByStartDate(mp3s);
 
@@ -681,7 +723,7 @@ export function findFirstGapOrEnd(mp3s: TimeGatedMp3[], fallbackDate?: string): 
   return { startDate: fallback };
 }
 
-export function validateTimeGatedMp3s(mp3s: TimeGatedMp3[], nowIso?: string) {
+export function validateTimeGatedMp3s(mp3s: TimeGatedMp3[], nowIso?: string, parentProfileEndDate?: string) {
   const sorted = sortMp3sByStartDate(mp3s);
   const errors: { [id: string]: string[] } = {};
   const warnings: { [id: string]: string[] } = {};
@@ -795,6 +837,21 @@ export function validateTimeGatedMp3s(mp3s: TimeGatedMp3[], nowIso?: string) {
       warnings[b.id].push(`Gap detected: ${aEnd.replace('T', ' ')} to ${bStart.replace('T', ' ')}`);
       gapEndIds.add(a.id);
       gapStartIds.add(b.id);
+    }
+  }
+
+  // 3. Check for trailing post-expiration gap after the last gated item
+  // If the last item has an endDate and either the parent interstitial has no endDate or an endDate beyond the last item's endDate
+  if (sorted.length > 0) {
+    const lastItem = sorted[sorted.length - 1];
+    if (lastItem.endDate && lastItem.endDate.trim()) {
+      const lastEnd = formatToDatetimeLocal(lastItem.endDate);
+      const parentEnd = parentProfileEndDate ? formatToDatetimeLocal(parentProfileEndDate) : null;
+      if (!parentEnd || parentEnd > lastEnd) {
+        gapEndIds.add(lastItem.id);
+        const gapTargetText = parentEnd ? parentEnd.replace('T', ' ') : 'the future';
+        warnings[lastItem.id].push(`Gap detected: ${lastEnd.replace('T', ' ')} to ${gapTargetText}`);
+      }
     }
   }
 

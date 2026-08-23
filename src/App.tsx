@@ -155,7 +155,11 @@ export default function App() {
     return <LiveReadPopout />;
   }
 
-  const isPlayerMode = (import.meta as any).env?.VITE_APP_MODE === "Player";
+  const appModeEnv = (import.meta as any).env?.VITE_APP_MODE || "Admin";
+  const isLiveApp = appModeEnv === "Live";
+  const isStudioApp = appModeEnv === "Studio";
+  const isAdminApp = appModeEnv === "Admin" || (!isLiveApp && !isStudioApp);
+  const isPlayerMode = !isAdminApp;
 
   // Custom fetch override to support local environment ports transparently
   const fetch = (input: RequestInfo | URL, init?: RequestInit) => {
@@ -275,10 +279,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    document.title = isPlayerMode
-      ? "Interstitial-er Player"
-      : "Interstitial-er Admin";
-  }, [isPlayerMode]);
+    document.title = isLiveApp
+      ? "Interstitial-er Live"
+      : isStudioApp
+        ? "Interstitial-er Studio"
+        : "Interstitial-er Admin";
+  }, [isLiveApp, isStudioApp]);
   const [isAdmin, setIsAdmin] = useState(false);
 
   // === DEBUG ANIMATION SWITCH START ===
@@ -603,7 +609,7 @@ export default function App() {
 
   // Prerecord & Playlist States
   const [playMode, setPlayMode] = useState<"Live" | "Prerecord" | "Export" | "Playlist">(
-    "Live",
+    isStudioApp ? "Prerecord" : "Live",
   );
   const [selectedPlaylistShow, setSelectedPlaylistShow] = useState<Show | null>(null);
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
@@ -3315,122 +3321,130 @@ export default function App() {
               <>
                 {/* Horizontal Mode Pill Group (Wide / Medium screens) */}
                 <div className="mode-horizontal-group flex bg-slate-950 p-0.5 rounded border border-slate-900 shrink-0 shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.8)] items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      confirmNavAction(() => {
-                        if (playMode !== "Live") {
-                          setShowCachingModal(true);
-                          setCachingTargetMode("Live");
-                          setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
-                          setPlayMode("Live");
-                          setPrerecordDate(null);
-                          handleRefresh();
-                          triggerCachingForMode("Live");
-                        }
-                      });
-                    }}
-                    title="Live Mode"
-                    aria-label="Live Mode"
-                    className={cn(
-                      "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
-                      playMode === "Live"
-                        ? "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]"
-                        : "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
-                    )}
-                  >
-                    <RadioTower
+                  {!isStudioApp && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        confirmNavAction(() => {
+                          if (playMode !== "Live") {
+                            setShowCachingModal(true);
+                            setCachingTargetMode("Live");
+                            setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
+                            setPlayMode("Live");
+                            setPrerecordDate(null);
+                            handleRefresh();
+                            triggerCachingForMode("Live");
+                          }
+                        });
+                      }}
+                      title="Live Mode"
+                      aria-label="Live Mode"
                       className={cn(
-                        "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                        "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                         playMode === "Live"
-                          ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                          : "text-slate-500",
+                          ? "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]"
+                          : "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
                       )}
-                    />
-                    <span className={getModeTextHideClass("Live")}>Live</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      confirmNavAction(() => {
-                        if (playMode !== "Prerecord") {
-                          handleOpenTimeframeModal("Prerecord");
-                        }
-                      });
-                    }}
-                    title="Prerecord Mode"
-                    aria-label="Prerecord Mode"
-                    className={cn(
-                      "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
-                      playMode === "Prerecord"
-                        ? "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
-                        : "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
-                    )}
-                  >
-                    <CassetteTape
+                    >
+                      <RadioTower
+                        className={cn(
+                          "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                          playMode === "Live"
+                            ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
+                            : "text-slate-500",
+                        )}
+                      />
+                      <span className={getModeTextHideClass("Live")}>Live</span>
+                    </button>
+                  )}
+                  {!isLiveApp && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        confirmNavAction(() => {
+                          if (playMode !== "Prerecord") {
+                            handleOpenTimeframeModal("Prerecord");
+                          }
+                        });
+                      }}
+                      title="Prerecord Mode"
+                      aria-label="Prerecord Mode"
                       className={cn(
-                        "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                        "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                         playMode === "Prerecord"
-                          ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                          : "text-slate-500",
+                          ? "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
+                          : "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
                       )}
-                    />
-                    <span className={getModeTextHideClass("Prerecord")}>Prerecord</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      confirmNavAction(() => {
-                        if (playMode !== "Export") {
-                          handleOpenTimeframeModal("Export");
-                        }
-                      });
-                    }}
-                    title="Export Mode"
-                    aria-label="Export Mode"
-                    className={cn(
-                      "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
-                      playMode === "Export"
-                        ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
-                        : "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
-                    )}
-                  >
-                    <ListOrdered
+                    >
+                      <CassetteTape
+                        className={cn(
+                          "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                          playMode === "Prerecord"
+                            ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
+                            : "text-slate-500",
+                        )}
+                      />
+                      <span className={getModeTextHideClass("Prerecord")}>Prerecord</span>
+                    </button>
+                  )}
+                  {!isLiveApp && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        confirmNavAction(() => {
+                          if (playMode !== "Export") {
+                            handleOpenTimeframeModal("Export");
+                          }
+                        });
+                      }}
+                      title="Export Mode"
+                      aria-label="Export Mode"
                       className={cn(
-                        "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                        "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                         playMode === "Export"
-                          ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                          : "text-slate-500",
+                          ? "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
+                          : "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
                       )}
-                    />
-                    <span className={getModeTextHideClass("Export")}>Export</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      confirmNavAction(() => {
-                        handleOpenPlaylistModal();
-                      });
-                    }}
-                    title="Playlist Mode"
-                    aria-label="Playlist Mode"
-                    className={cn(
-                      "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
-                      playMode === "Playlist"
-                        ? "bg-gradient-to-b from-purple-600 to-purple-700 border-t-purple-400 border-b-purple-900 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
-                        : "bg-purple-950/30 border-purple-900/30 text-purple-400/70 hover:text-purple-300 hover:bg-purple-950/45",
-                    )}
-                  >
-                    <ListMusic
+                    >
+                      <ListOrdered
+                        className={cn(
+                          "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                          playMode === "Export"
+                            ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
+                            : "text-slate-500",
+                        )}
+                      />
+                      <span className={getModeTextHideClass("Export")}>Export</span>
+                    </button>
+                  )}
+                  {!isStudioApp && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        confirmNavAction(() => {
+                          handleOpenPlaylistModal();
+                        });
+                      }}
+                      title="Playlist Mode"
+                      aria-label="Playlist Mode"
                       className={cn(
-                        "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                        "px-2.5 py-1 text-xs font-black uppercase tracking-wider rounded transition-all cursor-pointer border flex items-center gap-1.5",
                         playMode === "Playlist"
-                          ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
-                          : "text-slate-500",
+                          ? "bg-gradient-to-b from-purple-600 to-purple-700 border-t-purple-400 border-b-purple-900 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]"
+                          : "bg-purple-950/30 border-purple-900/30 text-purple-400/70 hover:text-purple-300 hover:bg-purple-950/45",
                       )}
-                    />
-                    <span className={getModeTextHideClass("Playlist")}>Playlist</span>
-                  </button>
+                    >
+                      <ListMusic
+                        className={cn(
+                          "w-3.5 h-3.5 transition-all duration-300 shrink-0",
+                          playMode === "Playlist"
+                            ? "text-red-500 drop-shadow-[0_0_3px_rgba(239,68,68,0.85)]"
+                            : "text-slate-500",
+                        )}
+                      />
+                      <span className={getModeTextHideClass("Playlist")}>Playlist</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Collapsed view for smaller screens: active mode control itself expands vertically into choices on hover or click */}
@@ -3446,66 +3460,78 @@ export default function App() {
                     )}
                   >
                     {[
-                      {
-                        id: "Live" as const,
-                        label: "Live Mode",
-                        Icon: RadioTower,
-                        onClick: () => {
-                          confirmNavAction(() => {
-                            if (playMode !== "Live") {
-                              setShowCachingModal(true);
-                              setCachingTargetMode("Live");
-                              setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
-                              setPlayMode("Live");
-                              setPrerecordDate(null);
-                              handleRefresh();
-                              triggerCachingForMode("Live");
-                            }
-                          });
-                        },
-                        activeClass: "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]",
-                        inactiveClass: "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
-                      },
-                      {
-                        id: "Prerecord" as const,
-                        label: "Prerecord Mode",
-                        Icon: CassetteTape,
-                        onClick: () => {
-                          confirmNavAction(() => {
-                            if (playMode !== "Prerecord") {
-                              handleOpenTimeframeModal("Prerecord");
-                            }
-                          });
-                        },
-                        activeClass: "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
-                        inactiveClass: "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
-                      },
-                      {
-                        id: "Export" as const,
-                        label: "Export Mode",
-                        Icon: ListOrdered,
-                        onClick: () => {
-                          confirmNavAction(() => {
-                            if (playMode !== "Export") {
-                              handleOpenTimeframeModal("Export");
-                            }
-                          });
-                        },
-                        activeClass: "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
-                        inactiveClass: "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
-                      },
-                      {
-                        id: "Playlist" as const,
-                        label: "Playlist Mode",
-                        Icon: ListMusic,
-                        onClick: () => {
-                          confirmNavAction(() => {
-                            handleOpenPlaylistModal();
-                          });
-                        },
-                        activeClass: "bg-gradient-to-b from-purple-600 to-purple-700 border-t-purple-400 border-b-purple-900 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
-                        inactiveClass: "bg-purple-950/30 border-purple-900/30 text-purple-400/70 hover:text-purple-300 hover:bg-purple-950/45",
-                      },
+                      ...(!isStudioApp
+                        ? [
+                            {
+                              id: "Live" as const,
+                              label: "Live Mode",
+                              Icon: RadioTower,
+                              onClick: () => {
+                                confirmNavAction(() => {
+                                  if (playMode !== "Live") {
+                                    setShowCachingModal(true);
+                                    setCachingTargetMode("Live");
+                                    setCachingProgress({ total: 0, completed: 0, failed: 0, errors: [], isComplete: false });
+                                    setPlayMode("Live");
+                                    setPrerecordDate(null);
+                                    handleRefresh();
+                                    triggerCachingForMode("Live");
+                                  }
+                                });
+                              },
+                              activeClass: "bg-gradient-to-b from-purple-500 to-purple-600 border-t-purple-400 border-b-purple-800 text-white shadow-[inset_0_1.5px_2px_rgba(0,0,0,0.4)]",
+                              inactiveClass: "bg-purple-950/30 border-purple-900/30 text-purple-500/60 hover:text-purple-400/80 hover:bg-purple-950/45",
+                            },
+                          ]
+                        : []),
+                      ...(!isLiveApp
+                        ? [
+                            {
+                              id: "Prerecord" as const,
+                              label: "Prerecord Mode",
+                              Icon: CassetteTape,
+                              onClick: () => {
+                                confirmNavAction(() => {
+                                  if (playMode !== "Prerecord") {
+                                    handleOpenTimeframeModal("Prerecord");
+                                  }
+                                });
+                              },
+                              activeClass: "bg-gradient-to-b from-emerald-500 to-emerald-600 border-t-emerald-400 border-b-emerald-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
+                              inactiveClass: "bg-emerald-950/30 border-emerald-900/30 text-emerald-500/60 hover:text-emerald-400/80 hover:bg-emerald-950/45",
+                            },
+                            {
+                              id: "Export" as const,
+                              label: "Export Mode",
+                              Icon: ListOrdered,
+                              onClick: () => {
+                                confirmNavAction(() => {
+                                  if (playMode !== "Export") {
+                                    handleOpenTimeframeModal("Export");
+                                  }
+                                });
+                              },
+                              activeClass: "bg-gradient-to-b from-blue-500 to-blue-600 border-t-blue-400 border-b-blue-800 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
+                              inactiveClass: "bg-blue-950/30 border-blue-900/30 text-blue-500/60 hover:text-blue-400/80 hover:bg-blue-950/45",
+                            },
+                          ]
+                        : []),
+                      ...(!isStudioApp
+                        ? [
+                            {
+                              id: "Playlist" as const,
+                              label: "Playlist Mode",
+                              Icon: ListMusic,
+                              onClick: () => {
+                                confirmNavAction(() => {
+                                  handleOpenPlaylistModal();
+                                });
+                              },
+                              activeClass: "bg-gradient-to-b from-purple-600 to-purple-700 border-t-purple-400 border-b-purple-900 text-white shadow-[inset_0_1.5px_3px_rgba(0,0,0,0.4)]",
+                              inactiveClass: "bg-purple-950/30 border-purple-900/30 text-purple-400/70 hover:text-purple-300 hover:bg-purple-950/45",
+                            },
+                          ]
+                        : []),
                     ].map((item) => {
                       const isActive = playMode === item.id;
                       return (

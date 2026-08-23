@@ -98,7 +98,7 @@ async function startServer() {
 }
 
 function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
-  if (appMode === 'Player') {
+  if (appMode !== 'Admin') {
     Menu.setApplicationMenu(null);
     return;
   }
@@ -301,7 +301,7 @@ function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
             type: 'info',
             title: 'About Interstitial-er',
             message: 'Interstitial-er',
-            detail: `Version 0.12.10\nCross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.`
+            detail: `Version 0.12.11\nCross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.`
           });
         }
       }
@@ -327,20 +327,26 @@ ipcMain.on('set-active-tab-menu', (event, { tab, subTab }) => {
 function createWindow() {
   const disableShadows = DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC && isIntelMac;
 
+  const appTitle = appMode === 'Live'
+    ? "Interstitial-er Live"
+    : appMode === 'Studio'
+      ? "Interstitial-er Studio"
+      : "Interstitial-er Admin";
+
   let windowOptions = {
     height: 800,
-    title: appMode === 'Player' ? "Interstitial-er Player" : "Interstitial-er Admin",
+    title: appTitle,
     hasShadow: !disableShadows, // OPTION 3: Disable window shadows on Intel Macs to bypass expensive WindowServer calculations
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      devTools: appMode !== 'Player',
+      devTools: appMode === 'Admin',
       preload: path.join(__dirname, 'preload.cjs'),
     },
   };
 
-  if (appMode === 'Player') {
-    // Disable dev tools and remove menus for Player version
+  if (appMode !== 'Admin') {
+    // Disable dev tools and remove menus for Live and Studio versions
     Menu.setApplicationMenu(null);
 
     try {

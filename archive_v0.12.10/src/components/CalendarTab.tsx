@@ -2981,13 +2981,13 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                           className={cn(
                             "p-2 text-center border-r border-slate-200 last:border-r-0 flex items-center justify-center min-w-0 transition-colors",
                             isToday 
-                              ? "bg-blue-500/10 text-blue-700" 
+                              ? "bg-blue-500/10 text-blue-700 font-black" 
                               : isPast 
-                                ? "bg-slate-200/50 text-slate-400 opacity-80" 
+                                ? "bg-slate-200/50 text-slate-400 opacity-80 italic font-normal" 
                                 : "text-slate-650"
                           )}
                         >
-                          <span className="font-black text-xs leading-tight truncate">
+                          <span className={cn("text-xs leading-tight truncate", isPast ? "italic" : "font-black")}>
                             {dayName} <span className="opacity-80 font-normal ml-1">{dateStr}</span>
                           </span>
                         </div>
@@ -3180,17 +3180,23 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                               {/* Hour column */}
                               {defIdx === 0 ? (
                                 <div className={cn(
-                                  "border-r border-slate-200 flex items-center justify-center bg-slate-50/50 select-none font-black font-mono text-slate-455 uppercase shrink-0",
+                                  "border-r border-slate-200 flex items-center justify-center select-none font-black font-mono uppercase shrink-0 transition-colors",
                                   calendarLayoutMode === 'compact'
                                     ? "p-1 px-0.5 text-xs min-h-[26px]"
-                                    : "p-1.5 px-0.5 text-xs min-h-[28px]"
+                                    : "p-1.5 px-0.5 text-xs min-h-[28px]",
+                                  (calendarTimeframe === 'daily' ? isHourPast(calendarDays[0], hour) : calendarDays.every(d => isHourPast(d, hour)))
+                                    ? "bg-slate-150/70 text-slate-400 opacity-75 italic"
+                                    : (calendarTimeframe === 'daily' && !isHourPast(calendarDays[0], hour) && calendarDays[0].toISOString().split('T')[0] === now.toISOString().split('T')[0] && hour === now.getHours())
+                                      ? "bg-blue-500/10 text-blue-700 font-extrabold"
+                                      : "bg-slate-50/50 text-slate-455"
                                 )}>
                                   {hour.toString().padStart(2, '0')}:00
                                 </div>
                               ) : (
                                 <div className={cn(
-                                  "border-r border-slate-200 bg-slate-50/50 shrink-0",
-                                  calendarLayoutMode === 'compact' ? "min-h-[26px]" : "min-h-[28px]"
+                                  "border-r border-slate-200 shrink-0",
+                                  calendarLayoutMode === 'compact' ? "min-h-[26px]" : "min-h-[28px]",
+                                  (calendarTimeframe === 'daily' ? isHourPast(calendarDays[0], hour) : calendarDays.every(d => isHourPast(d, hour))) ? "bg-slate-150/40" : "bg-slate-50/50"
                                 )} />
                               )}
 
@@ -3247,7 +3253,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                       title={showSummaryText}
                                       className={cn(
                                         "text-slate-800 flex flex-col justify-center text-xs font-black tracking-normal leading-tight w-full uppercase mb-0.5 text-left cursor-pointer transition-all hover:translate-x-0.5 border-0 border-b-2 rounded-none shrink-0 py-0.5 px-1 overflow-hidden",
-                                        cellIsPast && "opacity-80 contrast-90",
+                                        cellIsPast && "opacity-80 contrast-90 italic",
                                         calendarLayoutMode === 'compact' ? "h-[1.75rem] text-xs" : "h-[2.25rem]"
                                       )}
                                       style={{ backgroundColor: getShowShade(show, getSortedShows(shows)).bg, borderBottomColor: getShowShade(show, getSortedShows(shows)).border }}
@@ -3255,6 +3261,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                       <div 
                                         className={cn(
                                           "font-sans break-words [overflow-wrap:anywhere] [word-break:break-all] [hyphens:manual] [text-overflow:clip] overflow-hidden leading-tight",
+                                          cellIsPast && "italic",
                                           calendarLayoutMode === 'compact' ? "max-h-[1.1rem]" : "max-h-[2.1rem]"
                                         )}
                                       >
@@ -3266,7 +3273,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
 
                                 const renderShowPlaceholder = (key: string) => (
                                   <div 
-                                    key={key}
+                                    key={key} 
                                     className={cn(
                                       "w-full shrink-0 mb-0.5 pointer-events-none opacity-0 select-none",
                                       calendarLayoutMode === 'compact' ? "h-[1.75rem]" : "h-[2.25rem]"
@@ -3313,7 +3320,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                                   ? "bg-blue-100 text-blue-700 border-grid-hourly" 
                                                   : "bg-orange-100 text-orange-700 border-grid-advanced",
                                             s.assetType === 'script' ? "border-l-2 border-l-blue-500" : "border-l-2 border-l-purple-500",
-                                            cellIsPast && "opacity-80"
+                                            cellIsPast && "opacity-80 italic"
                                           )}
                                           title={summaryText}
                                         >
@@ -3338,13 +3345,13 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                                 ? "bg-blue-50 text-blue-700 border-grid-hourly" 
                                                 : "bg-orange-50 text-orange-700 border-grid-advanced",
                                           s.assetType === 'script' ? "border-l-[4px] border-l-blue-500 rounded-l-sm" : "border-l-[4px] border-l-purple-500 rounded-l-sm",
-                                          cellIsPast && "opacity-85"
+                                          cellIsPast && "opacity-85 italic"
                                         )}
                                         title={summaryText}
                                       >
-                                        <div className="truncate flex items-center gap-0.5">
-                                          <span className="font-mono font-black text-xs text-slate-455 shrink-0">:{formattedMin}</span>
-                                          <span className="truncate">{s.name}</span>
+                                        <div className={cn("truncate flex items-center gap-0.5", cellIsPast && "italic")}>
+                                          <span className={cn("font-mono font-black text-xs text-slate-455 shrink-0", cellIsPast && "italic")}>:{formattedMin}</span>
+                                          <span className={cn("truncate", cellIsPast && "italic")}>{s.name}</span>
                                         </div>
                                       </button>
                                     </div>
