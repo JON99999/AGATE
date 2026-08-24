@@ -515,10 +515,11 @@ export default function LiveReadPopout({
       {/* HEADER SECTION (MINIMAL BORDERS) */}
       <div className={cn(
         "flex justify-between items-center bg-slate-900 text-white px-4 py-3 border-b border-slate-800 shrink-0",
-        isMac && !isOverlay ? "pl-20" : ""
+        isMac && !isOverlay ? "pl-20" : "",
+        !isOverlay ? "[-webkit-app-region:drag]" : ""
       )}>
         <div className="flex items-center gap-3 min-w-0">
-          <div className="p-1.5 rounded-md bg-purple-600/20 text-purple-400">
+          <div className="p-1.5 rounded-md bg-purple-600/20 text-purple-400 shrink-0">
             {isImage ? <Eye className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
           </div>
           <div className="min-w-0">
@@ -532,7 +533,10 @@ export default function LiveReadPopout({
         </div>
 
         {/* Live Read Clock & Adjustments */}
-        <div className="flex items-center gap-4 shrink-0">
+        <div className={cn(
+          "flex items-center gap-4 shrink-0",
+          !isOverlay ? "[-webkit-app-region:no-drag]" : ""
+        )}>
           {/* Real-time Ticking Clock */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-slate-950 border border-slate-850 font-mono font-bold text-xs text-emerald-400 shadow-inner">
             <Clock className="w-4 h-4 text-emerald-400" />

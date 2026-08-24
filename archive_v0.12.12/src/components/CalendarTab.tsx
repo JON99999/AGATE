@@ -475,6 +475,155 @@ export function getShowConflicts(showsList: Show[]): ShowConflict[] {
   return conflicts;
 }
 
+export interface InterstitialGap {
+  interstitialId: string;
+  interstitialName: string;
+  type: 'leading_gap' | 'coverage_gap' | 'trailing_gap' | 'overlap' | 'missing_media' | 'missing_file';
+  typeLabel: string;
+  message: string;
+  shortNotice: string;
+  severity: 'critical' | 'warning';
+}
+
+export function getInterstitialGaps(interstitialsList: Interstitial[], now: Date = new Date()): InterstitialGap[] {
+  const active = interstitialsList.filter(s => s.enabled !== false);
+  const gaps: InterstitialGap[] = [];
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const mins = String(now.getMinutes()).padStart(2, '0');
+  const nowIso = `${year}-${month}-${day}T${hours}:${mins}`;
+
+  for (const s of active) {
+    const timeGated = s.timeGatedMp3s || [];
+
+    if (timeGated.length > 0) {
+      const validation = validateTimeGatedMp3s(timeGated, nowIso, s.endDate);
+      const sorted = validation.sorted || sortMp3sByStartDate(timeGated);
+
+      // 1. Leading Gap: first item starts in future
+      if (sorted.length > 0 && sorted[0].startDate) {
+        const firstStart = formatToDatetimeLocal(sorted[0].startDate);
+        if (firstStart && firstStart > nowIso) {
+          const formattedDate = firstStart.replace('T', ' ');
+          gaps.push({
+            interstitialId: s.id,
+            interstitialName: s.name,
+            type: 'leading_gap',
+            typeLabel: 'Leading Gap',
+            message: `"${s.name}" has no media scheduled until ${formattedDate}`,
+            shortNotice: `Leading Gap (starts ${formattedDate})`,
+            severity: 'warning'
+          });
+        }
+      }
+
+      // 2. Schedule Gaps between adjacent items
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const a = sorted[i];
+        const b = sorted[i + 1];
+        const aEnd = a.endDate ? formatToDatetimeLocal(a.endDate) : null;
+        const bStart = b.startDate ? formatToDatetimeLocal(b.startDate) : null;
+
+        if (aEnd && bStart && aEnd < bStart) {
+          const startFormatted = aEnd.replace('T', ' ');
+          const endFormatted = bStart.replace('T', ' ');
+          gaps.push({
+            interstitialId: s.id,
+            interstitialName: s.name,
+            type: 'coverage_gap',
+            typeLabel: 'Schedule Gap',
+            message: `"${s.name}" has a gap between ${startFormatted} and ${endFormatted}`,
+            shortNotice: `Schedule Gap (${startFormatted} to ${endFormatted})`,
+            severity: 'critical'
+          });
+        }
+      }
+
+      // 3. Trailing Gap: last item has an endDate, but schedule is open-ended or extends beyond
+      if (sorted.length > 0) {
+        const lastItem = sorted[sorted.length - 1];
+        if (lastItem.endDate && lastItem.endDate.trim()) {
+          const lastEnd = formatToDatetimeLocal(lastItem.endDate);
+          const parentEnd = s.endDate ? formatToDatetimeLocal(s.endDate) : null;
+          if (!parentEnd || parentEnd > lastEnd) {
+            const endFormatted = lastEnd.replace('T', ' ');
+            gaps.push({
+              interstitialId: s.id,
+              interstitialName: s.name,
+              type: 'trailing_gap',
+              typeLabel: 'Trailing Gap',
+              message: `"${s.name}" has no media scheduled after ${endFormatted}`,
+              shortNotice: `Trailing Gap (ends ${endFormatted})`,
+              severity: 'warning'
+            });
+          }
+        }
+      }
+
+      // 4. Overlaps
+      if (validation.overlapStartIds && validation.overlapStartIds.size > 0) {
+        gaps.push({
+          interstitialId: s.id,
+          interstitialName: s.name,
+          type: 'overlap',
+          typeLabel: 'Media Overlap',
+          message: `"${s.name}" has overlapping media time ranges`,
+          shortNotice: 'Media Overlap',
+          severity: 'critical'
+        });
+      }
+
+      // 5. Missing Attachment on a time-gated item
+      if (validation.missingFileIds && validation.missingFileIds.size > 0) {
+        gaps.push({
+          interstitialId: s.id,
+          interstitialName: s.name,
+          type: 'missing_media',
+          typeLabel: 'Missing Media',
+          message: `"${s.name}" has time-gated entries without attached files`,
+          shortNotice: 'Attachment Missing',
+          severity: 'critical'
+        });
+      }
+    } else {
+      // No time-gated items and no fallback mp3Url
+      if (!s.mp3Url || s.mp3Url.trim() === '') {
+        gaps.push({
+          interstitialId: s.id,
+          interstitialName: s.name,
+          type: 'missing_media',
+          typeLabel: 'Missing Media',
+          message: `"${s.name}" has no media assigned`,
+          shortNotice: 'No Media Assigned',
+          severity: 'critical'
+        });
+      }
+    }
+
+    // 6. Active file missing check
+    const activeMp3 = getActiveMp3ForSlot(s, now);
+    const activeUrl = activeMp3?.mp3Url || s.mp3Url || '';
+    if (activeUrl && activeUrl.trim() !== '') {
+      const status = getMP3Status(activeUrl);
+      if (!status.exists) {
+        gaps.push({
+          interstitialId: s.id,
+          interstitialName: s.name,
+          type: 'missing_file',
+          typeLabel: 'Missing File',
+          message: `"${s.name}" file "${status.filename || activeUrl}" not found in storage`,
+          shortNotice: `File Not Found: ${status.filename || activeUrl}`,
+          severity: 'critical'
+        });
+      }
+    }
+  }
+
+  return gaps;
+}
+
 export interface ShowGap {
   message: string;
 }
@@ -867,8 +1016,16 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
     conflicts: ShowConflict[];
   } | null>(null);
 
-  // Computed schedule audit conflicts
+  // Computed schedule audit conflicts & gaps
   const interstitialConflicts = React.useMemo(() => getInterstitialConflicts(interstitials), [interstitials]);
+  const interstitialGaps = React.useMemo(() => getInterstitialGaps(interstitials, now), [interstitials, now]);
+  const leadingGaps = React.useMemo(() => interstitialGaps.filter(g => g.type === 'leading_gap'), [interstitialGaps]);
+  const scheduleGaps = React.useMemo(() => interstitialGaps.filter(g => g.type === 'coverage_gap'), [interstitialGaps]);
+  const trailingGaps = React.useMemo(() => interstitialGaps.filter(g => g.type === 'trailing_gap'), [interstitialGaps]);
+  const overlapGaps = React.useMemo(() => interstitialGaps.filter(g => g.type === 'overlap'), [interstitialGaps]);
+  const missingMediaGaps = React.useMemo(() => interstitialGaps.filter(g => g.type === 'missing_media'), [interstitialGaps]);
+  const missingFileGaps = React.useMemo(() => interstitialGaps.filter(g => g.type === 'missing_file'), [interstitialGaps]);
+
   const showConflicts = React.useMemo(() => getShowConflicts(shows), [shows]);
   const showGaps = React.useMemo(() => getShowGaps(shows), [shows]);
 
@@ -2765,7 +2922,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
 
           {viewMode === 'calendar' ? (
             <div className="flex flex-col flex-1 min-h-0">
-              {(interstitialConflicts.length > 0 || showConflicts.length > 0 || showGaps.length > 0) && (
+              {(interstitialConflicts.length > 0 || interstitialGaps.length > 0 || showConflicts.length > 0 || showGaps.length > 0) && (
                 <div className="bg-amber-50/80 border border-amber-200/90 rounded-xl p-2.5 px-3.5 mb-3 text-amber-800 text-xs italic flex items-start gap-2.5 shadow-2xs shrink-0">
                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 not-italic" />
                   <div className="space-y-1">
@@ -2773,6 +2930,42 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                       <div>
                         <span className="font-semibold not-italic text-amber-900">Interstitial Caution: </span>
                         {interstitialConflicts.map(c => c.message).join('; ')}
+                      </div>
+                    )}
+                    {leadingGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Leading Gap: </span>
+                        {leadingGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
+                    {scheduleGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Schedule Gap: </span>
+                        {scheduleGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
+                    {trailingGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Trailing Gap: </span>
+                        {trailingGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
+                    {overlapGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Media Overlap: </span>
+                        {overlapGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
+                    {missingMediaGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Missing Media: </span>
+                        {missingMediaGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
+                    {missingFileGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Missing File: </span>
+                        {missingFileGaps.map(g => g.message).join('; ')}
                       </div>
                     )}
                     {showConflicts.length > 0 && (
@@ -3787,12 +3980,52 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
             renderShowsList()
           ) : (
             <div className="flex flex-col gap-6 overflow-y-auto flex-1 pb-4 pr-1.5 custom-scrollbar min-h-0">
-              {interstitialConflicts.length > 0 && (
+              {(interstitialConflicts.length > 0 || interstitialGaps.length > 0) && (
                 <div className="bg-amber-50/80 border border-amber-200/90 rounded-xl p-2.5 px-3.5 text-amber-800 text-xs italic flex items-start gap-2.5 shadow-2xs shrink-0">
                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 not-italic" />
-                  <div>
-                    <span className="font-semibold not-italic text-amber-900">Interstitial Caution: </span>
-                    {interstitialConflicts.map(c => c.message).join('; ')}
+                  <div className="space-y-1">
+                    {interstitialConflicts.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Interstitial Caution: </span>
+                        {interstitialConflicts.map(c => c.message).join('; ')}
+                      </div>
+                    )}
+                    {leadingGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Leading Gap: </span>
+                        {leadingGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
+                    {scheduleGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Schedule Gap: </span>
+                        {scheduleGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
+                    {trailingGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Trailing Gap: </span>
+                        {trailingGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
+                    {overlapGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Media Overlap: </span>
+                        {overlapGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
+                    {missingMediaGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Missing Media: </span>
+                        {missingMediaGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
+                    {missingFileGaps.length > 0 && (
+                      <div>
+                        <span className="font-semibold not-italic text-amber-900">Missing File: </span>
+                        {missingFileGaps.map(g => g.message).join('; ')}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -3931,6 +4164,46 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                 )}
                               </div>
                             </div>
+
+                            {/* Issues / Gap notices for this active interstitial if any exist */}
+                            {(() => {
+                              const cardGaps = interstitialGaps.filter(g => g.interstitialId === s.id);
+                              const cardConflicts = interstitialConflicts.filter(c => c.interstitial1.id === s.id || c.interstitial2.id === s.id);
+                              if (cardGaps.length === 0 && cardConflicts.length === 0) return null;
+
+                              return (
+                                <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                                  {cardConflicts.map((c, cIdx) => (
+                                    <span
+                                      key={`conf-${cIdx}`}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold leading-tight select-none bg-amber-50 text-amber-800 border border-amber-200/90"
+                                      title={c.message}
+                                    >
+                                      <AlertCircle className="w-3 h-3 shrink-0 text-amber-600" />
+                                      <span>Timeslot Conflict</span>
+                                    </span>
+                                  ))}
+                                  {cardGaps.map((g, gIdx) => (
+                                    <span
+                                      key={`gap-${gIdx}`}
+                                      className={cn(
+                                        "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold leading-tight select-none",
+                                        g.severity === 'critical'
+                                          ? "bg-red-50 text-red-700 border border-red-200/90 font-black"
+                                          : "bg-amber-50 text-amber-800 border border-amber-200/90"
+                                      )}
+                                      title={g.message}
+                                    >
+                                      <AlertCircle className={cn(
+                                        "w-3 h-3 shrink-0",
+                                        g.severity === 'critical' ? "text-red-500" : "text-amber-600"
+                                      )} />
+                                      <span>{g.shortNotice}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              );
+                            })()}
 
                             {/* Bottom Row of metadata & view actions */}
                             <div className="flex justify-between items-center gap-4">
@@ -4216,6 +4489,46 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                     )}
                                   </div>
                                 </div>
+
+                                {/* Issues / Gap notices for this inactive interstitial if any exist */}
+                                {(() => {
+                                  const cardGaps = interstitialGaps.filter(g => g.interstitialId === s.id);
+                                  const cardConflicts = interstitialConflicts.filter(c => c.interstitial1.id === s.id || c.interstitial2.id === s.id);
+                                  if (cardGaps.length === 0 && cardConflicts.length === 0) return null;
+
+                                  return (
+                                    <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                                      {cardConflicts.map((c, cIdx) => (
+                                        <span
+                                          key={`conf-inact-${cIdx}`}
+                                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold leading-tight select-none bg-amber-50 text-amber-800 border border-amber-200/90"
+                                          title={c.message}
+                                        >
+                                          <AlertCircle className="w-3 h-3 shrink-0 text-amber-600" />
+                                          <span>Timeslot Conflict</span>
+                                        </span>
+                                      ))}
+                                      {cardGaps.map((g, gIdx) => (
+                                        <span
+                                          key={`gap-inact-${gIdx}`}
+                                          className={cn(
+                                            "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-bold leading-tight select-none",
+                                            g.severity === 'critical'
+                                              ? "bg-red-50 text-red-700 border border-red-200/90 font-black"
+                                              : "bg-amber-50 text-amber-800 border border-amber-200/90"
+                                          )}
+                                          title={g.message}
+                                        >
+                                          <AlertCircle className={cn(
+                                            "w-3 h-3 shrink-0",
+                                            g.severity === 'critical' ? "text-red-500" : "text-amber-600"
+                                          )} />
+                                          <span>{g.shortNotice}</span>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
 
                                 {/* Bottom row of metadata & view actions */}
                                 <div className="flex justify-between items-center gap-4">

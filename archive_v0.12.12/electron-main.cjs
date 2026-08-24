@@ -445,29 +445,30 @@ let currentLiveReadData = null; // Holds { name, path, content, isScript, text }
 global.spawnLiveRead = async (data) => {
   currentLiveReadData = data;
 
-  if (liveReadWindow) {
+  if (liveReadWindow && !liveReadWindow.isDestroyed()) {
     try {
       liveReadWindow.close();
     } catch (e) {}
   }
 
   const disableShadows = DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC && isIntelMac;
-  const parentWin = (mainWindow && !mainWindow.isDestroyed()) ? mainWindow : undefined;
 
   liveReadWindow = new BrowserWindow({
-    parent: parentWin,
-    modal: !!parentWin,
-    width: 650,
-    height: 550,
-    title: "Live Read Script - " + (data.name || "Script"),
-    alwaysOnTop: true, // Floats over other apps
-    resizable: true, // Resizable
+    width: 720,
+    height: 620,
+    minWidth: 480,
+    minHeight: 380,
+    title: "Live Read Script - " + (data.name || data.interstitialName || "Script"),
+    alwaysOnTop: true, // Floats over other apps for the broadcaster
+    resizable: true,
     hasShadow: !disableShadows,
     titleBarStyle: isMac ? 'hiddenInset' : 'default', // Minimally bordered / modern standard title bar
     autoHideMenuBar: true,
+    show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      devTools: appMode === 'Admin',
       preload: path.join(__dirname, 'preload.cjs')
     }
   });
@@ -477,6 +478,13 @@ global.spawnLiveRead = async (data) => {
   // Load the web app with a special query parameter indicating it is a popout
   const popoutUrl = `http://127.0.0.1:${serverPort}/?popout=true`;
   liveReadWindow.loadURL(popoutUrl);
+
+  liveReadWindow.once('ready-to-show', () => {
+    if (liveReadWindow && !liveReadWindow.isDestroyed()) {
+      liveReadWindow.show();
+      liveReadWindow.focus();
+    }
+  });
 
   liveReadWindow.on('closed', () => {
     liveReadWindow = null;
