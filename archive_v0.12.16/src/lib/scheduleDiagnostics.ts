@@ -98,9 +98,19 @@ export function resolveEffectiveDurationSeconds(
     const d = parseDurationToSeconds(activeMp3.approximateReadTime);
     if (d > 0) return d;
   }
+  if (interstitial.approximateReadTime) {
+    const d = parseDurationToSeconds(interstitial.approximateReadTime);
+    if (d > 0) return d;
+  }
 
-  // 3. Check cached duration from driveService duration cache or availableFilesCache
-  const candidateUrl = activeMp3?.mp3Url;
+  // 3. Check top-level interstitial duration
+  if (interstitial.duration) {
+    const d = parseDurationToSeconds(interstitial.duration);
+    if (d > 0) return d;
+  }
+
+  // 4. Check cached duration from driveService duration cache or availableFilesCache
+  const candidateUrl = activeMp3?.mp3Url || interstitial.mp3Url;
   if (candidateUrl) {
     const cachedStr = mp3DurationCache.get(candidateUrl);
     if (cachedStr) {
@@ -133,6 +143,16 @@ export function getMatchingMp3sForSlot(
 ): TimeGatedMp3[] {
   const timeGated = interstitial.timeGatedMp3s || [];
   if (timeGated.length === 0) {
+    if (interstitial.mp3Url && interstitial.mp3Url.trim() !== '') {
+      return [{
+        id: 'legacy-default',
+        mp3Url: interstitial.mp3Url,
+        startDate: '',
+        duration: interstitial.duration,
+        approximateReadTime: interstitial.approximateReadTime,
+        backupMp3Url: interstitial.backupMp3Url
+      }];
+    }
     return [];
   }
 
@@ -360,10 +380,11 @@ export function evaluateScheduleDiagnostics({
         const timeLabel = `${dayNames[dayOfWeek]}, ${monthNames[currentDayDate.getMonth()]} ${currentDayDate.getDate()} ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
         const slotId = `${s.id}_${dayKey}_${hour}`;
 
+        const isScript = s.assetType === 'script';
         const timeGated = s.timeGatedMp3s || [];
 
-        // Check 1: Realized instance has 0 timeGated entries
-        if (timeGated.length === 0) {
+        // Check 1: Realized instance has 0 timeGated entries and no fallback mp3Url
+        if (timeGated.length === 0 && (!s.mp3Url || s.mp3Url.trim() === '')) {
           addIssue({
             id: `missing_media_${s.id}_${dayKey}_${hour}_${minute}`,
             type: 'missing_media',
@@ -466,7 +487,7 @@ export function evaluateScheduleDiagnostics({
           }
 
           const status = getMP3Status(entry.mp3Url);
-          const entryIsScript = entry.assetType === 'script' || (entry.mp3Url.toLowerCase().endsWith('.txt') || entry.mp3Url.toLowerCase().endsWith('.pdf'));
+          const entryIsScript = isScript || (entry.mp3Url.toLowerCase().endsWith('.txt') || entry.mp3Url.toLowerCase().endsWith('.pdf'));
 
           if (!status.exists) {
             addIssue({
@@ -509,8 +530,8 @@ export function evaluateScheduleDiagnostics({
           }
 
           // Check backup audio file if script mode
-          if (entryIsScript && entry.backupMp3Url) {
-            const bUrl = entry.backupMp3Url;
+          if (entryIsScript && (entry.backupMp3Url || s.backupMp3Url)) {
+            const bUrl = entry.backupMp3Url || s.backupMp3Url;
             if (bUrl) {
               const bStatus = getMP3Status(bUrl);
               if (!bStatus.exists) {

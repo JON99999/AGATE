@@ -593,20 +593,23 @@ export function getInterstitialGaps(interstitialsList: Interstitial[], now: Date
         });
       }
     } else {
-      gaps.push({
-        interstitialId: s.id,
-        interstitialName: s.name,
-        type: 'missing_media',
-        typeLabel: 'Missing Media',
-        message: `"${s.name}" has no media assigned`,
-        shortNotice: 'No Media Assigned',
-        severity: 'critical'
-      });
+      // No time-gated items and no fallback mp3Url
+      if (!s.mp3Url || s.mp3Url.trim() === '') {
+        gaps.push({
+          interstitialId: s.id,
+          interstitialName: s.name,
+          type: 'missing_media',
+          typeLabel: 'Missing Media',
+          message: `"${s.name}" has no media assigned`,
+          shortNotice: 'No Media Assigned',
+          severity: 'critical'
+        });
+      }
     }
 
     // 6. Active file missing check
     const activeMp3 = getActiveMp3ForSlot(s, now);
-    const activeUrl = activeMp3?.mp3Url || '';
+    const activeUrl = activeMp3?.mp3Url || s.mp3Url || '';
     if (activeUrl && activeUrl.trim() !== '') {
       const status = getMP3Status(activeUrl);
       if (!status.exists) {
@@ -2194,7 +2197,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
         const summaryText = getInterstitialSummary(s).toLowerCase();
         const playModeText = (s.type === InterstitialType.ONE_TIME ? "One-Time" : s.type === InterstitialType.BASIC_HOURLY ? "Hourly" : "Advanced").toLowerCase();
         const matchesQuery = s.name.toLowerCase().includes(q) || 
-                             (s.timeGatedMp3s && s.timeGatedMp3s.some(m => m.mp3Url && m.mp3Url.toLowerCase().includes(q))) ||
+                             (s.mp3Url && s.mp3Url.toLowerCase().includes(q)) ||
                              playModeText.includes(q) ||
                              summaryText.includes(q);
         if (!matchesQuery) return false;
@@ -3812,9 +3815,9 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                   const activeMp3 = getActiveMp3ForSlot(s, slotDateTime);
                                   const activeUrl = activeMp3?.mp3Url?.trim() || '';
                                   const backupUrl = activeMp3?.backupMp3Url?.trim() || '';
-                                  const isScript = getGatedAssetType(activeMp3) === 'script';
+                                  const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                                   const fileStatus = activeUrl ? getMP3Status(activeUrl) : null;
-                                  const fileName = fileStatus ? (fileStatus.filename || activeUrl) : '';
+                                  const fileName = fileStatus ? (fileStatus.filename || activeUrl) : (s.mp3Url ? (getMP3Status(s.mp3Url).filename || s.mp3Url) : '');
                                   
                                   const { dayName: dNameHeader, dateStr: dDateHeader } = formatDayHeader(day);
                                   const scheduledTimeStr = `${dNameHeader} ${dDateHeader} at ${hour.toString().padStart(2, '0')}:${formattedMin}`;
@@ -4088,7 +4091,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                     const summaryText = getInterstitialSummary(s).toLowerCase();
                     const playModeText = (s.type === InterstitialType.ONE_TIME ? "One-Time" : s.type === InterstitialType.BASIC_HOURLY ? "Hourly" : "Advanced").toLowerCase();
                     const matchesFilter = s.name.toLowerCase().includes(q) || 
-                                          (s.timeGatedMp3s && s.timeGatedMp3s.some(m => m.mp3Url && m.mp3Url.toLowerCase().includes(q))) || 
+                                          (s.mp3Url && s.mp3Url.toLowerCase().includes(q)) || 
                                           playModeText.includes(q) || 
                                           summaryText.includes(q);
                     return s.enabled && !isExpired && matchesFilter;
@@ -4111,7 +4114,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                       .sort((a, b) => a.minute - b.minute)
                       .map((s, idx) => {
                         const activeMp3 = getActiveMp3ForSlot(s, now);
-                        const isScript = getGatedAssetType(activeMp3) === 'script';
+                        const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                         return (
                         <div 
                           key={s.id}
@@ -4241,7 +4244,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                  const activeMp3 = getActiveMp3ForSlot(s, now);
                                  const activeUrl = activeMp3?.mp3Url || '';
                                  const status = getMP3Status(activeUrl);
-                                 const isScript = getGatedAssetType(activeMp3) === 'script';
+                                 const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                                  const isVerified = isScript ? status.exists : (status.exists && status.valid);
                                  return (
                                    <div className="flex items-center gap-1.5 min-w-0 overflow-hidden text-right justify-end flex-1">
@@ -4401,7 +4404,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                     const summaryText = getInterstitialSummary(s).toLowerCase();
                     const playModeText = (s.type === InterstitialType.ONE_TIME ? "One-Time" : s.type === InterstitialType.BASIC_HOURLY ? "Hourly" : "Advanced").toLowerCase();
                     const matchesFilter = s.name.toLowerCase().includes(q) || 
-                                          (s.timeGatedMp3s && s.timeGatedMp3s.some(m => m.mp3Url && m.mp3Url.toLowerCase().includes(q))) || 
+                                          (s.mp3Url && s.mp3Url.toLowerCase().includes(q)) || 
                                           playModeText.includes(q) || 
                                           summaryText.includes(q);
                     return (!s.enabled || isExpired) && matchesFilter;
@@ -4438,7 +4441,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                             isExpired = !!(endIso && endIso < nowIso);
                           }
                           const activeMp3 = getActiveMp3ForSlot(s, now);
-                          const isScript = getGatedAssetType(activeMp3) === 'script';
+                          const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                           return (
                             <div 
                               key={s.id}
@@ -4568,7 +4571,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                                     const activeMp3 = getActiveMp3ForSlot(s, now);
                                     const activeUrl = activeMp3?.mp3Url || '';
                                     const status = getMP3Status(activeUrl);
-                                    const isScript = getGatedAssetType(activeMp3) === 'script';
+                                    const isScript = getGatedAssetType(activeMp3, s.assetType) === 'script';
                                     const isVerified = isScript ? status.exists : (status.exists && status.valid);
                                     return (
                                       <div className="flex items-center gap-1.5 overflow-hidden text-right justify-end flex-1 opacity-90">
@@ -6436,7 +6439,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
               {(() => {
                 const activeMp3 = getActiveMp3ForSlot(selectedCalendarInterstitial, now);
                 const activeUrl = activeMp3?.mp3Url || '';
-                const isScript = getGatedAssetType(activeMp3) === 'script';
+                const isScript = getGatedAssetType(activeMp3, selectedCalendarInterstitial.assetType) === 'script';
                 const readTime = activeMp3?.approximateReadTime || selectedCalendarInterstitial.approximateReadTime;
                 return (
                   <div className="space-y-1">

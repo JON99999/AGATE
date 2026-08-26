@@ -266,7 +266,7 @@ function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
             type: 'info',
             title: 'About Interstitial-er',
             message: 'Interstitial-er',
-            detail: `Version 0.12.17\nCross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.`
+            detail: `Version 0.12.16\nCross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.`
           });
         }
       }

@@ -2310,11 +2310,9 @@ export default function App() {
           });
 
           activeInterstitials.forEach((s) => {
-            const activeMp3 = getActiveMp3ForSlot(s, slot);
-            const resolvedFilename = activeMp3?.mp3Url || '';
             itemsToExport.push({
               slotTime: format(slot, "HH:mm"),
-              fileName: resolvedFilename,
+              fileName: s.mp3Url,
               interstitialName: s.name,
               interstitialId: s.id,
               minute: s.minute,

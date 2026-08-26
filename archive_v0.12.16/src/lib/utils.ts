@@ -557,7 +557,8 @@ export function getActualShowStart(
 }
 
 export function getGatedAssetType(
-  item?: TimeGatedMp3 | null
+  item?: TimeGatedMp3 | null,
+  fallbackAssetType?: 'audio' | 'script'
 ): 'audio' | 'script' {
   const url = (item?.mp3Url || '').toLowerCase();
   if (
@@ -580,41 +581,42 @@ export function getGatedAssetType(
     return 'audio';
   }
   if (item?.assetType) return item.assetType;
-  return 'audio';
+  return fallbackAssetType || 'audio';
 }
 
 export function normalizeInterstitial(item: Interstitial): Interstitial {
   if (!item) return item;
 
-  const rawMp3s: any[] = Array.isArray(item.timeGatedMp3s) ? item.timeGatedMp3s : [];
+  const hasTimeGated = Array.isArray(item.timeGatedMp3s) && item.timeGatedMp3s.length > 0;
 
-  const normalizedTimeGated: TimeGatedMp3[] = rawMp3s.map(m => {
-    const derivedAssetType = getGatedAssetType(m, m.assetType);
-    return {
-      id: m.id || generateId(),
-      mp3Url: m.mp3Url || '',
-      startDate: m.startDate || '',
-      endDate: m.endDate || undefined,
-      assetType: derivedAssetType,
-      approximateReadTime: derivedAssetType === 'script' ? m.approximateReadTime : undefined,
-      backupMp3Url: derivedAssetType === 'script' ? m.backupMp3Url : undefined,
-      duration: derivedAssetType === 'audio' ? m.duration : undefined,
-      fileSize: m.fileSize || undefined
-    };
-  });
+  const normalizedTimeGated: TimeGatedMp3[] = hasTimeGated
+    ? item.timeGatedMp3s!.map(m => {
+        const derivedAssetType = getGatedAssetType(m, item.assetType);
+        return {
+          ...m,
+          assetType: derivedAssetType,
+          approximateReadTime: derivedAssetType === 'script' ? (m.approximateReadTime || item.approximateReadTime) : undefined,
+          backupMp3Url: derivedAssetType === 'script' ? (m.backupMp3Url || item.backupMp3Url) : undefined,
+          duration: derivedAssetType === 'audio' ? m.duration : undefined
+        };
+      })
+    : [];
 
-  const base: any = {
+  const base: Interstitial = {
     ...item,
     timeGatedMp3s: normalizedTimeGated
   };
 
-  delete base.mp3Url;
-  delete base.assetType;
-  delete base.duration;
-  delete base.backupMp3Url;
-  delete base.approximateReadTime;
+  // When timeGatedMp3s is present, eliminate redundant top-level media properties
+  if (normalizedTimeGated.length > 0) {
+    delete base.mp3Url;
+    delete base.assetType;
+    delete base.duration;
+    delete base.backupMp3Url;
+    delete base.approximateReadTime;
+  }
 
-  return base as Interstitial;
+  return base;
 }
 
 export function normalizeInterstitials(items: Interstitial[]): Interstitial[] {

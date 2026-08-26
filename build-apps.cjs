@@ -2,6 +2,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const archiver = require('archiver');
 
 const pkgPath = path.join(__dirname, 'package.json');
 const pkgBakPath = path.join(__dirname, 'package.json.bak');
@@ -165,7 +166,90 @@ async function syncRemoteIcons() {
       console.log(`Wrote dist/app-config.json for mode: ${mode}.`);
     };
 
-    const packageApp = (mode) => {
+    const packageWindowsPortableZip = async (mode, version) => {
+      const releaseDir = path.join(__dirname, 'release');
+      if (!fs.existsSync(releaseDir)) return;
+
+      const files = fs.readdirSync(releaseDir);
+      const portableExeName = files.find(f => 
+        f.toLowerCase().includes(mode.toLowerCase()) && 
+        f.toLowerCase().includes('portable') && 
+        f.endsWith('.exe')
+      );
+
+      if (!portableExeName) {
+        console.log(`No portable executable found in release/ for mode: ${mode}`);
+        return;
+      }
+
+      // 1. Folder name inside zip contains build type but NO version
+      const folderName = `Interstitial-er ${mode} Windows Portable`;
+      const stagingDir = path.join(releaseDir, folderName);
+      if (fs.existsSync(stagingDir)) {
+        fs.rmSync(stagingDir, { recursive: true, force: true });
+      }
+      fs.mkdirSync(stagingDir, { recursive: true });
+
+      // 2. Move portable exe into staging folder
+      const srcExe = path.join(releaseDir, portableExeName);
+      const destExe = path.join(stagingDir, portableExeName);
+      fs.copyFileSync(srcExe, destExe);
+
+      // 3. Create README.txt in the staging folder
+      const readmeContent = `================================================================================
+  INTERSTITIAL-ER ${mode.toUpperCase()} — WINDOWS PORTABLE EDITION
+================================================================================
+
+IMPORTANT INSTRUCTION:
+--------------------------------------------------------------------------------
+Please UNZIP / EXTRACT this entire folder to your computer or USB drive before
+launching the application.
+
+DO NOT run the executable from inside the compressed (.zip) archive preview.
+
+--------------------------------------------------------------------------------
+CONFIGURATION & PERSISTENCE:
+--------------------------------------------------------------------------------
+- When run from the extracted folder, all configuration and local folder paths
+  are saved in 'interstitial-er_settings.json' directly in this same folder.
+- You can move this extracted folder between drives or broadcast machines, and
+  your settings will remain intact.
+================================================================================
+`;
+      fs.writeFileSync(path.join(stagingDir, 'README.txt'), readmeContent, 'utf8');
+
+      // 4. Create zip archive
+      const zipName = `Interstitial-er ${mode}-${version}-Windows-Portable.zip`;
+      const zipPath = path.join(releaseDir, zipName);
+      if (fs.existsSync(zipPath)) {
+        fs.unlinkSync(zipPath);
+      }
+
+      console.log(`Wrapping portable executable into ZIP archive: ${zipName}...`);
+      await new Promise((resolve, reject) => {
+        const output = fs.createWriteStream(zipPath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        output.on('close', () => {
+          console.log(`Successfully created ${zipName} (${archive.pointer()} total bytes).`);
+          try {
+            fs.rmSync(stagingDir, { recursive: true, force: true });
+          } catch (_) {}
+          resolve();
+        });
+
+        archive.on('error', (err) => {
+          console.error(`Failed to create ZIP for mode ${mode}:`, err);
+          reject(err);
+        });
+
+        archive.pipe(output);
+        archive.directory(stagingDir, folderName);
+        archive.finalize();
+      });
+    };
+
+    const packageApp = async (mode) => {
       console.log(`Updating package.json for packaging mode: ${mode}...`);
       const pkg = JSON.parse(fs.readFileSync(pkgBakPath, 'utf8'));
 
@@ -284,6 +368,8 @@ async function syncRemoteIcons() {
           stdio: 'inherit',
           env: { ...process.env }
         });
+
+        await packageWindowsPortableZip(mode, pkg.version);
       } else {
         console.log(`Packaging Electron app for default platform...`);
         fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
@@ -292,6 +378,8 @@ async function syncRemoteIcons() {
           stdio: 'inherit',
           env: { ...process.env }
         });
+
+        await packageWindowsPortableZip(mode, pkg.version);
       }
       console.log(`Successfully completed packaging for mode: ${mode}!`);
     };
@@ -305,7 +393,7 @@ async function syncRemoteIcons() {
     console.log('=========================================\n');
     cleanBuild();
     compileAssets('Admin');
-    packageApp('Admin');
+    await packageApp('Admin');
 
     // --- Step 2: Build & Package Live ---
     console.log('\n=========================================');
@@ -313,7 +401,7 @@ async function syncRemoteIcons() {
     console.log('=========================================\n');
     cleanBuild();
     compileAssets('Live');
-    packageApp('Live');
+    await packageApp('Live');
 
     // --- Step 3: Build & Package Studio ---
     console.log('\n=========================================');
@@ -321,7 +409,7 @@ async function syncRemoteIcons() {
     console.log('=========================================\n');
     cleanBuild();
     compileAssets('Studio');
-    packageApp('Studio');
+    await packageApp('Studio');
 
     console.log('\nTriple-build packaged successfully!');
 

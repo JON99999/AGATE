@@ -32,6 +32,7 @@ export interface Interstitial {
   id: string;
   name: string;
   type: InterstitialType;
+  mp3Url?: string;
   enabled: boolean;
   minute: number; // 0-59
   // For ONE_TIME
@@ -46,6 +47,10 @@ export interface Interstitial {
   endDate?: string;
   timeGatedMp3s?: TimeGatedMp3[];
   metadata: InterstitialMetadata;
+  duration?: string;
+  assetType?: 'audio' | 'script';
+  approximateReadTime?: string;
+  backupMp3Url?: string;
 }
 
 export interface LogEntry {
