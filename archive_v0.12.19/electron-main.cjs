@@ -13,6 +13,23 @@ const http = require('http');
 const isMac = process.platform === 'darwin';
 const isIntelMac = isMac && process.arch === 'x64';
 
+// Ensure single running instance per machine
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('Another instance of Interstitial-er is already running. Exiting duplicate process.');
+  app.quit();
+  process.exit(0);
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Focus main window if user tries to launch another instance
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 // OPTION 1: Use Updated Electron Framework Version
 // Note: Handled in package.json. The application currently targets and runs on a very modern 
 // Electron version ("^42.1.0"), ensuring that the underlying Chromium engine has modern patches
@@ -237,7 +254,7 @@ function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
         { type: 'separator' },
         { role: 'close', accelerator: 'Cmd+W', enabled: !isLiveReadMenuLocked }
       ] : [
-        { role: 'close', accelerator: 'Alt+F4', enabled: !isLiveReadMenuLocked }
+        { role: 'close', enabled: !isLiveReadMenuLocked }
       ])
     ]
   };
@@ -357,6 +374,19 @@ function createWindow() {
 
   loadAppWhenReady(serverPort, `http://127.0.0.1:${serverPort}`, mainWindow);
 
+  mainWindow.on('close', function () {
+    // When the main window is closed on non-macOS platforms, destroy child popout windows and quit
+    if (process.platform !== 'darwin') {
+      if (liveReadWindow && !liveReadWindow.isDestroyed()) {
+        try {
+          liveReadWindow.destroy();
+        } catch (_) {}
+        liveReadWindow = null;
+      }
+      app.quit();
+    }
+  });
+
   mainWindow.on('closed', function () {
     mainWindow = null;
   });
@@ -390,15 +420,27 @@ app.on('window-all-closed', function () {
   app.quit();
 });
 
+app.on('before-quit', () => {
+  // Ensure any secondary popouts are destroyed during application shutdown
+  if (liveReadWindow && !liveReadWindow.isDestroyed()) {
+    try {
+      liveReadWindow.destroy();
+    } catch (_) {}
+    liveReadWindow = null;
+  }
+});
+
 app.on('activate', function () {
   if (mainWindow === null) {
     createWindow();
   }
 });
 
-// Ensure server dies when electron exits
+// Ensure backend server sockets and background Node threads terminate cleanly
 app.on('will-quit', () => {
-  // Graceful exit is handled by electron shutting down the process
+  try {
+    process.exit(0);
+  } catch (_) {}
 });
 
 // ==========================================================================================

@@ -249,6 +249,21 @@ CONFIGURATION & PERSISTENCE:
           try {
             fs.rmSync(stagingDir, { recursive: true, force: true });
           } catch (_) {}
+
+          // Remove standalone loose portable executable from release/ so only the .zip remains
+          try {
+            if (fs.existsSync(srcExe)) {
+              fs.unlinkSync(srcExe);
+              console.log(`Removed loose standalone portable executable: ${portableExeName}`);
+            }
+            const blockmapPath = srcExe + '.blockmap';
+            if (fs.existsSync(blockmapPath)) {
+              fs.unlinkSync(blockmapPath);
+            }
+          } catch (delErr) {
+            console.warn(`Could not remove loose portable executable ${portableExeName}:`, delErr);
+          }
+
           resolve();
         });
 
