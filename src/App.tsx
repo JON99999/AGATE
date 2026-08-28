@@ -155,6 +155,9 @@ export default function App() {
     return <LiveReadPopout />;
   }
 
+  const isElectron = typeof window !== "undefined" && (!!(window as any).electronAPI || (navigator && navigator.userAgent && navigator.userAgent.includes("Electron")));
+  const isAiStudio = !isElectron;
+
   const appModeEnv = (import.meta as any).env?.VITE_APP_MODE || "Admin";
   const isLiveApp = appModeEnv === "Live";
   const isStudioApp = appModeEnv === "Studio";
@@ -1036,18 +1039,21 @@ export default function App() {
         }
       } catch (e) {}
 
-      let hasPrepopulated = false;
-      if (!settings.driveFolderLogs) {
-        settings.driveFolderLogs = "1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx";
-        hasPrepopulated = true;
-      }
-      if (!settings.driveFolderMP3s) {
-        settings.driveFolderMP3s = "11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch";
-        hasPrepopulated = true;
-      }
-      if (!settings.driveFolderPreferences) {
-        settings.driveFolderPreferences = "1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED";
-        hasPrepopulated = true;
+      if (isElectron) {
+        settings.mode = "Local";
+      } else {
+        if (settings.mode === "Demo" || settings.mode === "Local") {
+          settings.mode = "Drive";
+        }
+        if (!settings.driveFolderLogs) {
+          settings.driveFolderLogs = "1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx";
+        }
+        if (!settings.driveFolderMP3s) {
+          settings.driveFolderMP3s = "11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch";
+        }
+        if (!settings.driveFolderPreferences) {
+          settings.driveFolderPreferences = "1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED";
+        }
       }
 
       localStorage.setItem(
@@ -1070,97 +1076,103 @@ export default function App() {
         body: JSON.stringify(settings),
       }).catch(() => {});
 
-      if (settings.mode === "Local") {
-        checkLocalPathsSafely(
-          settings.localPathMP3s || "",
-          settings.localPathLogs || "",
-          settings.localPathCalendar || "",
-        )
-          .then((exists) => {
-            setIsDriveActive(true);
-            if (exists) {
-              setIsDriveValidated(true);
-              setLocalPathsUnavailable(false);
-              fetchDataForMode(settings);
-            } else {
+      if (isElectron || settings.mode === "Local") {
+        if (!settings.localPathMP3s || !settings.localPathLogs || !settings.localPathCalendar) {
+          setIsDriveActive(true);
+          setIsDriveValidated(false);
+          setLocalPathsUnavailable(true);
+          setLoading(false);
+          setShowLocationsModal(true);
+        } else {
+          checkLocalPathsSafely(
+            settings.localPathMP3s || "",
+            settings.localPathLogs || "",
+            settings.localPathCalendar || "",
+          )
+            .then((exists) => {
+              setIsDriveActive(true);
+              if (exists) {
+                setIsDriveValidated(true);
+                setLocalPathsUnavailable(false);
+                fetchDataForMode(settings);
+              } else {
+                setIsDriveValidated(false);
+                setLocalPathsUnavailable(true);
+                setLoading(false);
+                setShowLocationsModal(true);
+              }
+            })
+            .catch(() => {
+              setIsDriveActive(true);
               setIsDriveValidated(false);
               setLocalPathsUnavailable(true);
               setLoading(false);
               setShowLocationsModal(true);
-            }
-          })
-          .catch(() => {
-            setIsDriveActive(true);
-            setIsDriveValidated(false);
-            setLocalPathsUnavailable(true);
-            setLoading(false);
-            setShowLocationsModal(true);
-          });
-      } else if (settings.mode === "Demo") {
-        setIsDriveActive(true);
-        setIsDriveValidated(false);
-        setLocalPathsUnavailable(false);
+            });
+        }
       }
     };
 
     initSettings();
 
-    const unsubscribe = initAuth(
-      async (currentUser, tokenStr) => {
-        const uSettings = getSavedSettings();
-        setUser(currentUser);
-        setToken(tokenStr);
+    if (!isElectron) {
+      const unsubscribe = initAuth(
+        async (currentUser, tokenStr) => {
+          const uSettings = getSavedSettings();
+          setUser(currentUser);
+          setToken(tokenStr);
 
-        if (uSettings.mode === "Drive" || uSettings.mode === "Demo") {
-          setIsDriveActive(true);
-          setIsValidatingDrive(true);
-          setDriveValidationError(null);
-          try {
-            const success = await validateGoogleDriveAccess();
-            if (success) {
-              setIsDriveValidated(true);
-              setDriveValidationError(null);
-              fetchDataForMode(uSettings);
-            } else {
+          if (uSettings.mode === "Drive" || uSettings.mode === "Demo") {
+            setIsDriveActive(true);
+            setIsValidatingDrive(true);
+            setDriveValidationError(null);
+            try {
+              const success = await validateGoogleDriveAccess();
+              if (success) {
+                setIsDriveValidated(true);
+                setDriveValidationError(null);
+                fetchDataForMode(uSettings);
+              } else {
+                setIsDriveValidated(false);
+                setDriveValidationError(
+                  "Connected Google account lacks read/write access to one or more configured shared directories.",
+                );
+                setLoading(false);
+                setShowLocationsModal(true);
+              }
+            } catch (err: any) {
               setIsDriveValidated(false);
               setDriveValidationError(
-                "Connected Google account lacks read/write access to one or more configured shared directories.",
+                err.message || "Error occurred while validating folders.",
               );
               setLoading(false);
               setShowLocationsModal(true);
+            } finally {
+              setIsValidatingDrive(false);
             }
-          } catch (err: any) {
+          } else {
+            setIsDriveActive(true);
+            setIsDriveValidated(true);
+            fetchDataForMode(uSettings);
+          }
+        },
+        () => {
+          const uSettings = getSavedSettings();
+          setUser(null);
+          setToken(null);
+          if (uSettings.mode === "Drive" || uSettings.mode === "Demo") {
+            setIsDriveActive(false);
             setIsDriveValidated(false);
-            setDriveValidationError(
-              err.message || "Error occurred while validating folders.",
-            );
+            setDriveMP3s([]);
             setLoading(false);
             setShowLocationsModal(true);
-          } finally {
-            setIsValidatingDrive(false);
+          } else {
+            setLoading(false);
           }
-        } else {
-          setIsDriveActive(true);
-          setIsDriveValidated(true);
-          fetchDataForMode(uSettings);
-        }
-      },
-      () => {
-        const uSettings = getSavedSettings();
-        setUser(null);
-        setToken(null);
-        if (uSettings.mode === "Drive" || uSettings.mode === "Demo") {
-          setIsDriveActive(false);
-          setIsDriveValidated(false);
-          setDriveMP3s([]);
-          setLoading(false);
-          setShowLocationsModal(true);
-        } else {
-          setLoading(false);
-        }
-      },
-    );
-    return () => unsubscribe();
+        },
+      );
+      return () => unsubscribe();
+    }
   }, []);
 
   const fetchDataForMode = async (settings = getSavedSettings()) => {
@@ -1368,12 +1380,30 @@ export default function App() {
     }
   }, [token]);
 
+  // Intercept and prevent F11 / Full Screen keyboard triggers
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "F11" || e.keyCode === 122) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+    };
+  }, []);
+
   // Track User Activity to prevent Sleep State (Throttled to minimize CPU overhead on frequent mouse moves)
   useEffect(() => {
     if (isAsleep) return;
 
     let lastActivityLogged = 0;
-    const handleActivity = () => {
+    const handleActivity = (e?: KeyboardEvent | Event) => {
+      if (e instanceof KeyboardEvent && (e.key === "F11" || e.keyCode === 122)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       const nowMs = Date.now();
       if (nowMs - lastActivityLogged >= 10000) {
         lastActivityLogged = nowMs;
@@ -3045,16 +3075,23 @@ export default function App() {
                   </button>
                 </div>
               )}
-              {(isPre || playMode === "Export") && (
+              {(isPre || playMode === "Export" || playMode === "Playlist") && (
                 <button
                   type="button"
-                  onClick={handleEditTimeframeModal}
-                  className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded border border-slate-200 transition-colors group cursor-pointer active:translate-y-px"
-                  title="Edit Air Date and timeframe settings"
+                  onClick={() => {
+                    if (playMode === "Playlist") {
+                      handleOpenPlaylistModal();
+                    } else {
+                      handleEditTimeframeModal();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded border border-slate-200 transition-colors group cursor-pointer active:translate-y-px shrink-0 text-center"
+                  title="Choose Show"
                 >
                   <NotebookPen className="w-3 h-3 font-bold shrink-0 text-slate-500" />
-                  <span className="text-xs font-black uppercase tracking-tighter">
-                    Edit
+                  <span className="text-xs font-black uppercase tracking-tighter leading-tight flex flex-col min-[380px]:flex-row min-[380px]:gap-0.5 text-center items-center">
+                    <span>Choose</span>
+                    <span>Show</span>
                   </span>
                 </button>
               )}
@@ -3199,83 +3236,105 @@ export default function App() {
           return null;
         })()}
 
-        <div
-          className={cn(
-            "w-full mx-auto pt-3 h-full transition-all flex flex-col min-h-0 pb-1",
-            activeTab === "player"
-              ? "max-w-[200px] px-1"
-              : "max-w-full px-4 md:px-6 lg:px-8 flex-1",
-          )}
-        >
-          <AnimatePresence mode="wait">
-            {activeTab === "player" ? (
-              <motion.div
-                key="player"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="h-full"
+        {(!isDriveValidated || localPathsUnavailable) ? (
+          <div className="w-full flex-1 flex flex-col items-center justify-center p-6 text-center">
+            <div className="max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl flex flex-col items-center gap-3">
+              <Folder className="w-10 h-10 text-amber-400" />
+              <h2 className="text-sm font-black uppercase tracking-wider text-slate-200">
+                Storage Folders Required
+              </h2>
+              <p className="text-xs text-slate-400 font-sans leading-relaxed">
+                Please define and verify your storage folders before loading schedule data or player views.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowLocationsModal(true)}
+                className="mt-2 flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs uppercase tracking-wider rounded-lg border border-amber-400 transition cursor-pointer"
               >
-                <PlayerTab
-                  interstitials={interstitials}
-                  logs={logs}
-                  onLog={addLog}
-                  now={now}
-                  syncTime={syncTime}
-                  scrollTrigger={scrollTrigger}
-                  playMode={playMode}
-                  playlistShow={selectedPlaylistShow}
-                  prerecordDate={prerecordDate}
-                  prerecordLengthMinutes={prerecordLengthMinutes}
-                  onConfigureTimeframe={() =>
-                    handleOpenTimeframeModal(
-                      playMode === "Export" ? "Export" : "Prerecord",
-                    )
-                  }
-                  onExecuteExport={handleExportPrerecord}
-                  isAdmin={isAdmin}
-                  onRefresh={handleRefresh}
-                  shows={shows}
-                  onTriggerCaching={(mode, urls) => triggerCachingForMode(mode, urls)}
-                />
-              </motion.div>
-            ) : activeTab === "calendar" ? (
-              <motion.div
-                key="calendar"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="h-full flex flex-col min-h-0 flex-1"
-              >
-                <CalendarTab
-                  interstitials={interstitials}
-                  onSave={saveInterstitials}
-                  shows={shows}
-                  onSaveShows={saveShows}
-                  isAdmin={isAdmin}
-                  onAdminToggle={setIsAdmin}
-                  now={now}
-                  driveMP3s={driveMP3s}
-                  isDriveActive={isDriveActive}
-                  onRefresh={handleRefresh}
-                  currentViewMode={calendarSubTab}
-                  onViewModeChange={(mode) => setCalendarSubTab(mode)}
-                  showPixelRuler={showPixelRuler}
-                />
-              </motion.div>
-            ) : (
-              <motion.div
-                key="log"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="h-full flex flex-col min-h-0 flex-1"
-              >
-                <LogTab logs={logs} />
-              </motion.div>
+                <Folder className="w-4 h-4" />
+                <span>Configure Storage Folders</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            className={cn(
+              "w-full mx-auto pt-3 h-full transition-all flex flex-col min-h-0 pb-1",
+              activeTab === "player"
+                ? "max-w-[200px] px-1"
+                : "max-w-full px-4 md:px-6 lg:px-8 flex-1",
             )}
-          </AnimatePresence>
-        </div>
+          >
+            <AnimatePresence mode="wait">
+              {activeTab === "player" ? (
+                <motion.div
+                  key="player"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="h-full"
+                >
+                  <PlayerTab
+                    interstitials={interstitials}
+                    logs={logs}
+                    onLog={addLog}
+                    now={now}
+                    syncTime={syncTime}
+                    scrollTrigger={scrollTrigger}
+                    playMode={playMode}
+                    playlistShow={selectedPlaylistShow}
+                    prerecordDate={prerecordDate}
+                    prerecordLengthMinutes={prerecordLengthMinutes}
+                    onConfigureTimeframe={() =>
+                      handleOpenTimeframeModal(
+                        playMode === "Export" ? "Export" : "Prerecord",
+                      )
+                    }
+                    onExecuteExport={handleExportPrerecord}
+                    isAdmin={isAdmin}
+                    onRefresh={handleRefresh}
+                    shows={shows}
+                    onTriggerCaching={(mode, urls) => triggerCachingForMode(mode, urls)}
+                  />
+                </motion.div>
+              ) : activeTab === "calendar" ? (
+                <motion.div
+                  key="calendar"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="h-full flex flex-col min-h-0 flex-1"
+                >
+                  <CalendarTab
+                    interstitials={interstitials}
+                    onSave={saveInterstitials}
+                    shows={shows}
+                    onSaveShows={saveShows}
+                    isAdmin={isAdmin}
+                    onAdminToggle={setIsAdmin}
+                    now={now}
+                    driveMP3s={driveMP3s}
+                    isDriveActive={isDriveActive}
+                    onRefresh={handleRefresh}
+                    currentViewMode={calendarSubTab}
+                    onViewModeChange={(mode) => setCalendarSubTab(mode)}
+                    showPixelRuler={showPixelRuler}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="log"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="h-full flex flex-col min-h-0 flex-1"
+                >
+                  <LogTab logs={logs} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
       </main>
 
       {/* Bottom Footer - Default Locations Menu */}
@@ -4429,66 +4488,73 @@ export default function App() {
                       Select Mode
                     </p>
                     <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg flex gap-1 items-center shadow-inner">
-                      <button
-                        type="button"
-                        onClick={() => setLocationMode("Demo")}
-                        className={cn(
-                          "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
-                          locationMode === "Demo"
-                            ? "bg-gradient-to-b from-amber-500 to-amber-600 border-[#F59E0B] text-white font-black shadow-sm"
-                            : "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100",
-                        )}
-                      >
-                        <span
+                      {/* Demo mode is hidden across all desktop apps and AIStudio per user requirements */}
+                      {false && (
+                        <button
+                          type="button"
+                          onClick={() => setLocationMode("Demo")}
                           className={cn(
-                            "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                            "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
                             locationMode === "Demo"
-                              ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
-                              : "bg-slate-300",
+                              ? "bg-gradient-to-b from-amber-500 to-amber-600 border-[#F59E0B] text-white font-black shadow-sm"
+                              : "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100",
                           )}
-                        />
-                        Demo
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setLocationMode("Drive")}
-                        className={cn(
-                          "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
-                          locationMode === "Drive"
-                            ? "bg-gradient-to-b from-blue-500 to-blue-600 border-[#3B82F6] text-white font-black shadow-sm"
-                            : "bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100",
-                        )}
-                      >
-                        <span
+                        >
+                          <span
+                            className={cn(
+                              "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                              locationMode === "Demo"
+                                ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
+                                : "bg-slate-300",
+                            )}
+                          />
+                          Demo
+                        </button>
+                      )}
+                      {isAiStudio && (
+                        <button
+                          type="button"
+                          onClick={() => setLocationMode("Drive")}
                           className={cn(
-                            "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                            "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
                             locationMode === "Drive"
-                              ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
-                              : "bg-slate-300",
+                              ? "bg-gradient-to-b from-blue-500 to-blue-600 border-[#3B82F6] text-white font-black shadow-sm"
+                              : "bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100",
                           )}
-                        />
-                        Google Drive
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setLocationMode("Local")}
-                        className={cn(
-                          "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
-                          locationMode === "Local"
-                            ? "bg-gradient-to-b from-purple-500 to-purple-600 border-[#8B5CF6] text-white font-black shadow-sm"
-                            : "bg-purple-50 border-purple-200 text-purple-800 hover:bg-purple-100",
-                        )}
-                      >
-                        <span
+                        >
+                          <span
+                            className={cn(
+                              "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                              locationMode === "Drive"
+                                ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
+                                : "bg-slate-300",
+                            )}
+                          />
+                          Google Drive
+                        </button>
+                      )}
+                      {!isAiStudio && (
+                        <button
+                          type="button"
+                          onClick={() => setLocationMode("Local")}
                           className={cn(
-                            "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                            "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
                             locationMode === "Local"
-                              ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
-                              : "bg-slate-300",
+                              ? "bg-gradient-to-b from-purple-500 to-purple-600 border-[#8B5CF6] text-white font-black shadow-sm"
+                              : "bg-purple-50 border-purple-200 text-purple-800 hover:bg-purple-100",
                           )}
-                        />
-                        Local Folder
-                      </button>
+                        >
+                          <span
+                            className={cn(
+                              "w-1.5 h-1.5 rounded-full transition-all duration-300",
+                              locationMode === "Local"
+                                ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
+                                : "bg-slate-300",
+                            )}
+                          />
+                          Local Folder
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -4969,40 +5035,42 @@ export default function App() {
                     <HelpCircle className="w-3.5 h-3.5 text-purple-600" />
                     <span>Help</span>
                   </button>
-                  {/* === DEBUG ANIMATION SWITCH START === */}
-                  <button
-                    type="button"
-                    onClick={toggleAnimations}
-                    title={animationsDisabled ? "Performance Overrides: ACTIVE. Click to configure or disable" : "Performance Overrides: INACTIVE. Click to configure & enable"}
-                    className={cn(
-                      "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer border border-transparent",
-                      animationsDisabled
-                        ? "bg-red-100 text-red-700 border-red-300 hover:bg-red-200"
-                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
-                    )}
-                  >
-                    {animationsDisabled ? (
-                      <ZapOff className="w-3.5 h-3.5 text-red-600" />
-                    ) : (
-                      <Zap className="w-3.5 h-3.5 text-amber-500" />
-                    )}
-                  </button>
-                  {/* === DEBUG ANIMATION SWITCH END === */}
-                  {/* === PIXEL RULER SWITCH START === */}
-                  <button
-                    type="button"
-                    onClick={togglePixelRuler}
-                    title={showPixelRuler ? "Pixel Ruler: ACTIVE. Click to hide ruler" : "Pixel Ruler: INACTIVE. Click to show ruler"}
-                    className={cn(
-                      "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer mr-auto border border-transparent",
-                      showPixelRuler
-                        ? "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200"
-                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
-                    )}
-                  >
-                    <Ruler className={cn("w-3.5 h-3.5", showPixelRuler ? "text-amber-600" : "text-slate-500")} />
-                  </button>
-                  {/* === PIXEL RULER SWITCH END === */}
+                  {/* === DEBUG ANIMATION SWITCH & PIXEL RULER (AI Studio Only) === */}
+                  {isAiStudio && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={toggleAnimations}
+                        title={animationsDisabled ? "Performance Overrides: ACTIVE. Click to configure or disable" : "Performance Overrides: INACTIVE. Click to configure & enable"}
+                        className={cn(
+                          "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer border border-transparent",
+                          animationsDisabled
+                            ? "bg-red-100 text-red-700 border-red-300 hover:bg-red-200"
+                            : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
+                        )}
+                      >
+                        {animationsDisabled ? (
+                          <ZapOff className="w-3.5 h-3.5 text-red-600" />
+                        ) : (
+                          <Zap className="w-3.5 h-3.5 text-amber-500" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={togglePixelRuler}
+                        title={showPixelRuler ? "Pixel Ruler: ACTIVE. Click to hide ruler" : "Pixel Ruler: INACTIVE. Click to show ruler"}
+                        className={cn(
+                          "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer mr-auto border border-transparent",
+                          showPixelRuler
+                            ? "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200"
+                            : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
+                        )}
+                      >
+                        <Ruler className={cn("w-3.5 h-3.5", showPixelRuler ? "text-amber-600" : "text-slate-500")} />
+                      </button>
+                    </>
+                  )}
+                  {!isAiStudio && <div className="mr-auto" />}
                   <button
                     type="button"
                     onClick={() => setShowLocationsModal(false)}

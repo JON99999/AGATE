@@ -28,8 +28,13 @@ export interface LocationSettings {
   driveFolderPreferences: string;
 }
 
+export const isElectronEnv = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  return !!(window as any).electronAPI || (navigator && navigator.userAgent && navigator.userAgent.includes('Electron'));
+};
+
 export const DEFAULT_SETTINGS: LocationSettings = {
-  mode: 'Demo',
+  mode: isElectronEnv() ? 'Local' : 'Drive',
   localPathMP3s: '',
   localPathLogs: '',
   localPathCalendar: '',

@@ -16,6 +16,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { cn, parseCustomTimeText } from '../lib/utils';
+import { applyTheme, ThemeId } from '../lib/theme';
 import { 
   X, 
   ZoomIn, 
@@ -117,6 +118,22 @@ export default function LiveReadPopout({
   const [backupMp3Url, setBackupMp3Url] = useState(initialBackupMp3Url);
   const [playMode, setPlayMode] = useState<'Live' | 'Prerecord' | 'Playlist' | 'Export'>(initialPlayMode);
   const [isPreviewMode, setIsPreviewMode] = useState(isPreview);
+
+  // Sync theme with main app settings
+  useEffect(() => {
+    try {
+      const savedTheme = (localStorage.getItem('interstitialer_theme') as ThemeId) || 'light';
+      applyTheme(savedTheme);
+    } catch (e) {}
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'interstitialer_theme' && e.newValue) {
+        applyTheme(e.newValue as ThemeId);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   useEffect(() => {
     if (isPreview !== undefined) {
@@ -579,12 +596,12 @@ export default function LiveReadPopout({
 
   return (
     <div className={cn(
-      "flex flex-col h-screen select-none font-sans text-slate-800 bg-slate-100",
-      isOverlay ? "rounded-xl border border-slate-300 shadow-2xl max-w-3xl w-full max-h-[85vh] h-full overflow-hidden" : ""
+      "flex flex-col h-screen select-none font-sans text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-950",
+      isOverlay ? "rounded-xl border border-slate-300 dark:border-slate-800 shadow-2xl max-w-3xl w-full max-h-[85vh] h-full overflow-hidden" : ""
     )}>
       {/* HEADER SECTION (MINIMAL BORDERS) */}
       <div className={cn(
-        "flex justify-between items-center bg-slate-900 text-white px-4 py-3 border-b border-slate-800 shrink-0",
+        "flex justify-between items-center bg-slate-900 dark:bg-slate-950 text-white px-4 py-3 border-b border-slate-800 shrink-0",
         isMac && !isOverlay ? "pl-20" : "",
         !isOverlay ? "[-webkit-app-region:drag]" : ""
       )}>
@@ -608,14 +625,14 @@ export default function LiveReadPopout({
           !isOverlay ? "[-webkit-app-region:no-drag]" : ""
         )}>
           {/* Real-time Ticking Clock */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-slate-950 border border-slate-850 font-mono font-bold text-xs text-emerald-400 shadow-inner">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-slate-950 border border-slate-800 font-mono font-bold text-xs text-emerald-400 shadow-inner">
             <Clock className="w-4 h-4 text-emerald-400" />
             <span>{currentTimeText}</span>
           </div>
 
           {/* Zoom Level buttons (for Text scripts, Images, and PDFs) */}
           {(isText || isImage || isPdf) && (
-            <div className="flex items-center bg-slate-950 border border-slate-850 rounded overflow-hidden">
+            <div className="flex items-center bg-slate-950 border border-slate-800 rounded overflow-hidden">
               <button 
                 type="button"
                 onClick={handleZoomOut}
@@ -630,7 +647,7 @@ export default function LiveReadPopout({
                 <ZoomOut className="w-4 h-4" />
               </button>
               <div 
-                className="px-2 text-xs font-mono font-black text-slate-400 border-x border-slate-850 select-none min-w-[3.5rem] text-center"
+                className="px-2 text-xs font-mono font-black text-slate-400 border-x border-slate-800 select-none min-w-[3.5rem] text-center"
                 title="Current Zoom Level"
               >
                 {isText ? `${zoomLevel}px` : isImage ? `${imageZoom}%` : `${pdfZoom}%`}
@@ -665,18 +682,18 @@ export default function LiveReadPopout({
       </div>
 
       {/* SCRIPT CONTENT DISPLAY AREA */}
-      <div className="flex-1 overflow-y-auto p-6 bg-white flex flex-col justify-center items-center relative custom-scrollbar">
+      <div className="flex-1 overflow-y-auto p-6 bg-white dark:bg-slate-900 flex flex-col justify-center items-center relative custom-scrollbar">
         {loading ? (
           <div className="flex flex-col items-center gap-3">
             <div className="w-10 h-10 border-4 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
             <p className="text-xs font-black uppercase text-slate-400 tracking-wider">Loading script file...</p>
           </div>
         ) : error ? (
-          <div className="p-5 max-w-md bg-rose-50 border border-rose-200 rounded-xl flex flex-col items-center text-center gap-3 shadow-sm">
+          <div className="p-5 max-w-md bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl flex flex-col items-center text-center gap-3 shadow-sm">
             <AlertTriangle className="w-10 h-10 text-rose-500" />
-            <h2 className="text-sm font-black text-rose-800 uppercase tracking-wider">Failed to Load Script</h2>
-            <p className="text-xs text-rose-700 leading-relaxed font-sans">{error}</p>
-            <p className="text-xs font-mono text-slate-400 bg-white px-2 py-1 border border-slate-200 rounded select-all w-full truncate">
+            <h2 className="text-sm font-black text-rose-800 dark:text-rose-300 uppercase tracking-wider">Failed to Load Script</h2>
+            <p className="text-xs text-rose-700 dark:text-rose-400 leading-relaxed font-sans">{error}</p>
+            <p className="text-xs font-mono text-slate-400 dark:text-slate-400 bg-white dark:bg-slate-900 px-2 py-1 border border-slate-200 dark:border-slate-800 rounded select-all w-full truncate">
               {nativePath || fileName}
             </p>
           </div>
@@ -685,7 +702,7 @@ export default function LiveReadPopout({
             {/* Plain Text Display */}
             {isText && (
               <div 
-                className="flex-1 w-full bg-slate-50 border border-slate-200 rounded-xl p-6 overflow-y-auto font-sans leading-relaxed select-text cursor-text text-slate-800 shadow-inner whitespace-pre-wrap"
+                className="flex-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 overflow-y-auto font-sans leading-relaxed select-text cursor-text text-slate-800 dark:text-slate-100 shadow-inner whitespace-pre-wrap"
                 style={{ fontSize: `${zoomLevel}px`, lineHeight: 1.6 }}
               >
                 {fileContent || (
@@ -696,13 +713,13 @@ export default function LiveReadPopout({
 
             {/* Image File Display */}
             {isImage && fileUrl && (
-              <div ref={imageContainerRef} className="flex-1 w-full bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center justify-center overflow-auto shadow-inner custom-scrollbar relative">
+              <div ref={imageContainerRef} className="flex-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4 flex items-center justify-center overflow-auto shadow-inner custom-scrollbar relative">
                 <img 
                   src={fileUrl} 
                   alt={fileName} 
                   onLoad={handleImageLoad}
                   referrerPolicy="no-referrer"
-                  className="rounded shadow-md border border-slate-200 transition-all duration-150 shrink-0"
+                  className="rounded shadow-md border border-slate-200 dark:border-slate-700 transition-all duration-150 shrink-0"
                   style={{
                     width: imageNaturalWidth ? `${(imageZoom / 100) * imageNaturalWidth}px` : `${imageZoom}%`,
                     height: 'auto',
@@ -716,7 +733,7 @@ export default function LiveReadPopout({
 
             {/* PDF File Display */}
             {isPdf && fileUrl && (
-              <div className="flex-1 w-full h-full bg-slate-50 border border-slate-200 rounded-xl overflow-hidden shadow-inner flex flex-col p-0 relative">
+              <div className="flex-1 w-full h-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-inner flex flex-col p-0 relative">
                 <iframe 
                   key={`pdf-frame-${pdfZoom}`}
                   src={`${fileUrl}#toolbar=0&navpanes=0&zoom=${pdfZoom}`}
@@ -731,24 +748,24 @@ export default function LiveReadPopout({
       </div>
 
       {/* FOOTER & LOGGING CONTROLS */}
-      <div className="bg-slate-50 border-t border-slate-200 p-4 shrink-0 flex justify-end items-center">
+      <div className="bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 p-4 shrink-0 flex justify-end items-center">
         {isPreviewMode ? (
           <div className="w-full flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 font-bold text-xs">
-              <Ear className="w-4 h-4 text-purple-600" />
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-bold text-xs">
+              <Ear className="w-4 h-4 text-purple-600 dark:text-purple-400" />
               <span>Preview Mode (No Logging)</span>
             </div>
 
-            <div className="inline-flex items-center rounded-lg shadow-sm -space-x-px border border-slate-300 overflow-hidden shrink-0 h-9">
+            <div className="inline-flex items-center rounded-lg shadow-sm -space-x-px border border-slate-300 dark:border-slate-700 overflow-hidden shrink-0 h-9">
               {backupMp3Url && (
                 <button
                   type="button"
                   onClick={handleTogglePreviewBackupMp3}
                   className={cn(
-                    "h-full px-3 border-r border-slate-300 font-black text-xs uppercase flex items-center gap-1.5 select-none cursor-pointer leading-none shrink-0 transition-colors",
+                    "h-full px-3 border-r border-slate-300 dark:border-slate-700 font-black text-xs uppercase flex items-center gap-1.5 select-none cursor-pointer leading-none shrink-0 transition-colors",
                     backupAudioPlaying
                       ? "bg-purple-700 text-white hover:bg-purple-800"
-                      : "bg-purple-100 hover:bg-purple-200 text-purple-800"
+                      : "bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/70 dark:hover:bg-purple-900 text-purple-800 dark:text-purple-200"
                   )}
                   title={backupAudioPlaying ? "Stop backup MP3 preview playback" : "Listen to backup MP3 preview"}
                 >
@@ -759,7 +776,7 @@ export default function LiveReadPopout({
                     </>
                   ) : (
                     <>
-                      <Play className="w-3.5 h-3.5 fill-current text-purple-700" />
+                      <Play className="w-3.5 h-3.5 fill-current text-purple-700 dark:text-purple-300" />
                       <span>Preview mp3</span>
                     </>
                   )}
@@ -781,7 +798,7 @@ export default function LiveReadPopout({
             {/* Timestamp editor and custom logger input */}
             <div className="flex items-center gap-2.5 w-full sm:w-auto shrink-0">
               <div className="flex flex-col justify-between h-9 shrink-0 select-none py-0.5">
-                <div className="text-[10px] sm:text-xs font-black text-slate-400 uppercase tracking-wider leading-none">
+                <div className="text-[10px] sm:text-xs font-black text-slate-400 dark:text-slate-400 uppercase tracking-wider leading-none">
                   Logged Time:
                 </div>
                 {isEditingLogTime && (
@@ -791,7 +808,7 @@ export default function LiveReadPopout({
                       setIsEditingLogTime(false);
                       setLoggedTime(''); // Reset logged status so we tick live
                     }}
-                    className="text-[9px] bg-slate-200 hover:bg-slate-300 text-slate-700 px-1 py-0.5 rounded font-black uppercase transition-colors text-center w-fit leading-none cursor-pointer"
+                    className="text-[9px] bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 px-1 py-0.5 rounded font-black uppercase transition-colors text-center w-fit leading-none cursor-pointer"
                     title="Reset to live ticking clock"
                   >
                     Reset
@@ -799,9 +816,9 @@ export default function LiveReadPopout({
                 )}
               </div>
               <div className={cn(
-                "relative flex items-center bg-white border rounded px-2 py-1 focus-within:ring-1 w-[115px] shrink-0 transition-all h-9",
+                "relative flex items-center bg-white dark:bg-slate-900 border rounded px-2 py-1 focus-within:ring-1 w-[115px] shrink-0 transition-all h-9",
                 isLogTimeValid 
-                  ? "border-slate-300 focus-within:ring-purple-500 focus-within:border-purple-500" 
+                  ? "border-slate-300 dark:border-slate-700 focus-within:ring-purple-500 focus-within:border-purple-500" 
                   : "border-rose-500 focus-within:ring-rose-500 focus-within:border-rose-500 ring-1 ring-rose-500"
               )}>
                 <input 
@@ -816,7 +833,7 @@ export default function LiveReadPopout({
                   }}
                   className={cn(
                     "w-full bg-transparent outline-none border-0 font-mono font-bold text-xs text-center",
-                    isLogTimeValid ? "text-slate-700" : "text-rose-600"
+                    isLogTimeValid ? "text-slate-700 dark:text-slate-200" : "text-rose-600 dark:text-rose-400"
                   )}
                   title="Click to manually edit log execution time"
                 />
@@ -824,23 +841,23 @@ export default function LiveReadPopout({
             </div>
 
             {/* Unified joined action buttons */}
-            <div className="inline-flex items-center rounded-lg shadow-sm -space-x-px border border-slate-300 overflow-hidden shrink-0 h-9">
+            <div className="inline-flex items-center rounded-lg shadow-sm -space-x-px border border-slate-300 dark:border-slate-700 overflow-hidden shrink-0 h-9">
               {backupMp3Url && (
                 <button
                   type="button"
                   onClick={handlePlayBackupMp3Action}
                   disabled={isLogButtonDisabled}
-                  className="h-full px-3 bg-purple-100 hover:bg-purple-200 disabled:opacity-40 disabled:hover:bg-purple-100 disabled:cursor-not-allowed text-purple-800 border-r border-slate-300 font-black text-xs uppercase flex items-center gap-1.5 select-none cursor-pointer leading-none shrink-0 transition-colors"
+                  className="h-full px-3 bg-purple-100 hover:bg-purple-200 dark:bg-purple-950/70 dark:hover:bg-purple-900 disabled:opacity-40 disabled:hover:bg-purple-100 disabled:cursor-not-allowed text-purple-800 dark:text-purple-200 border-r border-slate-300 dark:border-slate-700 font-black text-xs uppercase flex items-center gap-1.5 select-none cursor-pointer leading-none shrink-0 transition-colors"
                   title="Close read window and play backup MP3 track on player card"
                 >
-                  <Play className="w-3.5 h-3.5 fill-current text-purple-700" />
+                  <Play className="w-3.5 h-3.5 fill-current text-purple-700 dark:text-purple-300" />
                   <span>Play mp3</span>
                 </button>
               )}
               <button
                 type="button"
                 onClick={handleCloseNotRead}
-                className="h-full px-3 bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-800 border-r border-slate-300 font-black text-xs uppercase flex items-center gap-1.5 select-none cursor-pointer leading-none shrink-0 transition-colors"
+                className="h-full px-3 bg-white hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white border-r border-slate-300 dark:border-slate-700 font-black text-xs uppercase flex items-center gap-1.5 select-none cursor-pointer leading-none shrink-0 transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
                 <span>{closeButtonText}</span>

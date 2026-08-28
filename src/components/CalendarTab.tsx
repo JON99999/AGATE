@@ -2334,7 +2334,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Saint Boogie Brass Hour"
+                  placeholder="Enter Show name"
                   value={showFormData.name || ''}
                   onChange={e => {
                     const newName = e.target.value;
@@ -2355,7 +2355,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Saint_Boogie_Bra"
+                  placeholder="Enter Short name"
                   value={showFormData.nameShort || ''}
                   onChange={e => {
                     setIsNameShortManuallyEdited(true);
@@ -2379,7 +2379,7 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
               </label>
               <input
                 type="text"
-                placeholder="e.g. DJ Skeet"
+                placeholder="Enter Show host"
                 value={showFormData.host || ''}
                 onChange={e => setShowFormData({ ...showFormData, host: e.target.value })}
                 className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-all text-slate-800 h-10"
@@ -4172,23 +4172,26 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                           {/* Right: details area with comfortable inner padding */}
                           <div className="flex-1 min-w-0 flex flex-col justify-between py-2 pr-3 pl-3.5">
                             {/* Title of schedule first, category tag on the right attached to details tag */}
-                            <div className="flex justify-between items-center mb-1 gap-2">
-                              <span className="text-base font-black text-slate-800 truncate leading-none flex-1 min-w-0">
+                            <div className="flex justify-between items-start mb-1 gap-2">
+                              <span className="text-base font-black text-slate-800 leading-tight basis-2/5 min-w-0 line-clamp-2" title={s.name}>
                                 {s.name}
                               </span>
-                              <div className="text-xs font-bold uppercase tracking-tighter shrink-0 text-right flex items-center gap-1.5 leading-none">
+                              <div className="text-xs font-bold uppercase tracking-tighter basis-3/5 min-w-0 text-right line-clamp-2 leading-tight">
                                 {!listCardHideTypeTag && (
                                   <span className={cn(
-                                    "px-1.5 py-0.5 rounded text-xs uppercase font-bold tracking-tighter leading-none inline-block border border-slate-300",
-                                    s.type === InterstitialType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black border-purple-300" :
-                                    s.type === InterstitialType.BASIC_HOURLY ? "bg-blue-100 text-blue-700 border-blue-200" :
-                                    "bg-orange-100 text-orange-700 border-orange-200"
+                                    "font-black",
+                                    s.type === InterstitialType.ONE_TIME ? "text-purple-700 dark:text-purple-400" :
+                                    s.type === InterstitialType.BASIC_HOURLY ? "text-blue-700 dark:text-blue-400" :
+                                    "text-orange-700 dark:text-orange-400"
                                   )}>
                                     {s.type === InterstitialType.ONE_TIME ? "One-Time" : s.type === InterstitialType.BASIC_HOURLY ? "Hourly" : "Advanced"}
                                   </span>
                                 )}
+                                {!listCardHideTypeTag && !listCardHideSummaryTag && (
+                                  <span className="text-slate-400 mx-1">•</span>
+                                )}
                                 {!listCardHideSummaryTag && (
-                                  <span className="text-slate-550 font-bold">
+                                  <span className="text-slate-550 dark:text-slate-400 font-bold" title={getInterstitialSummary(s)}>
                                     {getInterstitialSummary(s)}
                                   </span>
                                 )}
@@ -4499,24 +4502,27 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
                               {/* Right: details area with comfortable inner padding */}
                               <div className="flex-1 min-w-0 flex flex-col justify-between py-2 pr-3 pl-3.5 opacity-90">
                                 {/* Title of schedule first, category tag on the right attached to details tag */}
-                                <div className="flex justify-between items-center mb-1 gap-2">
-                                  <span className="text-base font-black text-slate-500 truncate leading-none flex-1 min-w-0">
+                                <div className="flex justify-between items-start mb-1 gap-2">
+                                  <span className="text-base font-black text-slate-500 leading-tight basis-2/5 min-w-0 line-clamp-2" title={s.name}>
                                     {s.name}
                                   </span>
-                                  <div className="text-xs font-bold uppercase tracking-tighter shrink-0 text-right flex items-center gap-1.5 leading-none">
+                                  <div className="text-xs font-bold uppercase tracking-tighter basis-3/5 min-w-0 text-right line-clamp-2 leading-tight">
                                     {!listCardHideTypeTag && (
                                       <span className={cn(
-                                        "px-1.5 py-0.5 rounded text-xs uppercase font-bold tracking-tighter leading-none inline-block opacity-75 border border-slate-300",
-                                        s.type === InterstitialType.ONE_TIME ? "bg-purple-100 text-purple-700 font-black border-purple-200" :
-                                        s.type === InterstitialType.BASIC_HOURLY ? "bg-blue-100 text-blue-700 border-blue-200" :
-                                        "bg-orange-100 text-orange-700 border-orange-200"
+                                        "font-black opacity-80",
+                                        s.type === InterstitialType.ONE_TIME ? "text-purple-700 dark:text-purple-400" :
+                                        s.type === InterstitialType.BASIC_HOURLY ? "text-blue-700 dark:text-blue-400" :
+                                        "text-orange-700 dark:text-orange-400"
                                       )}>
                                         {s.type === InterstitialType.ONE_TIME ? "One-Time" : s.type === InterstitialType.BASIC_HOURLY ? "Hourly" : "Advanced"}
                                       </span>
                                     )}
+                                    {!listCardHideTypeTag && !listCardHideSummaryTag && (
+                                      <span className="text-slate-400 mx-1">•</span>
+                                    )}
                                     {!listCardHideSummaryTag && (
-                                      <span className="text-slate-500 font-bold">
-                                        {getInterstitialSummary(s)} • {isExpired ? <span className="text-red-650 font-black">EXPIRED</span> : 'SUSPENDED'}
+                                      <span className="text-slate-500 font-bold" title={`${getInterstitialSummary(s)} • ${isExpired ? 'EXPIRED' : 'SUSPENDED'}`}>
+                                        {getInterstitialSummary(s)} <span className="text-slate-400 mx-1">•</span> {isExpired ? <span className="text-red-650 font-black">EXPIRED</span> : 'SUSPENDED'}
                                       </span>
                                     )}
                                   </div>

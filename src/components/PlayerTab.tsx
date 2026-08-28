@@ -1787,16 +1787,19 @@ export default function PlayerTab({
     // Append show entries first
     items.push(...showEntries);
 
-    // Append Show End indicator card right after show entries
-    items.push({
-      type: 'show-end',
-      id: 'show-end-indicator',
-      showEnd,
-      diffSeconds,
-      diffFormatted,
-      status,
-      startTime: new Date(showEndCardTimeMs)
-    });
+    // Append Show End indicator card right after show entries (if in Export mode, only display when evergreen folder has files)
+    const shouldShowEndIndicator = playMode !== 'Export' || (playlistTracks && playlistTracks.length > 0);
+    if (shouldShowEndIndicator) {
+      items.push({
+        type: 'show-end',
+        id: 'show-end-indicator',
+        showEnd,
+        diffSeconds,
+        diffFormatted,
+        status,
+        startTime: new Date(showEndCardTimeMs)
+      });
+    }
 
     // Extra entries are active entries starting at or after showEnd boundary / showEndCardTimeMs
     const extraEntries = activeTimelineEntries.filter(i => i.startTime.getTime() >= showEndMs || i.startTime.getTime() >= showEndCardTimeMs);
@@ -3710,38 +3713,40 @@ export default function PlayerTab({
                 </div>
               );
             }
-            if (playlistTracks.length === 0) {
-              const folderLabel = 'Playlists';
-              return (
-                <div className="flex flex-col items-center justify-center p-6 text-center bg-purple-50/50 border border-purple-200 rounded-xl m-4 space-y-3">
-                  <ListMusic className="w-8 h-8 text-purple-600" />
-                  <h3 className="text-sm font-black uppercase text-slate-900 tracking-wider">
-                    No Tracks Found in {folderLabel} Folder
-                  </h3>
-                  <p className="text-xs text-slate-600 max-w-md">
-                    Please place <strong>.m3u</strong> playlist files or <strong>.mp3</strong> tracks inside:
-                    <br />
-                    <code className="bg-slate-200 px-1.5 py-0.5 rounded text-slate-800 text-[11px] font-mono mt-1 inline-block">
-                      /medialibrary/{folderLabel}/{effectiveShow.nameShort || effectiveShow.name}
-                    </code>
-                  </p>
-                  <button
-                    onClick={handleVerifyEvergreens}
-                    disabled={isVerifyingEvergreens}
-                    className="p-1.5 px-3 bg-purple-700 hover:bg-purple-800 text-white rounded text-xs font-black uppercase cursor-pointer flex items-center gap-1.5 shadow-sm active:translate-y-px"
-                  >
-                    <span>{isVerifyingEvergreens ? "CHECKING..." : "CHECK EVERGREEN & PLAYLIST FOLDERS"}</span>
-                  </button>
-                </div>
-              );
-            }
-            const firstUnplayedIdx = playlistTimeline.findIndex(item => item.type === 'track' && !item.played);
+            const noMp3sTooltip = `Please place .m3u playlist files or .mp3 tracks inside:\n/medialibrary/${playlistFolderType}/${effectiveShow.nameShort || effectiveShow.name}`;
+            const firstUnplayedIdx = playlistTimeline.findIndex(item => {
+              if (item.type === 'track') return !item.played;
+              if (item.type === 'break') {
+                return item.interstitials.some(s => {
+                  const playedLog = logs.find(l => 
+                    l.interstitialId === s.id && 
+                    (l.interstitialTime === item.slotTime.toISOString() || isSameMinute(parseISO(l.timestamp), item.slotTime)) &&
+                    (l.status === 'played' || l.status === 'backup play')
+                  );
+                  return !playedLog;
+                });
+              }
+              return false;
+            });
             const unplayedTimelineCards = playlistTimeline.filter(
               item => (item.type === 'track' && !item.played && !item.cancelled) || item.type === 'break'
             );
 
             return (
               <div className="space-y-2 p-2">
+                {playlistTracks.length === 0 && (
+                  <div
+                    key="no-mp3s-card"
+                    id="no-mp3s-indicator"
+                    title={noMp3sTooltip}
+                    className="min-h-7 py-1 px-3 flex items-center justify-between gap-2 rounded shadow-sm border bg-purple-50 border-purple-200 text-purple-900 select-none w-full cursor-help my-1.5"
+                  >
+                    <span className="text-xs font-black uppercase text-purple-900 tracking-widest font-sans flex items-center gap-1.5">
+                      <ListMusic className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                      No mp3's found.
+                    </span>
+                  </div>
+                )}
                 {playlistTimeline.map((item, index) => {
                   if (item.type === 'header') {
                     return null;
@@ -4044,8 +4049,10 @@ export default function PlayerTab({
                   const diffSeconds = Math.abs(differenceInSeconds(now, slot));
 
                   return (
-                    <div key={item.id} className="space-y-1.5 my-1.5">
-                      {sForSlot.map((s, idx) => {
+                    <Fragment key={item.id}>
+                      {nowCard}
+                      <div className="space-y-1.5 my-1.5">
+                        {sForSlot.map((s, idx) => {
                         const playedLog = logs.find(l => 
                           l.interstitialId === s.id && 
                           (l.interstitialTime === slot.toISOString() || isSameMinute(parseISO(l.timestamp), slot)) &&
@@ -4297,7 +4304,8 @@ export default function PlayerTab({
                           </div>
                         );
                       })}
-                    </div>
+                      </div>
+                    </Fragment>
                   );
                 }
 

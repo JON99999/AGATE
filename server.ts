@@ -24,18 +24,6 @@ const SETTINGS_FILE = IS_PORTABLE
   ? path.join(process.env.PORTABLE_EXECUTABLE_DIR!, 'interstitial-er_settings.json')
   : path.join(DATA_DIR, 'interstitial-er_settings.json');
 
-// Ensure base directories exist
-[DATA_DIR, LOG_DIR].forEach(dir => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
-
-if (!fs.existsSync(SCHEDULE_FILE_DEFAULT)) {
-  fs.writeFileSync(SCHEDULE_FILE_DEFAULT, JSON.stringify([]));
-}
-if (!fs.existsSync(LOG_FILE_DEFAULT)) {
-  fs.writeFileSync(LOG_FILE_DEFAULT, JSON.stringify([]));
-}
-
 // Global server-side locations configuration
 let currentSettings = {
   mode: 'Demo',
