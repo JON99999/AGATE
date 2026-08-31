@@ -104,7 +104,7 @@ Use the following prompts individually in sequence to implement the Playlist fea
 >    - Retain played playlist song cards on the Player view at their exact play timestamp with updated completion state typography matching MP3 interstitials.
 > 3. Logging Separation:
 >    - Do not write playlist songs to the primary log file.
->    - Create a dedicated playlist log file named after the short show name, date, and time (`<ShortShowName>_<Date>_<Time>_playlist.log`), containing regular interstitial events plus played playlist track metadata.
+>    - Persist dedicated playlist show state and played tracks directly to the structured show JSON log file (`Log_<Show>_<YYYY>_<MM>_<DD>_at_<HH>_<min>.json`).
 
 ---
 

@@ -2026,31 +2026,6 @@ export default function PlayerTab({
 
         // Reset card redraw timer when play is started
         startCardRotateTimer();
-
-        if (playlistShow && showStart) {
-          const showNameShort = playlistShow.nameShort || playlistShow.name;
-
-          fetch('/api/shows/playlist/log-entry', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              showNameShort,
-              showStartTime: showStart.toISOString(),
-              entry: {
-                timestamp: playedAt,
-                type: 'track',
-                name: trackTitle,
-                fileName: track.fileName,
-                status: 'played',
-                artist: trackArtist,
-                albumArtist: trackAlbumArtist,
-                album: trackAlbum,
-                durationSeconds: trackDurationSeconds,
-                durationFormatted: trackDurationFormatted
-              }
-            })
-          }).catch(e => console.error('Failed to save playlist track log:', e));
-        }
       } catch (e) {
         console.error('Error playing playlist track:', e);
       }

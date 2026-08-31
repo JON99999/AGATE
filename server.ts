@@ -2195,57 +2195,6 @@ async function startServer() {
     }
   });
 
-  // API - Dedicated Playlist Show Log Entry
-  app.post('/api/shows/playlist/log-entry', (req, res) => {
-    try {
-      const { showNameShort, showStartTime, entry } = req.body;
-      if (!showNameShort) {
-        return res.status(400).json({ error: 'showNameShort is required' });
-      }
-
-      const baseLogFilePath = getLogFilePath();
-      const baseLogDir = baseLogFilePath ? path.dirname(baseLogFilePath) : (currentSettings.localPathLogs || null);
-      if (!baseLogDir || !fs.existsSync(baseLogDir)) {
-        return res.status(400).json({ error: 'Logs directory is not configured or accessible' });
-      }
-
-      const playlistLogsDir = path.join(baseLogDir, 'Playlists');
-      if (!fs.existsSync(playlistLogsDir)) {
-        fs.mkdirSync(playlistLogsDir, { recursive: true });
-      }
-
-      // File name: <ShortShowName>_<Date>_<Time>_playlist.log
-      const startDate = showStartTime ? new Date(showStartTime) : new Date();
-      const year = startDate.getFullYear();
-      const month = String(startDate.getMonth() + 1).padStart(2, '0');
-      const day = String(startDate.getDate()).padStart(2, '0');
-      const hours = String(startDate.getHours()).padStart(2, '0');
-      const minutes = String(startDate.getMinutes()).padStart(2, '0');
-
-      const dateStr = `${year}-${month}-${day}`;
-      const timeStr = `${hours}-${minutes}`;
-
-      const safeShowName = String(showNameShort).replace(/[\/\\?%*:|"<>]/g, '_');
-      const logFileName = `${safeShowName}_${dateStr}_${timeStr}_playlist.log`;
-      const logFilePath = path.join(playlistLogsDir, logFileName);
-
-      const timestamp = entry?.timestamp || new Date().toISOString();
-      const type = entry?.type || 'track';
-      const name = entry?.name || entry?.fileName || 'Unknown Item';
-      const status = entry?.status || 'played';
-      const duration = entry?.durationFormatted || (entry?.durationSeconds ? `${entry.durationSeconds}s` : '');
-
-      const logLine = `[${timestamp}] [${type.toUpperCase()}] ${name}${duration ? ` (${duration})` : ''} - ${status.toUpperCase()}\n`;
-
-      fs.appendFileSync(logFilePath, logLine, 'utf-8');
-
-      res.json({ success: true, logFileName, logFilePath });
-    } catch (e: any) {
-      console.error('Failed to save playlist show log entry:', e);
-      res.status(500).json({ error: 'Failed to save playlist log: ' + e.message });
-    }
-  });
-
   // API - Dedicated Playlist Show JSON Log Save
   app.post('/api/shows/playlist/save-log-json', (req, res) => {
     try {
