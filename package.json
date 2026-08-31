@@ -2,7 +2,7 @@
   "name": "wipe",
   "private": true,
   "version": "0.13.0",
-  "description": "WIPE - Wonderful Interstitial PlayEr: Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.",
+  "description": "WIPE - Wonderful Interstitial PlayEr - An app designed for Radio Stations to schedule, play, read, and log interstitials and drops.",
   "author": "WIPE",
   "repository": {
     "type": "git",

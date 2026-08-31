@@ -50,6 +50,11 @@ When opening the executable on Windows:
 
 ---
 
-## Developer Documentation
+## License & Alternative Licensing
 
-If you are a developer looking for instructions on local repository setup, building, or packaging from source, please refer to the [DEVELOPMENT.md](./DEVELOPMENT.md) guide.
+**WIPE (Wonderful Interstitial PlayEr)** is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](./LICENSE) file for the complete license terms.
+
+Third-party dependencies and their respective open source licenses are documented in [OPEN_SOURCE_LICENSES.md](./OPEN_SOURCE_LICENSES.md).
+
+### Alternative Licensing
+If you desire alternative licensing terms (such as an exemption from GPLv3 copyleft terms), please contact the developer to discuss custom arrangements.

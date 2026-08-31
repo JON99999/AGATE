@@ -165,10 +165,39 @@ function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
     }
   };
 
+  const openSourceLicensesDetail = `WIPE (Wonderful Interstitial PlayEr) is licensed under the GNU General Public License v3.0 (GPLv3).
+
+Key Open Source Libraries & Components:
+• Electron (Chromium & Node.js runtime) - MIT License
+• React & React DOM - MIT License
+• Express - MIT License
+• Vite - MIT License
+• Tailwind CSS - MIT License
+• Lucide Icons - ISC License
+• Motion (motion/react) - MIT License
+• electron-builder - MIT License
+• Google GenAI & Google APIs - Apache 2.0
+• node-cron - ISC License
+• dotenv - BSD-2-Clause
+
+For full component listings and complete license texts, see OPEN_SOURCE_LICENSES.md and LICENSE in the application directory.`;
+
   const macAppMenu = isMac ? {
     label: app.name || 'WIPE',
     submenu: [
       { role: 'about' },
+      {
+        label: 'Open Source Licenses',
+        enabled: !isLiveReadMenuLocked,
+        click: () => {
+          dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            title: 'Open Source Licenses',
+            message: 'Open Source Licenses and Third-Party Notices',
+            detail: openSourceLicensesDetail
+          });
+        }
+      },
       { type: 'separator' },
       { role: 'hide', enabled: !isLiveReadMenuLocked },
       { role: 'hideOthers', enabled: !isLiveReadMenuLocked },
@@ -290,6 +319,18 @@ function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
         click: () => sendNavigate('help')
       },
       ...(!isMac ? [
+        {
+          label: 'Open Source Licenses',
+          enabled: !isLiveReadMenuLocked,
+          click: () => {
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: 'Open Source Licenses',
+              message: 'Open Source Licenses and Third-Party Notices',
+              detail: openSourceLicensesDetail
+            });
+          }
+        },
         {
           label: 'About WIPE',
           enabled: !isLiveReadMenuLocked,
