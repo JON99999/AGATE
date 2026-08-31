@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { Interstitial, LogEntry, Show } from '../types';
-import { Mp3ID3Metadata, parseID3Bytes, normalizeInterstitials } from './utils';
+import { Mp3ID3Metadata, parseID3Bytes, normalizeInterstitials, generateBackupFilename } from './utils';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App & Auth
@@ -863,7 +863,7 @@ async function getOrCreateBackupsFolder(parentFolderId: string): Promise<string>
 /**
  * Trigger archiving backup copies in Google Drive
  */
-export const triggerDriveBackup = async (): Promise<void> => {
+export const triggerDriveBackup = async (appMode?: string): Promise<void> => {
   // 1. Backup schedules
   try {
     const prefsFolder = DRIVE_FOLDERS.preferences;
@@ -894,14 +894,7 @@ export const triggerDriveBackup = async (): Promise<void> => {
         const updatedStr = JSON.stringify(updatedObj, null, 2);
         await uploadFileContent(fileId, updatedStr);
 
-        const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const formattedDate = `${yyyy}_${mm}_${dd}`;
-        const padCounter = String(currentCounter).padStart(8, '0');
-        const backupName = `interstitials_Backup_${formattedDate}_${padCounter}.json`;
-
+        const backupName = generateBackupFilename('interstitials', appMode || 'DRIVE');
         const backupsFolderId = await getOrCreateBackupsFolder(prefsFolder);
         let backupFileId = await findFileInFolder(backupName, backupsFolderId);
         if (!backupFileId) {
@@ -945,14 +938,7 @@ export const triggerDriveBackup = async (): Promise<void> => {
         const updatedStr = JSON.stringify(updatedObj, null, 2);
         await uploadFileContent(fileId, updatedStr);
 
-        const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const formattedDate = `${yyyy}_${mm}_${dd}`;
-        const padCounter = String(currentCounter).padStart(8, '0');
-        const backupName = `logs_Backup_${formattedDate}_${padCounter}.json`;
-
+        const backupName = generateBackupFilename('logs', appMode || 'DRIVE');
         const backupsFolderId = await getOrCreateBackupsFolder(logsFolder);
         let backupFileId = await findFileInFolder(backupName, backupsFolderId);
         if (!backupFileId) {
@@ -996,14 +982,7 @@ export const triggerDriveBackup = async (): Promise<void> => {
         const updatedStr = JSON.stringify(updatedObj, null, 2);
         await uploadFileContent(fileId, updatedStr);
 
-        const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const formattedDate = `${yyyy}_${mm}_${dd}`;
-        const padCounter = String(currentCounter).padStart(8, '0');
-        const backupName = `shows_Backup_${formattedDate}_${padCounter}.json`;
-
+        const backupName = generateBackupFilename('shows', appMode || 'DRIVE');
         const backupsFolderId = await getOrCreateBackupsFolder(prefsFolder);
         let backupFileId = await findFileInFolder(backupName, backupsFolderId);
         if (!backupFileId) {

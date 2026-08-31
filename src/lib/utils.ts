@@ -1012,4 +1012,28 @@ export function validateTimeGatedMp3s(mp3s: TimeGatedMp3[], nowIso?: string, par
   return { errors, warnings, gapStartIds, gapEndIds, overlapStartIds, overlapEndIds, missingStartIds, missingFileIds, hasErrors, sorted };
 }
 
+/**
+ * Generates a collision-resistant, lexicographically sortable backup filename:
+ * [type]_backup_[YYYYMMDD]_[HHmmss]_[MODE]_[salt].json
+ * where [MODE] is 'LIVE', 'STUDIO', or 'ADMIN'
+ */
+export function generateBackupFilename(
+  type: 'logs' | 'interstitials' | 'shows',
+  workstationMode?: string
+): string {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const hh = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+
+  const rawMode = (workstationMode || '').toUpperCase().trim();
+  const mode = rawMode === 'LIVE' ? 'LIVE' : rawMode === 'STUDIO' ? 'STUDIO' : 'ADMIN';
+  const salt = Math.random().toString(16).substring(2, 6).padStart(4, '0');
+
+  return `${type}_backup_${yyyy}${mm}${dd}_${hh}${min}${ss}_${mode}_${salt}.json`;
+}
+
 
