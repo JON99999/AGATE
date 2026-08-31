@@ -510,6 +510,64 @@ export const updateAudioCache = async (activeUrls: string[], token: string | nul
   return updateAudioCacheWithProgress(activeUrls, token);
 };
 
+/**
+ * Prepare and cache context for a specific show on-demand (Prerecord / Export / Playlist)
+ */
+export const prepareShowContext = async (params: {
+  showId: string;
+  showName?: string;
+  showNameShort?: string;
+  context?: 'Prerecord' | 'Export' | 'Playlist';
+  folderType?: 'Playlists' | 'Evergreens';
+}): Promise<{
+  success: boolean;
+  context: any;
+  totalTracks: number;
+  totalDurationSeconds: number;
+}> => {
+  try {
+    const res = await fetch(`/api/shows/${encodeURIComponent(params.showId)}/prepare-context`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Failed to prepare show context');
+    }
+    return await res.json();
+  } catch (err: any) {
+    console.error('Error preparing show context:', err);
+    throw err;
+  }
+};
+
+/**
+ * Clear the server-side show context and release memory
+ */
+export const clearShowContext = async (showId?: string): Promise<void> => {
+  try {
+    const endpoint = showId ? `/api/shows/${encodeURIComponent(showId)}/clear-context` : '/api/shows/clear-context';
+    await fetch(endpoint, { method: 'POST' });
+  } catch (err) {
+    console.warn('Error clearing show context:', err);
+  }
+};
+
+/**
+ * Get the currently active prepared show context
+ */
+export const getActiveShowContext = async (): Promise<any> => {
+  try {
+    const res = await fetch('/api/shows/active-context');
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.context || null;
+  } catch (err) {
+    return null;
+  }
+};
+
 // General Google Drive Helpers
 async function driveFetch(endpoint: string, options: RequestInit = {}) {
   const token = getAccessToken();
@@ -1048,7 +1106,7 @@ export const getPlayableUrl = (url: string | undefined): string => {
     return `${resolvedUrl}&access_token=${token}`;
   }
   if (!resolvedUrl.startsWith('http://') && !resolvedUrl.startsWith('https://') && !resolvedUrl.startsWith('blob:') && !resolvedUrl.startsWith('/')) {
-    return `/api/stream-local?file=${encodeURIComponent(resolvedUrl)}`;
+    return `/api/media/stream?path=${encodeURIComponent(resolvedUrl)}`;
   }
   return resolvedUrl;
 };

@@ -9,30 +9,15 @@ import {
   Clock,
   List,
   Settings,
-  Plus,
   Play,
   Check,
-  CheckCircle,
   AlertCircle,
   RefreshCw,
-  LogOut,
-  ChevronLeft,
-  ChevronRight,
   Save,
-  Trash2,
   History,
   Folder,
-  HardDrive,
   HardDriveDownload,
   RotateCcw,
-  Wifi,
-  WifiOff,
-  ShieldCheck,
-  Mail,
-  Globe,
-  ExternalLink,
-  Download,
-  FolderOpen,
   HelpCircle,
   Sun,
   Moon,
@@ -43,37 +28,30 @@ import {
   ListMusic,
   AlarmClock,
   NotebookPen,
-  Undo2,
   Zap,
-  ZapOff,
-  Ruler,
   Square,
-  X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   format,
-  addHours,
-  subHours,
-  isSameMinute,
-  startOfHour,
   addMinutes,
   isAfter,
   isBefore,
   parseISO,
-  startOfDay,
-  endOfDay,
 } from "date-fns";
 import { Interstitial, InterstitialType, LogEntry, Show } from "./types";
 import PlayerTab from "./components/PlayerTab";
 import CalendarTab from "./components/CalendarTab";
 import LogTab from "./components/LogTab";
 import LiveReadPopout from "./components/LiveReadPopout";
-import GoogleAuthSection from "./components/GoogleAuthSection";
 import LocalHelpModal from "./components/LocalHelpModal";
 import { SaveRecoveryModal, SaveRecoveryInfo } from "./components/SaveRecoveryModal";
+import { PlaylistSelectModal } from "./components/PlaylistSelectModal";
+import { PrerecordModal } from "./components/PrerecordModal";
+import { LocationsModal } from "./components/LocationsModal";
+import { ExportModal } from "./components/ExportModal";
 import { getInitialTheme, applyTheme, ThemeId } from "./lib/theme";
-import { cn, extractFolderId, getSortedShows, getShowShade, isTimeInShow, getActualShowStart, normalizeInterstitial, normalizeInterstitials, getAllRequiredMp3Urls, getActiveMp3ForSlot } from "./lib/utils";
+import { cn, extractFolderId, getSortedShows, getShowShade, isTimeInShow, getActualShowStart, normalizeInterstitials, getAllRequiredMp3Urls, getActiveMp3ForSlot } from "./lib/utils";
 import {
   initAuth,
   googleSignIn,
@@ -89,21 +67,24 @@ import {
   listMP3sFromDrive,
   updateAudioCache,
   updateAudioCacheWithProgress,
+  prepareShowContext,
+  clearShowContext,
   getPlayableUrl,
   CachingProgressReport,
   DRIVE_FOLDERS,
   mp3BlobCache,
-  mp3DurationCache,
   validateGoogleDriveAccess,
   getSavedSettings,
   saveSettings,
-  LocationSettings,
   DEFAULT_SETTINGS,
   driveFileNameCache,
   availableFilesCache,
   triggerDriveBackup,
   checkPlaylistShowFilesOnDrive,
 } from "./lib/driveService";
+import { useStartupGate } from "./hooks/useStartupGate";
+import { useAppClock } from "./hooks/useAppClock";
+import { useScheduleManager } from "./hooks/useScheduleManager";
 
 const getFutureDatesForShow = (
   showDay: string,
@@ -183,6 +164,16 @@ export default function App() {
   const [calendarSubTab, setCalendarSubTab] = useState<"calendar" | "list" | "shows">(
     "calendar",
   );
+
+  const {
+    startupStatus,
+    isStartupReady,
+    startupMessage,
+    missingDefinitions,
+    missingFolders,
+    verifyStartup,
+  } = useStartupGate();
+
   const [isLiveReadActive, setIsLiveReadActive] = useState(false);
   const isLiveReadActiveRef = useRef(false);
   isLiveReadActiveRef.current = isLiveReadActive;
@@ -311,10 +302,10 @@ export default function App() {
 
   useEffect(() => {
     document.title = isLiveApp
-      ? "Interstitial-er Live"
+      ? "WIPE Live"
       : isStudioApp
-        ? "Interstitial-er Studio"
-        : "Interstitial-er Admin";
+        ? "WIPE Studio"
+        : "WIPE Admin";
   }, [isLiveApp, isStudioApp]);
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -557,120 +548,40 @@ export default function App() {
       window.removeEventListener("blur", handleBlur);
     };
   }, []);
-  const [interstitials, setInterstitials] = useState<Interstitial[]>([]);
-  const [shows, setShows] = useState<Show[]>([]);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [savingLabel, setSavingLabel] = useState<string | null>(null);
-  const [saveRecoveryModal, setSaveRecoveryModal] = useState<SaveRecoveryInfo | null>(null);
-
-  const loadShows = async () => {
-    const settings = getSavedSettings();
-    if (settings.mode === "Drive") {
-      try {
-        const currentToken = getAccessToken() || token;
-        if (!currentToken) {
-          throw new Error("Not connected to Google Drive.");
-        }
-        const driveShows = await loadShowsFromDrive();
-        setShows(driveShows || []);
-      } catch (e) {
-        console.error("Failed to load shows from Drive:", e);
-      }
-      return;
-    }
-
-    try {
-      const res = await fetch("/api/shows");
-      if (res.ok) {
-        const data = await res.json();
-        setShows(data || []);
-      }
-    } catch (e) {
-      console.error("Failed to load shows:", e);
-    }
-  };
-
-  const saveShows = async (newShows: Show[]): Promise<boolean> => {
-    const settings = getSavedSettings();
-    setIsSaving(true);
-    setSavingLabel("Saving shows profile...");
-
-    if (settings.mode === "Drive") {
-      try {
-        const currentToken = getAccessToken() || token;
-        if (!currentToken) {
-          throw new Error("Not connected to Google Drive. Saving is disabled.");
-        }
-        await saveShowsToDrive(newShows);
-        setShows(newShows);
-        setIsSaving(false);
-        setSavingLabel(null);
-        return true;
-      } catch (error: any) {
-        setIsSaving(false);
-        setSavingLabel(null);
-        console.error("Failed to save shows to Drive:", error);
-        setSaveRecoveryModal({
-          title: "Failed to Save Shows to Google Drive",
-          targetName: "shows.json",
-          filePath: settings.driveFolderPreferences || "Google Drive Preferences Folder",
-          error: error.message || "Drive upload error",
-          retryAction: async () => {
-            await saveShows(newShows);
-          },
-          onFixFolder: () => {
-            setShowLocationsModal(true);
-          }
-        });
-        return false;
-      }
-    }
-
-    try {
-      const res = await fetch("/api/shows", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newShows),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.success === false) {
-        throw new Error(data.error || `Failed to write shows (Status ${res.status})`);
-      }
-      setShows(newShows);
-      setIsSaving(false);
-      setSavingLabel(null);
-      return true;
-    } catch (error: any) {
-      setIsSaving(false);
-      setSavingLabel(null);
-      console.error("Failed to save shows:", error);
-      setSaveRecoveryModal({
-        title: "Failed to Save Shows File",
-        targetName: "shows.json",
-        filePath: settings.localPathCalendar || "Local Shows Storage",
-        error: error.message || "Filesystem write error",
-        retryAction: async () => {
-          await saveShows(newShows);
-        },
-        onFixFolder: () => {
-          setShowLocationsModal(true);
-        }
-      });
-      return false;
-    }
-  };
-  const [now, setNow] = useState(new Date());
   const [syncTime, setSyncTime] = useState(new Date());
-  const [countdown, setCountdown] = useState(300);
   const [scrollTrigger, setScrollTrigger] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   // Prerecord & Playlist States
   const [playMode, setPlayMode] = useState<"Live" | "Prerecord" | "Export" | "Playlist">(
     isStudioApp ? "Prerecord" : "Live",
   );
   const [selectedPlaylistShow, setSelectedPlaylistShow] = useState<Show | null>(null);
+  const [selectedPrerecordShowId, setSelectedPrerecordShowId] = useState<string>("");
+
+  const {
+    interstitials,
+    setInterstitials,
+    shows,
+    setShows,
+    logs,
+    setLogs,
+    isSaving,
+    savingLabel,
+    saveRecoveryModal,
+    setSaveRecoveryModal,
+    loadShows,
+    saveShows,
+    saveInterstitials,
+    addLog,
+  } = useScheduleManager({
+    token: null, // Initialized with token dynamically updated via ref/effect
+    now: new Date(),
+    playMode,
+    selectedPrerecordShowId,
+    selectedPlaylistShow,
+    onShowLocationsModal: () => setShowLocationsModal(true),
+  });
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
   const [playlistModalLoading, setPlaylistModalLoading] = useState(false);
   const [playlistModalNow, setPlaylistModalNow] = useState<Date>(new Date());
@@ -698,7 +609,6 @@ export default function App() {
   const [prerecordLengthMinutes, setPrerecordLengthMinutes] = useState(120);
   const [prerecordError, setPrerecordError] = useState<string | null>(null);
   const [prerecordSelectorMode, setPrerecordSelectorMode] = useState<"show-list" | "manual">("show-list");
-  const [selectedPrerecordShowId, setSelectedPrerecordShowId] = useState<string>("");
   const [showFilterText, setShowFilterText] = useState("");
   const dateSelectRef = useRef<HTMLSelectElement>(null);
 
@@ -773,8 +683,6 @@ export default function App() {
   const [isDriveActive, setIsDriveActive] = useState(false);
   const [isDriveValidated, setIsDriveValidated] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [isAsleep, setIsAsleep] = useState(false);
-  const lastActiveTimeRef = useRef<number>(Date.now());
   const [isValidatingDrive, setIsValidatingDrive] = useState(false);
   const [driveValidationError, setDriveValidationError] = useState<
     string | null
@@ -785,9 +693,6 @@ export default function App() {
       "776109899422-4ui9sqip5tvjarmcmrmnb4p3pdni0b2n.apps.googleusercontent.com",
   );
   const [isPollingExternal, setIsPollingExternal] = useState(false);
-  const [showMethodB, setShowMethodB] = useState(false);
-  const [manualToken, setManualToken] = useState("");
-  const [showManualOverride, setShowManualOverride] = useState(false);
   const [driveMP3s, setDriveMP3s] = useState<any[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const fetchInProgressRef = useRef(false);
@@ -968,18 +873,6 @@ export default function App() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
-  const [fancyBrowserPath, setFancyBrowserPath] = useState("");
-  const [fancyBrowserFolders, setFancyBrowserFolders] = useState<string[]>([]);
-  const [fancyBrowserParent, setFancyBrowserParent] = useState<string | null>(
-    null,
-  );
-  const [fancyBrowserError, setFancyBrowserError] = useState<string | null>(
-    null,
-  );
-  const [fancyBrowserTargetField, setFancyBrowserTargetField] = useState<
-    "interstitials" | "mp3s" | "logs" | null
-  >(null);
-
   // Saving state for Folders Modal to prevent button flickering
   const [isSavingAndVerifying, setIsSavingAndVerifying] = useState(false);
 
@@ -989,17 +882,13 @@ export default function App() {
     calendar: string,
   ): Promise<boolean> => {
     try {
-      const res = await fetch("/api/check-local-paths", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          localPathMP3s: mp3s,
-          localPathLogs: logs,
-          localPathCalendar: calendar,
-        }),
+      const gate = await verifyStartup({
+        localPathMP3s: mp3s,
+        localPathLogs: logs,
+        localPathCalendar: calendar,
+        mode: "Local",
       });
-      const data = await res.json();
-      return !!data.exists;
+      return !!gate.ready;
     } catch {
       return false;
     }
@@ -1095,14 +984,10 @@ export default function App() {
           setLoading(false);
           setShowLocationsModal(true);
         } else {
-          checkLocalPathsSafely(
-            settings.localPathMP3s || "",
-            settings.localPathLogs || "",
-            settings.localPathCalendar || "",
-          )
-            .then((exists) => {
+          verifyStartup(settings)
+            .then((gateResult) => {
               setIsDriveActive(true);
-              if (exists) {
+              if (gateResult.ready) {
                 setIsDriveValidated(true);
                 setLocalPathsUnavailable(false);
                 fetchDataForMode(settings);
@@ -1191,6 +1076,11 @@ export default function App() {
       console.log(
         "fetchDataForMode already inside concurrent cycle. De-duplicating sequence.",
       );
+      return;
+    }
+    if (settings.mode === "Local" && (!settings.localPathMP3s || !settings.localPathCalendar || !settings.localPathLogs)) {
+      setLoading(false);
+      setIsSyncing(false);
       return;
     }
     fetchInProgressRef.current = true;
@@ -1373,14 +1263,34 @@ export default function App() {
     await fetchDataForMode(settings);
   };
 
+  const {
+    now,
+    setNow,
+    isAsleep,
+    setIsAsleep,
+    wakeUp,
+    countdown,
+    setCountdown,
+    formatCountdown,
+  } = useAppClock({
+    animationsDisabled,
+    useWebWorkers: activeOptimizations.webWorkers,
+    playMode,
+    isDriveValidated,
+    localPathsUnavailable,
+    locationMode,
+    isStartupReady,
+    onCountdownExpired: fetchData,
+    token,
+  });
+
   const handleRefresh = async () => {
     await fetchData();
     setCountdown(300);
   };
 
   const handleWakeUp = () => {
-    lastActiveTimeRef.current = Date.now();
-    setIsAsleep(false);
+    wakeUp();
     handleRefresh();
   };
 
@@ -1405,145 +1315,12 @@ export default function App() {
     };
   }, []);
 
-  // Track User Activity to prevent Sleep State (Throttled to minimize CPU overhead on frequent mouse moves)
-  useEffect(() => {
-    if (isAsleep) return;
-
-    let lastActivityLogged = 0;
-    const handleActivity = (e?: KeyboardEvent | Event) => {
-      if (e instanceof KeyboardEvent && (e.key === "F11" || e.keyCode === 122)) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-      const nowMs = Date.now();
-      if (nowMs - lastActivityLogged >= 10000) {
-        lastActivityLogged = nowMs;
-        lastActiveTimeRef.current = nowMs;
-      }
-    };
-
-    window.addEventListener("mousemove", handleActivity);
-    window.addEventListener("mousedown", handleActivity);
-    window.addEventListener("keydown", handleActivity);
-    window.addEventListener("scroll", handleActivity);
-    window.addEventListener("touchstart", handleActivity);
-
-    return () => {
-      window.removeEventListener("mousemove", handleActivity);
-      window.removeEventListener("mousedown", handleActivity);
-      window.removeEventListener("keydown", handleActivity);
-      window.removeEventListener("scroll", handleActivity);
-      window.removeEventListener("touchstart", handleActivity);
-    };
-  }, [isAsleep]);
-
-  // Web Worker for Timer Tick (Performance Optimization to reduce main thread CPU usage)
-  useEffect(() => {
-    // Permanently adopted as default when starting and when yellow (!animationsDisabled)
-    const useWorker = !animationsDisabled || (animationsDisabled && activeOptimizations.webWorkers);
-    if (!useWorker) return;
-
-    let worker: Worker | null = null;
-    try {
-      const workerCode = `
-        let intervalId = null;
-        self.onmessage = function(e) {
-          if (e.data.action === 'start') {
-            if (intervalId) clearInterval(intervalId);
-            const delay = e.data.delay || 1000;
-            intervalId = setInterval(() => {
-              self.postMessage({ type: 'tick' });
-            }, delay);
-          } else if (e.data.action === 'stop') {
-            if (intervalId) {
-              clearInterval(intervalId);
-              intervalId = null;
-            }
-          }
-        };
-      `;
-      const blob = new Blob([workerCode], { type: 'application/javascript' });
-      const workerUrl = URL.createObjectURL(blob);
-      worker = new Worker(workerUrl);
-
-      const isInactive = isAsleep;
-      const intervalDelay = isInactive ? 10000 : 1000;
-
-      worker.onmessage = (e) => {
-        if (e.data.type === 'tick') {
-          const current = new Date();
-          setNow(current);
-
-          // Check sleep timeout (30 mins)
-          if (!isAsleep && Date.now() - lastActiveTimeRef.current >= 30 * 60 * 1000) {
-            setIsAsleep(true);
-          }
-
-          if (playMode === "Live" && !isAsleep) {
-            setCountdown((prev) => {
-              const step = isInactive ? 10 : 1;
-              if (prev <= step) {
-                fetchData();
-                return 300;
-              }
-              return prev - step;
-            });
-          }
-        }
-      };
-
-      worker.postMessage({ action: 'start', delay: intervalDelay });
-    } catch (err) {
-      console.error("Failed to initialize Web Worker timer, falling back to main-thread", err);
-    }
-
-    return () => {
-      if (worker) {
-        worker.postMessage({ action: 'stop' });
-        worker.terminate();
-      }
-    };
-  }, [token, playMode, isAsleep, animationsDisabled, activeOptimizations.webWorkers]);
-
-  // Sync Timer Logic (Fallback to Main-Thread if Worker is disabled or inactive)
-  useEffect(() => {
-    // Permanently adopted as default when starting and when yellow (!animationsDisabled)
-    const useWorker = !animationsDisabled || (animationsDisabled && activeOptimizations.webWorkers);
-    if (useWorker) return; // Managed by Web Worker effect instead
-
-    const isInactive = isAsleep;
-    const intervalDelay = isInactive ? 10000 : 1000;
-
-    const timer = setInterval(() => {
-      const current = new Date();
-      setNow(current);
-
-      // Check if inactive for 30 or more minutes (1800000 ms)
-      if (
-        !isAsleep &&
-        Date.now() - lastActiveTimeRef.current >= 30 * 60 * 1000
-      ) {
-        setIsAsleep(true);
-      }
-
-      if (playMode === "Live" && !isAsleep) {
-        setCountdown((prev) => {
-          const step = isInactive ? 10 : 1;
-          if (prev <= step) {
-            fetchData();
-            return 300;
-          }
-          return prev - step;
-        });
-      }
-    }, intervalDelay);
-
-    return () => clearInterval(timer);
-  }, [token, playMode, isAsleep, animationsDisabled, activeOptimizations.webWorkers]);
-
   // Background Cache Synchronization Logic (Pre-loading Audio into memory)
   useEffect(() => {
     const syncCache = async () => {
+      if (!isDriveValidated || localPathsUnavailable || (locationMode === "Local" && !isStartupReady)) {
+        return;
+      }
       // Find all MP3 files used in active interstitials and loaded playlist tracks
       const interstitialUrls = getAllRequiredMp3Urls(interstitials);
 
@@ -1562,196 +1339,6 @@ export default function App() {
       syncCache();
     }
   }, [interstitials, currentPlaylistTrackUrls, token]);
-
-  const formatCountdown = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
-  };
-
-  const saveInterstitials = async (newInterstitials: Interstitial[]): Promise<boolean> => {
-    const normalized = normalizeInterstitials(newInterstitials);
-    const settings = getSavedSettings();
-    setIsSaving(true);
-    setSavingLabel("Saving interstitials schedule...");
-
-    if (settings.mode === "Local") {
-      try {
-        const res = await fetch("/api/interstitials", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(normalized),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.success === false) {
-          throw new Error(data.error || `Failed to write interstitials (Status ${res.status})`);
-        }
-        setInterstitials(normalized);
-        setIsSaving(false);
-        setSavingLabel(null);
-        return true;
-      } catch (error: any) {
-        setIsSaving(false);
-        setSavingLabel(null);
-        console.error("Failed to save interstitials locally:", error);
-        setSaveRecoveryModal({
-          title: "Failed to Save Interstitials Schedule",
-          targetName: "interstitials.json",
-          filePath: settings.localPathCalendar || "Local Interstitials Storage",
-          error: error.message || "Filesystem write error",
-          retryAction: async () => {
-            await saveInterstitials(newInterstitials);
-          },
-          onFixFolder: () => {
-            setShowLocationsModal(true);
-          }
-        });
-        return false;
-      }
-    }
-
-    try {
-      const currentToken = getAccessToken() || token;
-      if (!currentToken) {
-        throw new Error("Not connected to Google Drive. Saving is disabled.");
-      }
-      await saveCalendarToDrive(normalized);
-      setInterstitials(normalized);
-      setIsSaving(false);
-      setSavingLabel(null);
-      return true;
-    } catch (error: any) {
-      setIsSaving(false);
-      setSavingLabel(null);
-      console.error("Failed to save interstitials:", error);
-      setSaveRecoveryModal({
-        title: "Failed to Save Interstitials to Google Drive",
-        targetName: "interstitials.json",
-        filePath: settings.driveFolderPreferences || "Google Drive Preferences Folder",
-        error: error.message || "Drive upload error",
-        retryAction: async () => {
-          await saveInterstitials(newInterstitials);
-        },
-        onFixFolder: () => {
-          setShowLocationsModal(true);
-        }
-      });
-      return false;
-    }
-  };
-
-  const showsRef = useRef(shows);
-  showsRef.current = shows;
-
-  const playModeRef = useRef(playMode);
-  playModeRef.current = playMode;
-
-  const selectedPrerecordShowIdRef = useRef(selectedPrerecordShowId);
-  selectedPrerecordShowIdRef.current = selectedPrerecordShowId;
-
-  const selectedPlaylistShowRef = useRef(selectedPlaylistShow);
-  selectedPlaylistShowRef.current = selectedPlaylistShow;
-
-  const addLog = async (entry: LogEntry) => {
-    const settings = getSavedSettings();
-
-    let showId = entry.showId;
-    let showName = entry.showName;
-    let hostName = entry.hostName;
-    let showDateTime = entry.showDateTime;
-
-    const targetTime = entry.interstitialTime ? new Date(entry.interstitialTime) : new Date(entry.timestamp || now);
-
-    const currentShows = showsRef.current || shows || [];
-    const currentPlayMode = playModeRef.current || playMode;
-    const currentPrerecordShowId = selectedPrerecordShowIdRef.current || selectedPrerecordShowId;
-    const currentPlaylistShow = selectedPlaylistShowRef.current || selectedPlaylistShow;
-
-    if (!showName) {
-      if (currentPlayMode === "Prerecord" && currentPrerecordShowId && currentShows.length > 0) {
-        const pShow = currentShows.find((s) => s.id === currentPrerecordShowId);
-        if (pShow) {
-          showId = pShow.id;
-          showName = pShow.name;
-          hostName = pShow.host;
-          showDateTime = getActualShowStart(pShow, targetTime).toISOString();
-        }
-      } else if (currentPlayMode === "Playlist" && currentPlaylistShow) {
-        showId = currentPlaylistShow.id;
-        showName = currentPlaylistShow.name;
-        hostName = currentPlaylistShow.host;
-        showDateTime = getActualShowStart(currentPlaylistShow, targetTime).toISOString();
-      }
-    }
-
-    if (!showName && currentShows.length > 0) {
-      const daysOrder = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
-      const dayName = daysOrder[targetTime.getDay()];
-      const hour = targetTime.getHours();
-      const minute = targetTime.getMinutes();
-
-      const activeShow = currentShows.find((s) => isTimeInShow(s, dayName, hour, minute));
-      if (activeShow) {
-        showId = activeShow.id;
-        showName = activeShow.name;
-        hostName = activeShow.host;
-        showDateTime = getActualShowStart(activeShow, targetTime).toISOString();
-      }
-    }
-
-    if (showName && !hostName && currentShows.length > 0) {
-      const matchedShow = currentShows.find(s => s.id === showId || s.name.toLowerCase() === showName.toLowerCase());
-      if (matchedShow && matchedShow.host) {
-        hostName = matchedShow.host;
-      }
-    }
-
-    const resolvedAssetType = entry.assetType || (entry.status === 'backup play' ? 'audio' : (
-      (entry.mp3Name && (entry.mp3Name.endsWith('.txt') || entry.mp3Name.endsWith('.pdf') || entry.mp3Name.endsWith('.png') || entry.mp3Name.endsWith('.jpg') || entry.mp3Name.endsWith('.jpeg'))) ? 'script' : 'audio'
-    ));
-
-    const enrichedEntry: LogEntry = {
-      ...entry,
-      showId,
-      showName,
-      hostName,
-      showDateTime,
-      playMode: entry.playMode === "Export" ? "Export" : (entry.playMode || currentPlayMode),
-      logTimeStamp: entry.logTimeStamp || new Date().toISOString(),
-      timestamp: entry.interstitialTime || entry.timestamp || new Date().toISOString(),
-      assetType: resolvedAssetType,
-    };
-
-    if (settings.mode === "Local") {
-      try {
-        await fetch("/api/logs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(enrichedEntry),
-        });
-        // Reload logs from backend dynamic storage
-        const updatedLogs = await fetch("/api/logs").then((r) => r.json());
-        setLogs(updatedLogs);
-      } catch (error) {
-        console.error("Failed to save log locally:", error);
-      }
-      return;
-    }
-
-    try {
-      const currentToken = getAccessToken() || token;
-      if (!currentToken) {
-        throw new Error(
-          "Not connected to Google Drive. Saving logs is disabled.",
-        );
-      }
-
-      const updatedLogs = await appendLogToDrive(enrichedEntry);
-      setLogs(updatedLogs);
-    } catch (error) {
-      console.error("Failed to add log:", error);
-    }
-  };
 
   const addLogRef = useRef(addLog);
   addLogRef.current = addLog;
@@ -1826,6 +1413,7 @@ export default function App() {
       setPrerecordConfirmDetails(null);
       setShowPrerecordModal(true);
     } else {
+      clearShowContext();
       setPlayMode("Live");
       setPrerecordDate(null);
       setCountdown(300);
@@ -2006,6 +1594,12 @@ export default function App() {
     }
     if (targetShow) {
       setSelectedPlaylistShow(targetShow);
+      prepareShowContext({
+        showId: targetShow.id,
+        showName: targetShow.name,
+        showNameShort: targetShow.nameShort || targetShow.name,
+        context: 'Playlist'
+      }).catch(e => console.warn('Playlist context prep note:', e));
     }
     setPlayMode("Playlist");
     setShowPlaylistModal(false);
@@ -2013,6 +1607,12 @@ export default function App() {
 
   const handleSelectAndConfirmShow = (targetShow: Show) => {
     setSelectedPlaylistShow(targetShow);
+    prepareShowContext({
+      showId: targetShow.id,
+      showName: targetShow.name,
+      showNameShort: targetShow.nameShort || targetShow.name,
+      context: 'Playlist'
+    }).catch(e => console.warn('Playlist context prep note:', e));
     setPlayMode("Playlist");
     setShowPlaylistModal(false);
   };
@@ -2146,10 +1746,13 @@ export default function App() {
     }
   };
 
-  const handleFinalConfirmPrerecord = () => {
+  const handleFinalConfirmPrerecord = async () => {
     if (prerecordConfirmDetails) {
+      const show = selectedPrerecordShowId ? shows.find(s => s.id === selectedPrerecordShowId) : null;
+      const targetMode = prerecordModalTarget;
+
       setShowCachingModal(true);
-      setCachingTargetMode(prerecordModalTarget);
+      setCachingTargetMode(targetMode);
       setCachingProgress({
         total: 0,
         completed: 0,
@@ -2157,9 +1760,32 @@ export default function App() {
         errors: [],
         isComplete: false,
       });
+
+      if (show) {
+        try {
+          const prep = await prepareShowContext({
+            showId: show.id,
+            showName: show.name,
+            showNameShort: show.nameShort || show.name,
+            context: targetMode,
+          });
+          if (prep && prep.context) {
+            setCachingProgress({
+              total: prep.totalTracks || prep.context.totalTracks || 0,
+              completed: prep.totalTracks || prep.context.totalTracks || 0,
+              failed: 0,
+              errors: [],
+              isComplete: true,
+            });
+          }
+        } catch (e: any) {
+          console.warn('On-demand show preparation note:', e);
+        }
+      }
+
       setPrerecordLengthMinutes(prerecordConfirmDetails.totalMinutes);
       setPrerecordDate(prerecordConfirmDetails.startDate);
-      setPlayMode(prerecordModalTarget);
+      setPlayMode(targetMode);
       setShowPrerecordConfirmStep(false);
       setShowPrerecordModal(false);
       setPrerecordConfirmDetails(null);
@@ -2258,6 +1884,7 @@ export default function App() {
 
   const handleCloseExportModal = () => {
     setShowExportModal(false);
+    clearShowContext();
     setTimeout(() => {
       setExportState("configuring");
       setExportError(null);
@@ -2280,7 +1907,7 @@ export default function App() {
     }
   };
 
-  const runExportPrerecord = async () => {
+  const runExportPrerecord = async (overwriteMode: 'normal' | 'overwrite' | 'clean' = 'normal') => {
     if (!prerecordDate) return;
 
     setExportState("exporting");
@@ -2387,6 +2014,7 @@ export default function App() {
           folderPrefix: exportFolderPrefixInput,
           textPrefix: exportTextPrefixInput,
           playlistPrefix: exportPlaylistPrefixInput,
+          overwriteMode,
         }),
       });
 
@@ -2930,7 +2558,7 @@ export default function App() {
               <Clock className="w-4 h-4" />
             </div>
             <span className="font-bold text-xs tracking-tight hide-app-name">
-              Interstitial-er
+              WIPE
             </span>
           </div>
           <div className="flex gap-1">
@@ -3247,7 +2875,7 @@ export default function App() {
           return null;
         })()}
 
-        {(!isDriveValidated || localPathsUnavailable) ? (
+        {(!isDriveValidated || localPathsUnavailable || (locationMode === "Local" && !isStartupReady)) ? (
           <div className="w-full flex-1 flex flex-col items-center justify-center p-6 text-center">
             <div className="max-w-md bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl flex flex-col items-center gap-3">
               <Folder className="w-10 h-10 text-amber-400" />
@@ -3255,8 +2883,24 @@ export default function App() {
                 Storage Folders Required
               </h2>
               <p className="text-xs text-slate-400 font-sans leading-relaxed">
-                Please define and verify your storage folders before loading schedule data or player views.
+                {startupMessage || "Please define and verify your storage folders before loading schedule data or player views."}
               </p>
+              {missingDefinitions.length > 0 && (
+                <div className="text-left w-full bg-slate-950/60 rounded-lg p-3 border border-slate-800 text-[11px] text-amber-300/90 flex flex-col gap-1">
+                  <span className="font-semibold text-slate-300">Unconfigured Paths:</span>
+                  {missingDefinitions.map((def) => (
+                    <span key={def}>• {def}</span>
+                  ))}
+                </div>
+              )}
+              {missingFolders.length > 0 && (
+                <div className="text-left w-full bg-slate-950/60 rounded-lg p-3 border border-slate-800 text-[11px] text-red-300/90 flex flex-col gap-1">
+                  <span className="font-semibold text-slate-300">Inaccessible Directories:</span>
+                  {missingFolders.map((dir) => (
+                    <span key={dir} className="font-mono break-all">• {dir}</span>
+                  ))}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => setShowLocationsModal(true)}
@@ -3788,1321 +3432,105 @@ export default function App() {
       </footer>
 
       {/* Prerecord Activation Modal */}
-      <AnimatePresence>
-        {showPrerecordModal &&
-          (() => {
-            const isExportTarget = prerecordModalTarget === "Export";
-            const colors = {
-              accentText: isExportTarget
-                ? "text-blue-700"
-                : "text-emerald-700",
-              focusRing: isExportTarget
-                ? "focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                : "focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500",
-              buttonBg: isExportTarget
-                ? "bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-                : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm",
-              border: isExportTarget
-                ? "border-blue-300"
-                : "border-emerald-300",
-            };
-            const ModeIcon = isExportTarget ? ListOrdered : CassetteTape;
-
-            return (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-2 bg-slate-900/40 backdrop-blur-xs">
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className={cn(
-                    "bg-white border rounded-xl shadow-2xl w-[255px] max-w-[95vw] text-slate-800 flex flex-col font-sans min-h-0",
-                    prerecordSelectorMode === "show-list" && !showPrerecordConfirmStep ? "h-[80vh] max-h-[80vh]" : "max-h-[80vh]",
-                    colors.border,
-                  )}
-                >
-                  {showPrerecordConfirmStep && prerecordConfirmDetails ? (
-                    <div className="flex flex-col flex-1 min-h-0">
-                      {/* Confirmation Header */}
-                      <div className="px-3.5 py-2.5 border-b border-slate-200 flex items-center bg-slate-50 shrink-0">
-                        <div className="flex items-center gap-2">
-                          <span className={colors.accentText}>
-                            <ModeIcon className="w-4 h-4 shrink-0" />
-                          </span>
-                          <h3 className={cn("text-xs font-black uppercase tracking-wider", colors.accentText)}>
-                            Verify Air Date
-                          </h3>
-                        </div>
-                      </div>
-
-                      {/* Confirmation Content */}
-                      <div className="p-3 space-y-3 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
-                        <p className="text-xs leading-relaxed text-slate-600 font-medium">
-                          Is this ok?
-                        </p>
-
-                        <div className="space-y-2.5">
-                          {/* Air Date */}
-                          <div className="flex items-center justify-between">
-                            <label className="text-xs font-black uppercase tracking-wider text-slate-500 pr-2 shrink-0 select-none">
-                              Air Date
-                            </label>
-                            <span
-                              className={cn(
-                                "w-[150px] px-2.5 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono font-bold text-slate-800 text-left select-none cursor-default",
-                              )}
-                            >
-                              {formatVerifyAirDate(prerecordDateInput)}
-                            </span>
-                          </div>
-
-                          {/* Start Time */}
-                          <div className="flex items-center justify-between">
-                            <label className="text-xs font-black uppercase tracking-wider text-slate-500 pr-2 shrink-0 select-none">
-                              Start Time
-                            </label>
-                            <div className="flex items-center gap-1.5 w-[150px]">
-                              <span
-                                className={cn(
-                                  "px-1 py-0.5 bg-transparent rounded text-xs font-mono font-bold text-left select-none cursor-default",
-                                  colors.accentText,
-                                )}
-                              >
-                                {prerecordTimeInput}
-                              </span>
-                              <span className="text-[10px] font-bold text-slate-500 select-none uppercase font-sans">
-                                HH:MM (24 hr)
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Start (12HR) */}
-                          <div className="flex items-center justify-between">
-                            <label className="text-xs font-black uppercase text-slate-500 pr-2 shrink-0 select-none italic">
-                              Start (12HR)
-                            </label>
-                            <div className="flex items-center gap-1.5 border border-transparent px-1 py-0.5 h-6 shrink-0 w-[150px]">
-                              <span
-                                className={cn(
-                                  "text-xs font-black font-mono italic opacity-90",
-                                  colors.accentText,
-                                )}
-                              >
-                                {getPrerecord12HrDisplay(prerecordTimeInput)}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Length */}
-                          <div className="flex items-center justify-between">
-                            <label className="text-xs font-black uppercase tracking-wider text-slate-500 pr-2 shrink-0 select-none">
-                              Length
-                            </label>
-                            <div className="flex items-center gap-2 w-[150px]">
-                              <div className="flex items-center gap-1">
-                                <span
-                                  className={cn(
-                                    "px-1 py-0.5 bg-transparent rounded text-xs font-mono font-bold text-left select-none cursor-default",
-                                    colors.accentText,
-                                  )}
-                                >
-                                  {prerecordHoursInput}
-                                </span>
-                                <span className="text-[10px] font-bold text-slate-500 select-none uppercase font-sans">
-                                  Hrs
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span
-                                  className={cn(
-                                    "px-1 py-0.5 bg-transparent rounded text-xs font-mono font-bold text-left select-none cursor-default",
-                                    colors.accentText,
-                                  )}
-                                >
-                                  {prerecordMinutesInput}
-                                </span>
-                                <span className="text-[10px] font-bold text-slate-500 select-none uppercase font-sans">
-                                  Min
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Confirmation Actions */}
-                      <div className="px-3 py-2.5 border-t border-slate-200 bg-slate-50 flex gap-2 justify-end rounded-b-xl">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowPrerecordConfirmStep(false);
-                            setPrerecordConfirmDetails(null);
-                          }}
-                          className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold uppercase tracking-wider rounded border border-slate-300 transition cursor-pointer active:translate-y-px flex items-center gap-1.5"
-                        >
-                          <NotebookPen className="w-3 h-3 font-bold shrink-0 text-slate-500" />
-                          <span className="text-xs font-black uppercase tracking-tighter">
-                            Edit
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleFinalConfirmPrerecord}
-                          className={cn(
-                            "px-3.5 py-1.5 text-white text-xs font-black uppercase tracking-wider rounded shadow-md transition cursor-pointer active:translate-y-px flex items-center gap-1.5",
-                            colors.buttonBg,
-                          )}
-                        >
-                          <ModeIcon className="w-3.5 h-3.5 shrink-0" />
-                          <span>OK</span>
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <form
-                      onSubmit={handleActivatePrerecord}
-                      className="flex flex-col flex-1 min-h-0"
-                    >
-                      {/* Modal Header */}
-                      <div className="px-3 py-2 border-b border-slate-200 flex items-center justify-between bg-slate-50 shrink-0">
-                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                          <span className={colors.accentText}>
-                            <ModeIcon className="w-4 h-4 shrink-0" />
-                          </span>
-                          <h3 className={cn("text-xs font-black uppercase tracking-wider truncate", colors.accentText)}>
-                            {prerecordSelectorMode === "show-list"
-                              ? (isExportTarget ? "Choose Show to export" : "Choose Show to prerecord")
-                              : "Set Air Date"}
-                          </h3>
-                        </div>
-                      </div>
-
-                      {/* Modal Content */}
-                      <div className="p-2.5 space-y-2.5 flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar">
-                        {prerecordSelectorMode === "manual" && (
-                          <p className="text-xs leading-relaxed text-slate-600 font-medium shrink-0">
-                            When will the show air?
-                          </p>
-                        )}
-
-                        {prerecordSelectorMode === "show-list" ? (
-                          <div className="space-y-2 flex-1 flex flex-col min-h-0">
-                            {/* Filter Box Stacked Vertically */}
-                            <div className="relative w-full shrink-0">
-                              <input
-                                type="text"
-                                placeholder="Filter shows..."
-                                value={showFilterText}
-                                onChange={(e) => setShowFilterText(e.target.value)}
-                                className={cn(
-                                  "w-full px-2 py-1 pr-6 bg-white border border-slate-300 rounded text-xs text-slate-800 placeholder-slate-400 outline-none font-sans shadow-xs",
-                                  colors.focusRing,
-                                )}
-                              />
-                              {showFilterText && (
-                                <button
-                                  type="button"
-                                  onClick={() => setShowFilterText("")}
-                                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs px-0.5"
-                                >
-                                  ✕
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Condensed Listbox of Shows - Dynamic vertical expansion with min height */}
-                            <div className="flex flex-col text-left flex-1 min-h-[68px]">
-                              <div className="h-full min-h-[68px] overflow-y-auto border border-slate-300 rounded-lg divide-y divide-slate-200/80 bg-white shadow-inner custom-scrollbar">
-                                {(() => {
-                                  const activeShows = getSortedShows(shows.filter((s) => s.active));
-                                  const filtered = activeShows.filter(
-                                    (s) =>
-                                      s.name.toLowerCase().includes(showFilterText.toLowerCase()) ||
-                                      s.day.toLowerCase().includes(showFilterText.toLowerCase()),
-                                  );
-
-                                  if (filtered.length === 0) {
-                                    return (
-                                      <div className="p-2.5 text-center text-xs text-slate-500 italic">
-                                        No matching active shows
-                                      </div>
-                                    );
-                                  }
-
-                                  return filtered.map((show) => {
-                                    const shade = getShowShade(show, getSortedShows(shows));
-                                    const isSelected = selectedPrerecordShowId === show.id;
-                                    return (
-                                      <div
-                                        key={show.id}
-                                        onClick={() => handleSelectPrerecordShow(show.id)}
-                                        style={{
-                                          backgroundColor: shade.bg,
-                                          borderLeft: `3px solid ${shade.border}`,
-                                        }}
-                                        className={cn(
-                                          "flex flex-col gap-0.5 px-2 py-1.5 cursor-pointer text-xs transition-all hover:brightness-95 select-none",
-                                          isSelected && cn("ring-2 ring-inset z-10 font-bold", isExportTarget ? "ring-blue-600" : "ring-emerald-600"),
-                                        )}
-                                      >
-                                        <div className="flex items-center justify-between gap-1 w-full min-w-0">
-                                          <div className="flex items-center gap-1.5 min-w-0">
-                                            <span className="px-1 py-0.2 bg-blue-50 text-blue-700 border border-blue-150 rounded text-[9px] font-black uppercase tracking-tight shrink-0">
-                                              {show.day}
-                                            </span>
-                                            <span className="text-[10px] font-mono font-bold text-slate-700 truncate">
-                                              {show.startHour.toString().padStart(2, "0")}:{show.startMinute.toString().padStart(2, "0")} ({show.durationHours}h{show.durationMinutes ? `${show.durationMinutes}m` : ""})
-                                            </span>
-                                          </div>
-                                          {isSelected && (
-                                            <Check className={cn("w-3.5 h-3.5 font-bold shrink-0 ml-auto", isExportTarget ? "text-blue-700" : "text-emerald-700")} />
-                                          )}
-                                        </div>
-                                        <div className="font-bold text-slate-900 truncate w-full text-[11px] leading-tight">
-                                          {show.name}
-                                        </div>
-                                      </div>
-                                    );
-                                  });
-                                })()}
-                              </div>
-                            </div>
-
-                            {/* Future Dates Dropdown - always rendered so layout space is static */}
-                            {selectedPrerecordShowId ? (
-                              (() => {
-                                const show = shows.find((s) => s.id === selectedPrerecordShowId);
-                                if (!show) return null;
-                                const occurrences = getFutureDatesForShow(show.day, show.startHour, show.startMinute);
-                                return (
-                                  <div className="flex flex-col space-y-1 text-left pt-0.5 shrink-0">
-                                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 select-none">
-                                      Choose Air Date
-                                    </label>
-                                    <select
-                                      ref={dateSelectRef}
-                                      value={prerecordDateInput}
-                                      onChange={(e) => setPrerecordDateInput(e.target.value)}
-                                      className={cn(
-                                        "w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs font-mono font-bold text-slate-800 outline-none transition-all cursor-pointer shadow-xs",
-                                        colors.focusRing,
-                                      )}
-                                    >
-                                      {occurrences.map((date, index) => {
-                                        const dateStr = format(date, "yyyy-MM-dd");
-                                        const friendlyStr = format(date, "EEEE, MMM d, yyyy");
-                                        const isNextDate = index === 0;
-                                        return (
-                                          <option
-                                            key={dateStr}
-                                            value={dateStr}
-                                            className={cn(
-                                              isNextDate
-                                                ? "font-bold text-slate-900 bg-white"
-                                                : "font-normal text-slate-400 bg-slate-50",
-                                            )}
-                                          >
-                                            {friendlyStr}
-                                          </option>
-                                        );
-                                      })}
-                                    </select>
-                                  </div>
-                                );
-                              })()
-                            ) : (
-                              <div className="flex flex-col space-y-1 text-left pt-0.5 shrink-0">
-                                <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 select-none">
-                                  Choose Air Date
-                                </label>
-                                <select
-                                  disabled
-                                  className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs font-mono font-medium text-slate-400 outline-none cursor-not-allowed opacity-60"
-                                >
-                                  <option value="">Select a show above...</option>
-                                </select>
-                              </div>
-                            )}
-
-                            {/* Select Manually option */}
-                            <div className="flex justify-start pt-0.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => setPrerecordSelectorMode("manual")}
-                                className="text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-0 outline-none"
-                              >
-                                <NotebookPen className="w-3 h-3 shrink-0 text-slate-500" />
-                                Set manually
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-2.5">
-                            {/* Date picker */}
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-black uppercase tracking-wider text-slate-600 pr-2 shrink-0 select-none">
-                                Air Date
-                              </label>
-                              <input
-                                type="date"
-                                required
-                                value={prerecordDateInput}
-                                onChange={(e) =>
-                                  setPrerecordDateInput(e.target.value)
-                                }
-                                className={cn(
-                                  "w-[140px] px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-800 outline-none transition-all cursor-pointer shadow-xs",
-                                  colors.focusRing,
-                                )}
-                              />
-                            </div>
-
-                            {/* Time picker (24h input mask) */}
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-black uppercase tracking-wider text-slate-600 pr-2 shrink-0 select-none">
-                                Start Time
-                              </label>
-                              <div className="flex items-center gap-1.5 w-[140px]">
-                                <input
-                                  type="text"
-                                  required
-                                  placeholder="HH:mm"
-                                  maxLength={5}
-                                  value={prerecordTimeInput}
-                                  onChange={handleTimeInputChange}
-                                  className={cn(
-                                    "w-[50px] px-1 py-1 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-800 outline-none transition-all text-left cursor-pointer shadow-xs",
-                                    colors.focusRing,
-                                  )}
-                                />
-                                <span className="text-[9px] font-bold text-slate-500 select-none uppercase font-sans">
-                                  HH:MM (24h)
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Start (12HR) */}
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-black uppercase text-slate-500 pr-2 shrink-0 select-none italic">
-                                Start (12HR)
-                              </label>
-                              <div className="flex items-center gap-1.5 border border-transparent px-1 py-0.5 h-6 shrink-0 w-[140px]">
-                                <span
-                                  className={cn(
-                                    "text-xs font-black font-mono italic opacity-90",
-                                    colors.accentText,
-                                  )}
-                                >
-                                  {getPrerecord12HrDisplay(prerecordTimeInput)}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Show Length pickers */}
-                            <div className="flex items-center justify-between">
-                              <label className="text-xs font-black uppercase tracking-wider text-slate-600 pr-2 shrink-0 select-none">
-                                Length
-                              </label>
-                              <div className="flex items-center gap-2 w-[140px]">
-                                <div className="flex items-center gap-1">
-                                  <input
-                                    type="number"
-                                    required
-                                    min={0}
-                                    max={999}
-                                    value={prerecordHoursInput}
-                                    onChange={(e) =>
-                                      setPrerecordHoursInput(e.target.value)
-                                    }
-                                    className={cn(
-                                      "w-[45px] px-1 py-1 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-800 outline-none transition-all shadow-xs",
-                                      colors.focusRing,
-                                    )}
-                                  />
-                                  <span className="text-[9px] font-bold text-slate-500 select-none uppercase font-sans">
-                                    Hrs
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <input
-                                    type="number"
-                                    required
-                                    min={0}
-                                    max={59}
-                                    value={prerecordMinutesInput}
-                                    onChange={(e) =>
-                                      setPrerecordMinutesInput(e.target.value)
-                                    }
-                                    className={cn(
-                                      "w-[45px] px-1 py-1 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-800 outline-none transition-all shadow-xs",
-                                      colors.focusRing,
-                                    )}
-                                  />
-                                  <span className="text-[9px] font-bold text-slate-500 select-none uppercase font-sans">
-                                    Min
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Select from schedule option if there are active shows */}
-                            {shows.some((s) => s.active) && (
-                              <div className="flex justify-start pt-0.5">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedPrerecordShowId("");
-                                    setShowFilterText("");
-                                    setPrerecordSelectorMode("show-list");
-                                  }}
-                                  className="text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-0 outline-none"
-                                >
-                                  <List className="w-3 h-3 shrink-0 text-slate-500" />
-                                  Select from schedule
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {prerecordError && (
-                          <div className="bg-red-50 border border-red-200 rounded p-2 flex items-start gap-1.5 text-red-700">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-600" />
-                            <span className="text-[11px] leading-tight font-medium">
-                              {prerecordError}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Modal Actions */}
-                      <div className="px-3 py-2 border-t border-slate-200 bg-slate-50 flex gap-1.5 justify-end rounded-b-xl shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setShowPrerecordModal(false)}
-                          className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold uppercase tracking-wider rounded border border-slate-300 transition cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                        {(prerecordSelectorMode === "manual" || selectedPrerecordShowId) && (
-                          <button
-                            type="submit"
-                            className={cn(
-                              "px-3.5 py-1 text-white text-xs font-black uppercase tracking-wider rounded shadow-md transition flex items-center gap-1.5 cursor-pointer",
-                              colors.buttonBg,
-                            )}
-                          >
-                            <ModeIcon className="w-3.5 h-3.5 shrink-0" />
-                            <span>{isExportTarget ? "Export" : "Prerecord"}</span>
-                          </button>
-                        )}
-                      </div>
-                    </form>
-                  )}
-                </motion.div>
-              </div>
-            );
-          })()}
-      </AnimatePresence>
+      <PrerecordModal
+        isOpen={showPrerecordModal}
+        onClose={() => setShowPrerecordModal(false)}
+        prerecordModalTarget={prerecordModalTarget}
+        prerecordSelectorMode={prerecordSelectorMode}
+        setPrerecordSelectorMode={setPrerecordSelectorMode}
+        showPrerecordConfirmStep={showPrerecordConfirmStep}
+        setShowPrerecordConfirmStep={setShowPrerecordConfirmStep}
+        prerecordConfirmDetails={prerecordConfirmDetails}
+        setPrerecordConfirmDetails={setPrerecordConfirmDetails}
+        shows={shows}
+        showFilterText={showFilterText}
+        setShowFilterText={setShowFilterText}
+        selectedPrerecordShowId={selectedPrerecordShowId}
+        setSelectedPrerecordShowId={setSelectedPrerecordShowId}
+        prerecordDateInput={prerecordDateInput}
+        setPrerecordDateInput={setPrerecordDateInput}
+        prerecordTimeInput={prerecordTimeInput}
+        handleTimeInputChange={handleTimeInputChange}
+        prerecordHoursInput={prerecordHoursInput}
+        setPrerecordHoursInput={setPrerecordHoursInput}
+        prerecordMinutesInput={prerecordMinutesInput}
+        setPrerecordMinutesInput={setPrerecordMinutesInput}
+        prerecordError={prerecordError}
+        onSelectPrerecordShow={handleSelectPrerecordShow}
+        onActivatePrerecord={handleActivatePrerecord}
+        onFinalConfirmPrerecord={handleFinalConfirmPrerecord}
+        getSortedShows={getSortedShows}
+        getShowShade={getShowShade}
+        getFutureDatesForShow={getFutureDatesForShow}
+        formatVerifyAirDate={formatVerifyAirDate}
+        getPrerecord12HrDisplay={getPrerecord12HrDisplay}
+      />
 
       {/* Playlist Mode Selection Modal */}
-      <AnimatePresence>
-        {showPlaylistModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-2 bg-slate-900/60 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-800 rounded-xl shadow-2xl w-[420px] max-w-[95vw] text-slate-800 dark:text-slate-100 flex flex-col font-sans overflow-hidden"
-            >
-              {/* Modal Header */}
-              <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-purple-50 dark:bg-purple-950/40 shrink-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-purple-600 dark:text-purple-400">
-                    <ListMusic className="w-5 h-5 shrink-0" />
-                  </span>
-                  <h3 className="text-xs font-black uppercase tracking-wider text-purple-900 dark:text-purple-200">
-                    Playlist Mode - Select Show
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowPlaylistModal(false)}
-                  className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+      <PlaylistSelectModal
+        isOpen={showPlaylistModal}
+        onClose={() => setShowPlaylistModal(false)}
+        loading={playlistModalLoading}
+        playlistShowOptions={playlistShowOptions}
+        playlistModalNow={playlistModalNow}
+        syncTime={syncTime}
+        chosenPlaylistShowId={chosenPlaylistShowId}
+        onSelectAndConfirmShow={handleSelectAndConfirmShow}
+      />
 
-              {/* Modal Content */}
-              <div className="p-4 space-y-3 flex-1 min-h-0 overflow-y-auto">
-                {playlistModalLoading ? (
-                  <div className="py-8 flex flex-col items-center justify-center space-y-2 text-purple-600 dark:text-purple-400">
-                    <RefreshCw className="w-6 h-6 animate-spin" />
-                    <span className="text-xs font-bold uppercase tracking-wider">Checking Playlist Folders...</span>
-                  </div>
-                ) : playlistShowOptions ? (
-                  <div className="space-y-2.5">
-                    {/* Current Show Card */}
-                    {playlistShowOptions.currentShow ? (() => {
-                      const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
-                      const nowObj = playlistModalNow || syncTime || new Date();
-                      const currentWeekMin = nowObj.getDay() * 1440 + nowObj.getHours() * 60 + nowObj.getMinutes();
-                      const showStartWeekMin = daysOrder.indexOf(playlistShowOptions.currentShow.day) * 1440 + playlistShowOptions.currentShow.startHour * 60 + playlistShowOptions.currentShow.startMinute;
-                      const totalShowMin = (playlistShowOptions.currentShow.durationHours * 60) + playlistShowOptions.currentShow.durationMinutes;
-                      const elapsedMin = (currentWeekMin - showStartWeekMin + 10080) % 10080;
-                      const remainingMin = totalShowMin - elapsedMin;
-                      
-                      const formatHM = (mins: number) => {
-                        const h = Math.floor(Math.max(0, mins) / 60);
-                        const m = Math.floor(Math.max(0, mins) % 60);
-                        return `${h}:${m.toString().padStart(2, '0')}`;
-                      };
-
-                      const timeLabel = remainingMin < 30 
-                        ? `${formatHM(remainingMin)} remaining`
-                        : `${formatHM(elapsedMin)} elapsed`;
-
-                      return (
-                        <div
-                          onClick={() => handleSelectAndConfirmShow(playlistShowOptions.currentShow!)}
-                          className={cn(
-                            "p-3 rounded-lg border text-left cursor-pointer transition-all relative select-none flex flex-col gap-1.5",
-                            chosenPlaylistShowId === playlistShowOptions.currentShow.id
-                              ? "bg-purple-50/80 dark:bg-purple-950/50 border-purple-500 ring-2 ring-purple-500/30"
-                              : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-600 hover:shadow-md"
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700">
-                                Current Show
-                              </span>
-                              <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-1">
-                                {playlistShowOptions.currentShow.name}
-                              </h4>
-                            </div>
-                          </div>
-
-                          <div className="text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                            <span>
-                              {`${playlistShowOptions.currentShowFileCount} MP3s`}
-                            </span>
-                            <span className="font-sans text-[10px] uppercase font-bold text-slate-400">
-                              {timeLabel}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })() : (
-                      <div className="p-3 text-xs text-slate-500 italic bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-                        No current show active in schedule.
-                      </div>
-                    )}
-
-                    {/* Next Show Card */}
-                    {playlistShowOptions.nextShow ? (() => {
-                      const daysOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
-                      const nowObj = playlistModalNow || syncTime || new Date();
-                      const currentWeekMin = nowObj.getDay() * 1440 + nowObj.getHours() * 60 + nowObj.getMinutes();
-                      const nextStartWeekMin = daysOrder.indexOf(playlistShowOptions.nextShow.day) * 1440 + playlistShowOptions.nextShow.startHour * 60 + playlistShowOptions.nextShow.startMinute;
-                      const minsUntilNextShow = (nextStartWeekMin - currentWeekMin + 10080) % 10080;
-                      const nextH = Math.floor(Math.max(0, minsUntilNextShow) / 60);
-                      const nextM = Math.floor(Math.max(0, minsUntilNextShow) % 60);
-                      const startsInLabel = `Starts in ${nextH}:${nextM.toString().padStart(2, '0')}`;
-
-                      return (
-                        <div
-                          onClick={() => handleSelectAndConfirmShow(playlistShowOptions.nextShow!)}
-                          className={cn(
-                            "p-3 rounded-lg border text-left cursor-pointer transition-all relative select-none flex flex-col gap-1.5",
-                            chosenPlaylistShowId === playlistShowOptions.nextShow.id
-                              ? "bg-purple-50/80 dark:bg-purple-950/50 border-purple-500 ring-2 ring-purple-500/30"
-                              : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 hover:border-purple-300 dark:hover:border-purple-600 hover:shadow-md"
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wide bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700">
-                                Next Show
-                              </span>
-                              <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-1">
-                                {playlistShowOptions.nextShow.name}
-                              </h4>
-                            </div>
-                          </div>
-
-                          <div className="text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                            <span>
-                              {`${playlistShowOptions.nextShowFileCount} MP3s`}
-                            </span>
-                            <span className="font-sans text-[10px] uppercase font-bold text-slate-400">
-                              {startsInLabel}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })() : (
-                      <div className="p-3 text-xs text-slate-500 italic bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
-                        No upcoming show in schedule.
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="p-3 text-xs text-slate-500 italic">No show information available.</div>
-                )}
-              </div>
-
-              {/* Modal Actions */}
-              <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex gap-2 justify-end shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setShowPlaylistModal(false)}
-                  className="px-3.5 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold uppercase tracking-wider rounded border border-slate-300 dark:border-slate-700 transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showLocationsModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white border border-slate-200 rounded-xl shadow-2xl max-w-md w-full overflow-hidden text-slate-900 flex flex-col max-h-[90vh]"
-            >
-              {/* Modal Header */}
-              <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-                <div className="flex items-center gap-2 text-blue-600">
-                  <Folder className="w-5 h-5" />
-                  <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">
-                    Storage Folders
-                  </h3>
-                </div>
-              </div>
-
-              {/* Modal Core Form */}
-              <form
-                onSubmit={handleSaveLocations}
-                className="flex flex-col flex-1 overflow-hidden"
-              >
-                {/* Modal Content */}
-                <div className="p-3.5 space-y-3 overflow-y-auto flex-1 custom-scrollbar">
-                  {/* Mode Selector Row */}
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-black uppercase text-slate-600 tracking-widest leading-none">
-                      Select Mode
-                    </p>
-                    <div className="p-1 bg-slate-100 border border-slate-200 rounded-lg flex gap-1 items-center shadow-inner">
-                      {/* Demo mode is hidden across all desktop apps and AIStudio per user requirements */}
-                      {false && (
-                        <button
-                          type="button"
-                          onClick={() => setLocationMode("Demo")}
-                          className={cn(
-                            "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
-                            locationMode === "Demo"
-                              ? "bg-gradient-to-b from-amber-500 to-amber-600 border-[#F59E0B] text-white font-black shadow-sm"
-                              : "bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100",
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "w-1.5 h-1.5 rounded-full transition-all duration-300",
-                              locationMode === "Demo"
-                                ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
-                                : "bg-slate-300",
-                            )}
-                          />
-                          Demo
-                        </button>
-                      )}
-                      {isAiStudio && (
-                        <button
-                          type="button"
-                          onClick={() => setLocationMode("Drive")}
-                          className={cn(
-                            "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
-                            locationMode === "Drive"
-                              ? "bg-gradient-to-b from-blue-500 to-blue-600 border-[#3B82F6] text-white font-black shadow-sm"
-                              : "bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100",
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "w-1.5 h-1.5 rounded-full transition-all duration-300",
-                              locationMode === "Drive"
-                                ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
-                                : "bg-slate-300",
-                            )}
-                          />
-                          Google Drive
-                        </button>
-                      )}
-                      {!isAiStudio && (
-                        <button
-                          type="button"
-                          onClick={() => setLocationMode("Local")}
-                          className={cn(
-                            "flex-1 py-1 text-xs font-black uppercase tracking-wider rounded border transition-all duration-150 cursor-pointer flex items-center justify-center gap-1.5",
-                            locationMode === "Local"
-                              ? "bg-gradient-to-b from-purple-500 to-purple-600 border-[#8B5CF6] text-white font-black shadow-sm"
-                              : "bg-purple-50 border-purple-200 text-purple-800 hover:bg-purple-100",
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "w-1.5 h-1.5 rounded-full transition-all duration-300",
-                              locationMode === "Local"
-                                ? "bg-red-500 shadow-[0_0_8px_#EF4444]"
-                                : "bg-slate-300",
-                            )}
-                          />
-                          Local Folder
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Directories List Depending on Mode */}
-                  {locationMode === "Local" && (
-                    <div className="space-y-3">
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            Local Calendar Path
-                          </label>
-                          {!draftLocalPathCalendar ? (
-                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold uppercase">
-                              To be set
-                            </span>
-                          ) : (
-                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-bold uppercase">
-                              Configured
-                            </span>
-                          )}
-                        </div>
-                        <input
-                          type="text"
-                          placeholder="e.g. /Users/name/data/calendar"
-                          value={draftLocalPathCalendar}
-                          onChange={(e) =>
-                            setDraftLocalPathCalendar(e.target.value)
-                          }
-                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-mono text-slate-900 outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <div className="flex gap-2 mt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleBrowseNative("calendar")}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
-                          >
-                            Edit
-                          </button>
-                          {draftLocalPathCalendar && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenLocalPath(draftLocalPathCalendar)
-                              }
-                              className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
-                            >
-                              Open
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Directory where Interstitial-er saves the interstitials
-                          configuration.
-                        </p>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            Local Media & Script Directory Path
-                          </label>
-                          {!draftLocalPathMP3s ? (
-                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold uppercase">
-                              To be set
-                            </span>
-                          ) : (
-                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-bold uppercase">
-                              Configured
-                            </span>
-                          )}
-                        </div>
-                        <input
-                          type="text"
-                          placeholder="e.g. /Users/name/Music/MediaAndScripts"
-                          value={draftLocalPathMP3s}
-                          onChange={(e) =>
-                            setDraftLocalPathMP3s(e.target.value)
-                          }
-                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-mono text-slate-900 outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <div className="flex gap-2 mt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleBrowseNative("mp3s")}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
-                          >
-                            Edit
-                          </button>
-                          {draftLocalPathMP3s && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenLocalPath(draftLocalPathMP3s)
-                              }
-                              className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
-                            >
-                              Open
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Absolute path containing your secondary .mp3 playback audio, script, and image files.
-                        </p>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            Local Play Log Records Path
-                          </label>
-                          {!draftLocalPathLogs ? (
-                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold uppercase">
-                              To be set
-                            </span>
-                          ) : (
-                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-bold uppercase">
-                              Configured
-                            </span>
-                          )}
-                        </div>
-                        <input
-                          type="text"
-                          placeholder="e.g. /Users/name/logs"
-                          value={draftLocalPathLogs}
-                          onChange={(e) =>
-                            setDraftLocalPathLogs(e.target.value)
-                          }
-                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-mono text-slate-900 outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                        <div className="flex gap-2 mt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleBrowseNative("logs")}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
-                          >
-                            Edit
-                          </button>
-                          {draftLocalPathLogs && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenLocalPath(draftLocalPathLogs)
-                              }
-                              className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
-                            >
-                              Open
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Directory location where logs are stored sequentially.
-                        </p>
-                      </div>
-
-                      {interstitialsReadOnlyError && (
-                        <div className="p-3 bg-amber-950/20 border border-amber-500/50 text-amber-900 rounded text-xs leading-relaxed font-bold">
-                          ⚠️ {interstitialsReadOnlyError}
-                        </div>
-                      )}
-
-                      {localPathsUnavailable && (
-                        <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded text-xs leading-relaxed font-medium">
-                          ⚠️ One or more specified local directories are missing
-                          or inaccessible. Please verify paths are correct and
-                          physically exist on host desktop folders.
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {locationMode === "Drive" && (
-                    <div className="space-y-3">
-                      {/* Preferences/Interstitials Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            Interstitial
-                          </span>
-                          {draftDriveFolderPreferences ? (
-                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                              Configured
-                            </span>
-                          ) : (
-                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                              To be set
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
-                          {driveFolderDescMap[draftDriveFolderPreferences] ||
-                            "No directory folder configured yet"}
-                        </p>
-                        <div className="flex items-center gap-1.5 pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingDriveField("preferences");
-                              setTempPasteLink(draftDriveFolderPreferences);
-                            }}
-                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                          {draftDriveFolderPreferences && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenDriveFolder(
-                                  draftDriveFolderPreferences,
-                                )
-                              }
-                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-                            >
-                              Open
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* MP3s Folder Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            media & scripts
-                          </span>
-                          {draftDriveFolderMP3s ? (
-                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                              Configured
-                            </span>
-                          ) : (
-                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                              To be set
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
-                          {driveFolderDescMap[draftDriveFolderMP3s] ||
-                            "No directory folder configured yet"}
-                        </p>
-                        <div className="flex items-center gap-1.5 pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingDriveField("mp3s");
-                              setTempPasteLink(draftDriveFolderMP3s);
-                            }}
-                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                          {draftDriveFolderMP3s && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenDriveFolder(draftDriveFolderMP3s)
-                              }
-                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-                            >
-                              Open
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Logs Folder Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            Play Logs
-                          </span>
-                          {draftDriveFolderLogs ? (
-                            <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                              Configured
-                            </span>
-                          ) : (
-                            <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                              To be set
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
-                          {driveFolderDescMap[draftDriveFolderLogs] ||
-                            "No directory folder configured yet"}
-                        </p>
-                        <div className="flex items-center gap-1.5 pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingDriveField("logs");
-                              setTempPasteLink(draftDriveFolderLogs);
-                            }}
-                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                          {draftDriveFolderLogs && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleOpenDriveFolder(draftDriveFolderLogs)
-                              }
-                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-                            >
-                              Open
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Google Account Connection Status inside modal */}
-                      <GoogleAuthSection
-                        user={user}
-                        token={token}
-                        setToken={setToken}
-                        setUser={setUser}
-                        googleClientId={googleClientId}
-                        setGoogleClientId={setGoogleClientId}
-                        isPollingExternal={isPollingExternal}
-                        setIsPollingExternal={setIsPollingExternal}
-                        setIsValidatingDrive={setIsValidatingDrive}
-                        setLoading={setLoading}
-                        setDriveValidationError={setDriveValidationError}
-                        driveValidationError={driveValidationError}
-                        validateGoogleDriveAccess={validateGoogleDriveAccess}
-                        fetchDataForMode={fetchDataForMode}
-                        handleAuthSignOut={handleAuthSignOut}
-                        setOverrideAccessToken={setOverrideAccessToken}
-                      />
-                    </div>
-                  )}
-
-                  {locationMode === "Demo" && (
-                    <div className="space-y-3">
-                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg whitespace-pre-line text-xs leading-relaxed text-amber-800 font-medium">
-                        Demo mode for testing and learning. Data is stored in the cloud demo workspace.
-                      </div>
-
-                      {/* Demo Interstitials Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            Demo Interstitial
-                          </span>
-                          <span className="text-xs bg-slate-100 border border-slate-300 text-slate-600 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                            Demo
-                          </span>
-                        </div>
-                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
-                          {driveFolderDescMap[
-                            "1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED"
-                          ] || "calendar"}
-                        </p>
-                        <div className="flex items-center gap-1.5 pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleOpenDriveFolder(
-                                "1EkEdj1gvA0_MtMNfnj5KNCPdxcRFO_ED",
-                              )
-                            }
-                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-                          >
-                            Open
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Demo MP3s Folder Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            Demo media & scripts
-                          </span>
-                          <span className="text-xs bg-slate-100 border border-slate-300 text-slate-600 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                            Demo
-                          </span>
-                        </div>
-                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
-                          {driveFolderDescMap[
-                            "11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch"
-                          ] || "medialibrary"}
-                        </p>
-                        <div className="flex items-center gap-1.5 pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleOpenDriveFolder(
-                                "11Ii8Wf_mjeysdIsQxeBd4iA3aNHqt9Ch",
-                              )
-                            }
-                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-                          >
-                            Open
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Demo Logs Folder Container */}
-                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            Demo Play Logs
-                          </span>
-                          <span className="text-xs bg-slate-100 border border-slate-300 text-slate-600 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
-                            Demo
-                          </span>
-                        </div>
-                        <p className="text-xs font-sans text-slate-800 select-all truncate leading-relaxed">
-                          {driveFolderDescMap[
-                            "1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx"
-                          ] || "logs"}
-                        </p>
-                        <div className="flex items-center gap-1.5 pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleOpenDriveFolder(
-                                "1pvc7gdLktrqbZ4A9X6OT_CkasSLbembx",
-                              )
-                            }
-                            className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
-                          >
-                            Open
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Google Account Connection Status inside modal for Demo mode as well */}
-                      <GoogleAuthSection
-                        user={user}
-                        token={token}
-                        setToken={setToken}
-                        setUser={setUser}
-                        googleClientId={googleClientId}
-                        setGoogleClientId={setGoogleClientId}
-                        isPollingExternal={isPollingExternal}
-                        setIsPollingExternal={setIsPollingExternal}
-                        setIsValidatingDrive={setIsValidatingDrive}
-                        setLoading={setLoading}
-                        setDriveValidationError={setDriveValidationError}
-                        driveValidationError={driveValidationError}
-                        validateGoogleDriveAccess={validateGoogleDriveAccess}
-                        fetchDataForMode={fetchDataForMode}
-                        handleAuthSignOut={handleAuthSignOut}
-                        setOverrideAccessToken={setOverrideAccessToken}
-                      />
-                    </div>
-                  )}
-
-                  {/* Feedback Status */}
-                  {locationsError && (
-                    <div className="bg-red-50 border border-red-200 rounded p-2.5 flex items-start gap-2 text-red-700">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-red-600" />
-                      <span className="text-xs leading-normal font-bold">
-                        {locationsError}
-                      </span>
-                    </div>
-                  )}
-
-                  {locationsSuccess && (
-                    <div className="bg-emerald-50 border border-emerald-200 rounded p-2.5 flex items-start gap-2 text-emerald-800">
-                      <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-600" />
-                      <span className="text-xs leading-normal font-bold">
-                        {locationsSuccess}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Submit Actions */}
-                <div className="px-4 py-2.5 border-t border-slate-200 bg-slate-50 flex gap-2 justify-end items-center font-sans">
-                  <button
-                    type="button"
-                    onClick={() => setShowLocalHelp(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold uppercase rounded border border-slate-300 transition cursor-pointer"
-                  >
-                    <HelpCircle className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Help</span>
-                  </button>
-                  {/* === DEBUG ANIMATION SWITCH & PIXEL RULER (AI Studio Only) === */}
-                  {isAiStudio && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={toggleAnimations}
-                        title={animationsDisabled ? "Performance Overrides: ACTIVE. Click to configure or disable" : "Performance Overrides: INACTIVE. Click to configure & enable"}
-                        className={cn(
-                          "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer border border-transparent",
-                          animationsDisabled
-                            ? "bg-red-100 text-red-700 border-red-300 hover:bg-red-200"
-                            : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
-                        )}
-                      >
-                        {animationsDisabled ? (
-                          <ZapOff className="w-3.5 h-3.5 text-red-600" />
-                        ) : (
-                          <Zap className="w-3.5 h-3.5 text-amber-500" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={togglePixelRuler}
-                        title={showPixelRuler ? "Pixel Ruler: ACTIVE. Click to hide ruler" : "Pixel Ruler: INACTIVE. Click to show ruler"}
-                        className={cn(
-                          "flex items-center justify-center p-1.5 rounded transition-all cursor-pointer mr-auto border border-transparent",
-                          showPixelRuler
-                            ? "bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200"
-                            : "text-slate-600 hover:text-slate-900 hover:bg-slate-200"
-                        )}
-                      >
-                        <Ruler className={cn("w-3.5 h-3.5", showPixelRuler ? "text-amber-600" : "text-slate-500")} />
-                      </button>
-                    </>
-                  )}
-                  {!isAiStudio && <div className="mr-auto" />}
-                  <button
-                    type="button"
-                    onClick={() => setShowLocationsModal(false)}
-                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold uppercase rounded border border-slate-300 transition cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSyncing || isValidatingDrive}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase rounded shadow transition disabled:opacity-50 cursor-pointer"
-                  >
-                    {isSyncing || isValidatingDrive
-                      ? "Verifying..."
-                      : "Save and Close"}
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <LocationsModal
+        isOpen={showLocationsModal}
+        onClose={() => setShowLocationsModal(false)}
+        locationMode={locationMode}
+        setLocationMode={setLocationMode}
+        isAiStudio={isAiStudio}
+        windowSize={windowSize}
+        draftLocalPathCalendar={draftLocalPathCalendar}
+        setDraftLocalPathCalendar={setDraftLocalPathCalendar}
+        draftLocalPathMP3s={draftLocalPathMP3s}
+        setDraftLocalPathMP3s={setDraftLocalPathMP3s}
+        draftLocalPathLogs={draftLocalPathLogs}
+        setDraftLocalPathLogs={setDraftLocalPathLogs}
+        onBrowseNative={handleBrowseNative}
+        onOpenLocalPath={handleOpenLocalPath}
+        interstitialsReadOnlyError={interstitialsReadOnlyError}
+        localPathsUnavailable={localPathsUnavailable}
+        draftDriveFolderPreferences={draftDriveFolderPreferences}
+        draftDriveFolderMP3s={draftDriveFolderMP3s}
+        draftDriveFolderLogs={draftDriveFolderLogs}
+        driveFolderDescMap={driveFolderDescMap}
+        onEditDriveField={(field, val) => {
+          setEditingDriveField(field);
+          setTempPasteLink(val);
+        }}
+        onOpenDriveFolder={handleOpenDriveFolder}
+        user={user}
+        token={token}
+        setToken={setToken}
+        setUser={setUser}
+        googleClientId={googleClientId}
+        setGoogleClientId={setGoogleClientId}
+        isPollingExternal={isPollingExternal}
+        setIsPollingExternal={setIsPollingExternal}
+        isValidatingDrive={isValidatingDrive}
+        setIsValidatingDrive={setIsValidatingDrive}
+        setLoading={setLoading}
+        driveValidationError={driveValidationError}
+        setDriveValidationError={setDriveValidationError}
+        validateGoogleDriveAccess={validateGoogleDriveAccess}
+        fetchDataForMode={fetchDataForMode}
+        handleAuthSignOut={handleAuthSignOut}
+        setOverrideAccessToken={setOverrideAccessToken}
+        locationsError={locationsError}
+        locationsSuccess={locationsSuccess}
+        onSaveLocations={handleSaveLocations}
+        onShowLocalHelp={() => setShowLocalHelp(true)}
+        animationsDisabled={animationsDisabled}
+        toggleAnimations={toggleAnimations}
+        showPixelRuler={showPixelRuler}
+        togglePixelRuler={togglePixelRuler}
+        isSyncing={isSyncing}
+      />
       <AnimatePresence>
         {editingDriveField && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
@@ -5200,497 +3628,26 @@ export default function App() {
         isOpen={showLocalHelp}
         onClose={() => setShowLocalHelp(false)}
       />
-      <AnimatePresence>
-        {showExportModal && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm pt-2">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-slate-900 border border-emerald-500/40 rounded-xl shadow-2xl max-w-lg w-full overflow-hidden text-slate-100 flex flex-col p-5 space-y-3 font-sans shadow-emerald-950/10"
-            >
-              {/* Modal Header */}
-              <div className="flex justify-between items-center pb-2 border-b border-slate-800/60 shrink-0">
-                <div className="flex items-center gap-2 text-emerald-400">
-                  <Download className="w-5 h-5" />
-                  <h3 className="text-sm font-black uppercase tracking-widest text-white leading-none">
-                    Playlist Export
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCloseExportModal}
-                  className="text-slate-550 hover:text-slate-350 font-bold text-sm"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Modal Content depending on state */}
-              {exportState === "configuring" && (() => {
-                const h = windowSize.height;
-                const w = windowSize.width;
-
-                const isNarrow = w < 540;
-
-                // Adjust vertical height calculations if horizontal narrow rearrangement occurs
-                const eh = isNarrow ? (h - 130) : h;
-
-                const reducePlaylistAndPlanText = eh < 640;
-                const showPlanRow = eh >= 580;
-                const showPlaylistRow = eh >= 530;
-                const showMp3ExampleRow = eh >= 480;
-                const reduceFolderText = eh < 430;
-                const showFolderRow = eh >= 400;
-                const showPathLabel = eh >= 360;
-                const showNameLabel = eh >= 320;
-
-                const truncateMiddle = (str: string, maxLength: number) => {
-                  if (!str) return "";
-                  if (str.length <= maxLength) return str;
-                  const half = Math.floor((maxLength - 3) / 2);
-                  return str.substring(0, half) + "..." + str.substring(str.length - half);
-                };
-
-                return (
-                  <div className="space-y-4 flex flex-col pt-1">
-                    {isNarrow ? (
-                      <div className="space-y-3.5 text-left">
-                        {/* i. move the Path label and browse button to be on a row above the Path data field */}
-                        <div className="flex flex-col space-y-1.5">
-                          <div className="flex justify-between items-center text-xs">
-                            {showPathLabel ? (
-                              <label className="font-black uppercase tracking-wider text-slate-400 select-none">
-                                path
-                              </label>
-                            ) : <div />}
-                            <button
-                              type="button"
-                              onClick={handleBrowseExportDestination}
-                              className="px-3 py-1 bg-slate-850 hover:bg-slate-800 border border-slate-700 text-slate-200 rounded cursor-pointer flex items-center justify-center min-w-[36px] h-8 active:translate-y-px shadow-sm"
-                              title="Browse"
-                            >
-                              {/* iv. Change the "Browse" description on the "Browse" button to a folder icon. */}
-                              <Folder className="w-4 h-4 text-emerald-400" />
-                            </button>
-                          </div>
-                          {/* ii. Allow the path data field to expand to 2 rows */}
-                          <textarea
-                            rows={2}
-                            value={exportDestinationInput}
-                            onChange={(e) => setExportDestinationInput(e.target.value)}
-                            placeholder="Select export folder pathway..."
-                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-202 focus:outline-none focus:border-emerald-600 font-mono resize-none leading-normal"
-                          />
-                        </div>
-
-                        {/* iii. Move the Name data field to below the Name label */}
-                        <div className="flex flex-col space-y-1.5">
-                          {showNameLabel && (
-                            <label className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                              name
-                            </label>
-                          )}
-                          <input
-                            type="text"
-                            value={exportFolderPrefixInput}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setExportFolderPrefixInput(val);
-                              setExportTextPrefixInput(val);
-                              setExportPlaylistPrefixInput(val);
-                            }}
-                            placeholder="Show"
-                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
-                          />
-                        </div>
-
-                        {/* Closed distance data displays next to labels */}
-                        <div className="space-y-2 border-t border-slate-800/40 pt-3 flex flex-col items-start">
-                          {showFolderRow && (
-                            <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                                Folder:
-                              </span>
-                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
-                                {reduceFolderText ? truncateMiddle(getDynamicNames().folderName, 22) : getDynamicNames().folderName}
-                              </span>
-                            </div>
-                          )}
-
-                          {showPlanRow && (
-                            <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                                Plan:
-                              </span>
-                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
-                                {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().textFilename, 22) : getDynamicNames().textFilename}
-                              </span>
-                            </div>
-                          )}
-
-                          {showPlaylistRow && (
-                            <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                                Playlist:
-                              </span>
-                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
-                                {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().playlistFilename, 22) : getDynamicNames().playlistFilename}
-                              </span>
-                            </div>
-                          )}
-
-                          {showMp3ExampleRow && (
-                            <div className="flex items-baseline gap-2 flex-wrap border-t border-slate-800/20 pt-1.5 w-full">
-                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                                mp3 Name example:
-                              </span>
-                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
-                                {getDynamicNames().firstTrackFilename}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3.5 text-left">
-                        {/* Path Row */}
-                        {showPathLabel ? (
-                          <div className="grid grid-cols-[60px_1fr] items-center gap-3">
-                            <label className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                              path
-                            </label>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={exportDestinationInput}
-                                onChange={(e) => setExportDestinationInput(e.target.value)}
-                                placeholder="Select export folder pathway..."
-                                className="flex-1 bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-202 focus:outline-none focus:border-emerald-600 font-mono"
-                              />
-                              <button
-                                type="button"
-                                onClick={handleBrowseExportDestination}
-                                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-black uppercase rounded cursor-pointer whitespace-nowrap active:translate-y-px animate-none duration-100 ease-in-out shadow-sm"
-                              >
-                                Browse
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              value={exportDestinationInput}
-                              onChange={(e) => setExportDestinationInput(e.target.value)}
-                              placeholder="Select export folder pathway..."
-                              className="flex-1 bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-202 focus:outline-none focus:border-emerald-600 font-mono"
-                            />
-                            <button
-                              type="button"
-                              onClick={handleBrowseExportDestination}
-                              className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-black uppercase rounded cursor-pointer whitespace-nowrap active:translate-y-px animate-none duration-100 ease-in-out shadow-sm"
-                            >
-                              Browse
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Name Row */}
-                        {showNameLabel ? (
-                          <div className="grid grid-cols-[60px_1fr] items-center gap-3">
-                            <label className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                              name
-                            </label>
-                            <input
-                              type="text"
-                              value={exportFolderPrefixInput}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setExportFolderPrefixInput(val);
-                                setExportTextPrefixInput(val);
-                                setExportPlaylistPrefixInput(val);
-                              }}
-                              placeholder="Show"
-                              className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
-                            />
-                          </div>
-                        ) : (
-                          <input
-                            type="text"
-                            value={exportFolderPrefixInput}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setExportFolderPrefixInput(val);
-                              setExportTextPrefixInput(val);
-                              setExportPlaylistPrefixInput(val);
-                            }}
-                            placeholder="Show"
-                            className="w-full bg-slate-950 border border-slate-850 rounded px-3 py-1.5 text-xs text-slate-205 focus:outline-none focus:border-emerald-500 font-mono"
-                          />
-                        )}
-
-                        {/* Closed distance data displays next to labels */}
-                        <div className="space-y-2 border-t border-slate-800/40 pt-3.5 flex flex-col items-start w-full">
-                          {showFolderRow && (
-                            <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                                Folder:
-                              </span>
-                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
-                                {reduceFolderText ? truncateMiddle(getDynamicNames().folderName, 22) : getDynamicNames().folderName}
-                              </span>
-                            </div>
-                          )}
-
-                          {showPlanRow && (
-                            <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                                Plan:
-                              </span>
-                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
-                                {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().textFilename, 22) : getDynamicNames().textFilename}
-                              </span>
-                            </div>
-                          )}
-
-                          {showPlaylistRow && (
-                            <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                                Playlist:
-                              </span>
-                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
-                                {reducePlaylistAndPlanText ? truncateMiddle(getDynamicNames().playlistFilename, 22) : getDynamicNames().playlistFilename}
-                              </span>
-                            </div>
-                          )}
-
-                          {showMp3ExampleRow && (
-                            <div className="flex items-baseline gap-2 flex-wrap border-t border-slate-800/20 pt-1.5 w-full">
-                              <span className="text-xs font-black uppercase tracking-wider text-slate-400 select-none">
-                                mp3 Name example:
-                              </span>
-                              <span className="text-xs font-mono select-all break-all text-emerald-400 font-bold leading-normal">
-                                {getDynamicNames().firstTrackFilename}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Footer Buttons with beautiful 3D styling */}
-                    {(() => {
-                      const useCompactButtons = w < 440;
-                      const useStackedButtons = w < 360;
-
-                      if (useStackedButtons) {
-                        return (
-                          <div className="flex flex-col gap-0 pt-3 border-t border-slate-800/40 w-full">
-                            <button
-                              type="button"
-                              onClick={runExportPrerecord}
-                              className="flex items-center justify-center gap-1.5 p-[2px] bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow w-full"
-                            >
-                              <Download className="w-4 h-4 shrink-0" />
-                              <span>Export</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleCloseExportModal}
-                              className="w-full p-[2px] bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer text-center"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        );
-                      }
-
-                      if (useCompactButtons) {
-                        return (
-                          <div className="flex gap-[2px] justify-between pt-3 border-t border-slate-800/40 w-full">
-                            <button
-                              type="button"
-                              onClick={handleCloseExportModal}
-                              className="flex-1 px-[2px] py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer text-center"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={runExportPrerecord}
-                              className="flex-1 flex items-center justify-center gap-1 px-[2px] py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow"
-                            >
-                              <Download className="w-3.5 h-3.5 shrink-0" />
-                              <span>Export</span>
-                            </button>
-                          </div>
-                        );
-                      }
-
-                      return (
-                        <div className="flex gap-2 justify-end pt-3 border-t border-slate-800/40">
-                          <button
-                            type="button"
-                            onClick={handleCloseExportModal}
-                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider rounded border-b-[3px] border-slate-950 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={runExportPrerecord}
-                            className="flex items-center gap-1.5 px-4.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider rounded border-b-[3px] border-emerald-800 hover:brightness-110 active:border-b-0 active:translate-y-[3px] transition-all cursor-pointer shadow"
-                          >
-                            <Download className="w-4 h-4 shrink-0" />
-                            <span>Export</span>
-                          </button>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                );
-              })()}
-
-              {exportState === "exporting" && (
-                <div className="py-8 flex flex-col items-center justify-center space-y-4">
-                  <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
-                  <p className="text-sm font-bold text-slate-300">
-                    Assembling playlist and copying MP3s...
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Please do not close this window
-                  </p>
-                </div>
-              )}
-
-              {exportState === "error" && (
-                <div className="space-y-4 pt-1">
-                  <div className="bg-red-500/10 border border-red-500/20 rounded p-3.5 flex items-start gap-2.5 text-red-500">
-                    <AlertCircle className="w-5 h-5 shrink-0" />
-                    <div className="flex-1">
-                      <p className="text-sm font-bold">Export Failed</p>
-                      <p className="text-xs leading-relaxed mt-1 text-red-400">
-                        {exportError}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 justify-end pt-2">
-                    <button
-                      type="button"
-                      onClick={handleCloseExportModal}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
-                    >
-                      Close
-                    </button>
-                    <button
-                      type="button"
-                      onClick={runExportPrerecord}
-                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase rounded shadow cursor-pointer shadow-emerald-950/20 active:translate-y-px"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {exportState === "success" && exportResult && (
-                <div className="space-y-4 pt-1 max-h-[70vh] overflow-y-auto custom-scrollbar">
-                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-3.5 flex items-start gap-2.5 text-emerald-500">
-                    <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-sm font-bold text-emerald-400">
-                        Export Completed Successfully
-                      </p>
-                      <p className="text-xs leading-relaxed mt-1 text-emerald-300">
-                        Broadcasting package compiled into local folder:
-                      </p>
-                      <p className="text-xs font-mono select-all bg-slate-950 p-2 rounded text-emerald-200 break-all mt-1.5 border border-emerald-900/30">
-                        {exportResult.exportFolder}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="p-2.5 bg-slate-950/40 rounded border border-slate-800 text-center">
-                      <span className="block text-base font-black font-mono text-emerald-400">
-                        {exportResult.totalCount}
-                      </span>
-                      <span className="text-xs font-black uppercase text-slate-500 tracking-wider">
-                        Scheduled
-                      </span>
-                    </div>
-                    <div className="p-2.5 bg-slate-950/40 rounded border border-slate-800 text-center">
-                      <span className="block text-base font-black font-mono text-emerald-400">
-                        {exportResult.copiedCount}
-                      </span>
-                      <span className="text-xs font-black uppercase text-slate-500 tracking-wider">
-                        Copied
-                      </span>
-                    </div>
-                    <div className="p-2.5 bg-slate-950/40 rounded border border-slate-800 text-center">
-                      <span className="block text-base font-black font-mono text-amber-500">
-                        {exportResult.missingCount}
-                      </span>
-                      <span className="text-xs font-black uppercase text-slate-500 tracking-wider">
-                        Missing
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5 bg-slate-950/30 p-2.5 rounded border border-slate-850 text-slate-300 font-sans">
-                    <p className="text-xs font-bold text-slate-200">
-                      Created Package Files:
-                    </p>
-                    <ul className="text-xs font-mono space-y-1.5 pl-3 list-disc text-slate-400">
-                      <li>
-                        {exportResult.txtFilename ||
-                          `${exportResult.baseFilename}.txt`}{" "}
-                        <span className="text-xs text-slate-550 font-sans font-medium">
-                          (Summary Interstitial)
-                        </span>
-                      </li>
-                      <li>
-                        {exportResult.m3uFilename ||
-                          `${exportResult.baseFilename}.m3u`}{" "}
-                        <span className="text-xs text-slate-550 font-sans font-medium">
-                          (M3U Playlist File)
-                        </span>
-                      </li>
-                      <li>
-                        MP3 Files{" "}
-                        <span className="text-xs text-slate-550 font-sans font-medium">
-                          (Break 1, Break 2...)
-                        </span>
-                      </li>
-                    </ul>
-                  </div>
-
-                  <div className="flex gap-2 justify-end pt-2 border-t border-slate-800/40">
-                    <button
-                      type="button"
-                      onClick={handleCloseExportModal}
-                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase rounded border border-slate-700 transition cursor-pointer active:translate-y-px"
-                    >
-                      Done
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleOpenExportFolder(exportResult.exportFolder)
-                      }
-                      className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase rounded shadow-md transition cursor-pointer active:translate-y-px"
-                    >
-                      <FolderOpen className="w-3.5 h-3.5" />
-                      <span>Open Folder</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={handleCloseExportModal}
+        exportState={exportState}
+        windowSize={windowSize}
+        exportDestinationInput={exportDestinationInput}
+        setExportDestinationInput={setExportDestinationInput}
+        exportFolderPrefixInput={exportFolderPrefixInput}
+        setExportFolderPrefixInput={setExportFolderPrefixInput}
+        setExportTextPrefixInput={setExportTextPrefixInput}
+        setExportPlaylistPrefixInput={setExportPlaylistPrefixInput}
+        exportError={exportError}
+        exportResult={exportResult}
+        handleBrowseExportDestination={handleBrowseExportDestination}
+        runExportPrerecord={runExportPrerecord}
+        handleOpenExportFolder={handleOpenExportFolder}
+        getDynamicNames={getDynamicNames}
+        prerecordDate={prerecordDate}
+        prerecordLengthMinutes={prerecordLengthMinutes}
+      />
 
       {/* Performance & CPU Overrides Configuration Modal */}
       <AnimatePresence>
@@ -6159,7 +4116,7 @@ export default function App() {
                 <Moon className="w-6 h-6 animate-pulse" />
               </div>
               <p className="text-sm text-slate-300 leading-relaxed font-sans font-medium">
-                Shhh... Interstitial-er is sleeping.
+                Shhh... WIPE is sleeping.
               </p>
               <button
                 type="button"

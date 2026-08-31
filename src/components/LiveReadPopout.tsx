@@ -188,16 +188,16 @@ export default function LiveReadPopout({
         backupAudioRef.current = null;
       }
       const cleanName = backupMp3Url.includes('/') ? backupMp3Url.split('/').pop() : backupMp3Url;
-      const playableUrl = getPlayableUrl(backupMp3Url) || `/api/stream-local?file=${encodeURIComponent(cleanName || '')}`;
+      const playableUrl = getPlayableUrl(backupMp3Url) || `/api/media/stream?path=${encodeURIComponent(cleanName || '')}`;
       const audio = new Audio(playableUrl);
       backupAudioRef.current = audio;
       audio.play().then(() => {
         setBackupAudioPlaying(true);
       }).catch(err => {
         console.error("Failed to play preview backup audio:", err);
-        // Secondary fallback to stream-local directly
-        if (cleanName && !playableUrl.includes('/api/stream-local')) {
-          const fallbackAudio = new Audio(`/api/stream-local?file=${encodeURIComponent(cleanName)}`);
+        // Secondary fallback to media/stream directly
+        if (cleanName && !playableUrl.includes('/api/media/stream')) {
+          const fallbackAudio = new Audio(`/api/media/stream?path=${encodeURIComponent(cleanName)}`);
           backupAudioRef.current = fallbackAudio;
           fallbackAudio.play().then(() => {
             setBackupAudioPlaying(true);

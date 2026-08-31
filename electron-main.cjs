@@ -44,7 +44,7 @@ if (isPortableMode) {
 // Ensure single running instance per machine
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
-  console.log('Another instance of Interstitial-er is already running. Exiting duplicate process.');
+  console.log('Another instance of WIPE is already running. Exiting duplicate process.');
   app.quit();
   process.exit(0);
 } else {
@@ -166,15 +166,13 @@ function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
   };
 
   const macAppMenu = isMac ? {
-    label: app.name || 'Interstitial-er',
+    label: app.name || 'WIPE',
     submenu: [
       { role: 'about' },
       { type: 'separator' },
-      { role: 'services', enabled: !isLiveReadMenuLocked },
-      { type: 'separator' },
       { role: 'hide', enabled: !isLiveReadMenuLocked },
       { role: 'hideOthers', enabled: !isLiveReadMenuLocked },
-      { role: 'unhide', enabled: !isLiveReadMenuLocked },
+      { role: 'unhide', label: 'Show All', enabled: !isLiveReadMenuLocked },
       { type: 'separator' },
       { role: 'quit' }
     ]
@@ -184,9 +182,7 @@ function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
     label: 'File',
     submenu: [
       ...(isMac ? [
-        { role: 'close', enabled: !isLiveReadMenuLocked },
-        { type: 'separator' },
-        { role: 'quit' }
+        { role: 'close', label: 'Close Window', accelerator: 'Cmd+W', enabled: !isLiveReadMenuLocked }
       ] : [
         { role: 'quit', label: 'Exit', accelerator: 'Alt+F4' }
       ])
@@ -264,24 +260,22 @@ function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
     label: 'Window',
     submenu: [
       { role: 'minimize', accelerator: isMac ? 'Cmd+M' : undefined, enabled: !isLiveReadMenuLocked },
-      {
-        label: 'Maximize',
-        enabled: !isLiveReadMenuLocked,
-        click: (item, focusedWindow) => {
-          if (focusedWindow) {
-            if (focusedWindow.isMaximized()) {
-              focusedWindow.unmaximize();
-            } else {
-              focusedWindow.maximize();
+      ...(isMac ? [
+        { role: 'zoom', enabled: !isLiveReadMenuLocked }
+      ] : [
+        {
+          label: 'Maximize',
+          enabled: !isLiveReadMenuLocked,
+          click: (item, focusedWindow) => {
+            if (focusedWindow) {
+              if (focusedWindow.isMaximized()) {
+                focusedWindow.unmaximize();
+              } else {
+                focusedWindow.maximize();
+              }
             }
           }
-        }
-      },
-      ...(isMac ? [
-        { role: 'zoom', enabled: !isLiveReadMenuLocked },
-        { type: 'separator' },
-        { role: 'close', accelerator: 'Cmd+W', enabled: !isLiveReadMenuLocked }
-      ] : [
+        },
         { role: 'close', enabled: !isLiveReadMenuLocked }
       ])
     ]
@@ -295,18 +289,20 @@ function buildAppMenu(activeTab = 'player', calendarSubTab = 'calendar') {
         enabled: !isLiveReadMenuLocked,
         click: () => sendNavigate('help')
       },
-      {
-        label: 'About Interstitial-er',
-        enabled: !isLiveReadMenuLocked,
-        click: () => {
-          dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'About Interstitial-er',
-            message: 'Interstitial-er',
-            detail: `Version 0.12.21\nCross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.`
-          });
+      ...(!isMac ? [
+        {
+          label: 'About WIPE',
+          enabled: !isLiveReadMenuLocked,
+          click: () => {
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: 'About WIPE',
+              message: 'WIPE - Wonderful Interstitial PlayEr',
+              detail: `Version 0.13.0\nCross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.`
+            });
+          }
         }
-      }
+      ] : [])
     ]
   };
 
@@ -337,10 +333,10 @@ function createWindow() {
   const disableShadows = DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC && isIntelMac;
 
   const appTitle = appMode === 'Live'
-    ? "Interstitial-er Live"
+    ? "WIPE Live"
     : appMode === 'Studio'
-      ? "Interstitial-er Studio"
-      : "Interstitial-er Admin";
+      ? "WIPE Studio"
+      : "WIPE Admin";
 
   let windowOptions = {
     height: 800,

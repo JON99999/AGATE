@@ -183,7 +183,7 @@ async function syncRemoteIcons() {
       }
 
       // 1. Folder name inside zip contains build type but NO version
-      const folderName = `Interstitial-er ${mode} Windows Portable`;
+      const folderName = `WIPE ${mode} Windows Portable`;
       const stagingDir = path.join(releaseDir, folderName);
       if (fs.existsSync(stagingDir)) {
         fs.rmSync(stagingDir, { recursive: true, force: true });
@@ -197,7 +197,7 @@ async function syncRemoteIcons() {
 
       // 3. Create README.txt in the staging folder
       const readmeContent = `================================================================================
-  INTERSTITIAL-ER ${mode.toUpperCase()} — WINDOWS PORTABLE EDITION
+  WIPE ${mode.toUpperCase()} — WINDOWS PORTABLE EDITION
 ================================================================================
 
 IMPORTANT INSTRUCTION:
@@ -211,7 +211,7 @@ DO NOT run the executable from inside the compressed (.zip) archive preview.
 CONFIGURATION & PERSISTENCE:
 --------------------------------------------------------------------------------
 - When run from the extracted folder, all configuration and local folder paths
-  are saved in 'interstitial-er_settings.json' directly in this same folder.
+  are saved in 'wipe_settings.json' directly in this same folder.
 - You can move this extracted folder between drives or broadcast machines, and
   your settings will remain intact.
 ================================================================================
@@ -219,7 +219,7 @@ CONFIGURATION & PERSISTENCE:
       fs.writeFileSync(path.join(stagingDir, 'README.txt'), readmeContent, 'utf8');
 
       // 4. Create zip archive
-      const zipName = `Interstitial-er ${mode}-${version}-Windows-Portable.zip`;
+      const zipName = `WIPE ${mode}-${version}-Windows-Portable.zip`;
       const zipPath = path.join(releaseDir, zipName);
       if (fs.existsSync(zipPath)) {
         fs.unlinkSync(zipPath);
@@ -283,10 +283,10 @@ CONFIGURATION & PERSISTENCE:
       const pkg = JSON.parse(fs.readFileSync(pkgBakPath, 'utf8'));
 
       // Inject App names & IDs
-      pkg.productName = `Interstitial-er ${mode}`;
+      pkg.productName = `WIPE ${mode}`;
       if (!pkg.build) pkg.build = {};
-      pkg.build.productName = `Interstitial-er ${mode}`;
-      pkg.build.appId = `com.interstitialer.scheduler.${mode.toLowerCase()}`;
+      pkg.build.productName = `WIPE ${mode}`;
+      pkg.build.appId = `com.wipe.scheduler.${mode.toLowerCase()}`;
 
       // Ensure build directory exists and has our physical composite icon copied as build/icon.png
       const buildIconDir = path.join(__dirname, 'build');

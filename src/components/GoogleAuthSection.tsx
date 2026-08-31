@@ -28,7 +28,7 @@ interface GoogleAuthSectionProps {
   setOverrideAccessToken: (token: string | null) => void;
 }
 
-export default function GoogleAuthSection({
+export function GoogleAuthSection({
   user,
   token,
   setToken,
@@ -420,7 +420,7 @@ export default function GoogleAuthSection({
                         <div className="space-y-1">
                           <span className="text-xs font-black uppercase tracking-wider block">Option: Login using OAUTH client ID</span>
                           <p className="text-xs text-slate-600 leading-relaxed font-sans">
-                            With a OAUTH Client ID, Interstitial-er opens a pop-up login window. Google user email must be preapproved in that Client ID in Google OAUTH. See your admin to be added.
+                            With a OAUTH Client ID, WIPE opens a pop-up login window. Google user email must be preapproved in that Client ID in Google OAUTH. See your admin to be added.
                           </p>
                         </div>
                       </div>
@@ -622,3 +622,5 @@ export default function GoogleAuthSection({
     </div>
   );
 }
+
+export default GoogleAuthSection;

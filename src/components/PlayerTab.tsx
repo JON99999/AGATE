@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, Fra
 import { format, addMinutes, subMinutes, subDays, isSameMinute, isBefore, isAfter, startOfMinute, differenceInSeconds, parseISO } from 'date-fns';
 import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download, Ear, FileText, Volume2, ListMusic, ChevronUp, ChevronDown, RotateCcw, Music, Flag, ListPlus } from 'lucide-react';
 import { Interstitial, InterstitialType, LogEntry, Show } from '../types';
+import { useAudioEngine } from '../hooks/useAudioEngine';
 import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getActualShowStart, getSortedShows, getShowShade, readMp3ID3Metadata, Mp3ID3Metadata, formatDuration, formatTotalTrackTime, getActiveMp3ForSlot, getGatedAssetType } from '../lib/utils';
 import LiveReadPopout from './LiveReadPopout';
 import { WaveformVisualizer } from './WaveformVisualizer';
@@ -45,13 +46,14 @@ export default function PlayerTab({
   shows = [],
   onTriggerCaching
 }: PlayerTabProps) {
-  const playingAudiosRef = useRef<Map<string, HTMLAudioElement>>(new Map());
-  const [playingStates, setPlayingStates] = useState<Record<string, { currentTime: number; duration: number }>>({});
-  const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
-  const playingAudioRef = useRef<HTMLAudioElement | null>(null);
-  const [playingSlotKey, setPlayingSlotKey] = useState<string | null>(null);
+  const {
+    playingStates,
+    playAudio,
+    stopAudio,
+    stopAllAudios,
+    isAudioPlaying
+  } = useAudioEngine();
   const [activeLiveReadOverlay, setActiveLiveReadOverlay] = useState<any | null>(null);
-  const [currentTime, setCurrentTime] = useState(0);
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
   const [isLoggingExports, setIsLoggingExports] = useState(false);
   const [customScriptTimes, setCustomScriptTimes] = useState<Record<string, string>>({});
@@ -986,43 +988,6 @@ export default function PlayerTab({
     return null;
   };
 
-  const stopAllAudios = () => {
-    for (const a of playingAudiosRef.current.values()) {
-      try {
-        a.pause();
-        a.src = "";
-      } catch (e) {}
-    }
-    playingAudiosRef.current.clear();
-    setPlayingStates({});
-    if (playingAudioRef.current) {
-      playingAudioRef.current.pause();
-      playingAudioRef.current.src = "";
-    }
-    setPlayingAudio(null);
-    setPlayingSlotKey(null);
-  };
-
-  // Sync window methods for global navigation check
-  useEffect(() => {
-    (window as any).interstitialerIsAudioPlaying = () => {
-      return playingAudiosRef.current.size > 0 || (playingAudioRef.current && !playingAudioRef.current.paused);
-    };
-    (window as any).interstitialerStopAllAudio = () => stopAllAudios();
-    return () => {
-      delete (window as any).interstitialerIsAudioPlaying;
-      delete (window as any).interstitialerStopAllAudio;
-    };
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      stopAllAudios();
-    };
-  }, []);
-
-  const [duration, setDuration] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const activeItemRef = useRef<HTMLDivElement>(null);
   const userScrollTopRef = useRef<number | null>(null);
@@ -1281,30 +1246,6 @@ export default function PlayerTab({
       scrollContainerRef.current.scrollTop = userScrollTopRef.current;
     }
   });
-
-  useEffect(() => {
-    if (!playingAudio) return;
-
-    const updateProgress = () => {
-      setCurrentTime(playingAudio.currentTime);
-      setDuration(playingAudio.duration || 0);
-    };
-
-    const handleEnded = () => {
-      setPlayingAudio(null);
-      setPlayingSlotKey(null);
-    };
-
-    playingAudio.addEventListener('timeupdate', updateProgress);
-    playingAudio.addEventListener('loadedmetadata', updateProgress);
-    playingAudio.addEventListener('ended', handleEnded);
-
-    return () => {
-      playingAudio.removeEventListener('timeupdate', updateProgress);
-      playingAudio.removeEventListener('loadedmetadata', updateProgress);
-      playingAudio.removeEventListener('ended', handleEnded);
-    };
-  }, [playingAudio]);
 
   const timeline = useMemo(() => {
     if (playMode === 'Prerecord' && prerecordDate) {
@@ -2022,7 +1963,7 @@ export default function PlayerTab({
     saveCurrentShowPlaylistLog(undefined, updatedCancelled);
   };
 
-  const handleTogglePlayTrack = (track: {
+  const handleTogglePlayTrack = async (track: {
     id: string;
     fileName: string;
     title: string;
@@ -2031,57 +1972,13 @@ export default function PlayerTab({
     streamUrl: string;
   }) => {
     const slotKey = track.id;
-    if (playingAudiosRef.current.has(slotKey)) {
-      const a = playingAudiosRef.current.get(slotKey);
-      if (a) {
-        a.pause();
-        a.src = "";
-      }
-      playingAudiosRef.current.delete(slotKey);
-      setPlayingStates(prev => {
-        const copy = { ...prev };
-        delete copy[slotKey];
-        return copy;
-      });
+    if (isAudioPlaying(slotKey)) {
+      stopAudio(slotKey);
     } else {
-      const playableUrl = getPlayableUrl(track.streamUrl);
-      const audio = new Audio(playableUrl);
       const playedAt = new Date().toISOString();
-
-      const updateProgress = () => {
-        setPlayingStates(prev => ({
-          ...prev,
-          [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
-        }));
-      };
-
-      audio.addEventListener('loadedmetadata', updateProgress);
-      audio.addEventListener('timeupdate', updateProgress);
-
-      audio.addEventListener('ended', () => {
-        playingAudiosRef.current.delete(slotKey);
-        setPlayingStates(prev => {
-          const copy = { ...prev };
-          delete copy[slotKey];
-          return copy;
-        });
-      });
-
-      audio.addEventListener('error', () => {
-        playingAudiosRef.current.delete(slotKey);
-        setPlayingStates(prev => {
-          const copy = { ...prev };
-          delete copy[slotKey];
-          return copy;
-        });
-      });
-
-      audio.play().then(() => {
-        playingAudiosRef.current.set(slotKey, audio);
-        setPlayingStates(prev => ({
-          ...prev,
-          [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || track.durationSeconds || 0 }
-        }));
+      try {
+        const audio = await playAudio(slotKey, track.streamUrl);
+        if (!audio) return;
 
         const meta = trackMetadataMap[track.id] || trackMetadataMap[track.fileName] || trackMetadataMap[track.streamUrl];
         const durRes = resolveTrackDuration(track, meta, audio.duration);
@@ -2154,7 +2051,9 @@ export default function PlayerTab({
             })
           }).catch(e => console.error('Failed to save playlist track log:', e));
         }
-      }).catch(e => console.error('Error playing playlist track:', e));
+      } catch (e) {
+        console.error('Error playing playlist track:', e);
+      }
     }
   };
 
@@ -2318,21 +2217,11 @@ export default function PlayerTab({
     );
   };
 
-  const handlePlay = (s: Interstitial, slot: Date) => {
+  const handlePlay = async (s: Interstitial, slot: Date) => {
     const slotKey = `${slot.toISOString()}-${s.id}`;
     
-    if (playingAudiosRef.current.has(slotKey)) {
-      const a = playingAudiosRef.current.get(slotKey);
-      if (a) {
-        a.pause();
-        a.src = "";
-      }
-      playingAudiosRef.current.delete(slotKey);
-      setPlayingStates(prev => {
-        const copy = { ...prev };
-        delete copy[slotKey];
-        return copy;
-      });
+    if (isAudioPlaying(slotKey)) {
+      stopAudio(slotKey);
       return;
     }
 
@@ -2403,43 +2292,9 @@ export default function PlayerTab({
     }
 
     const targetMp3Url = activeMp3?.mp3Url || '';
-    const playableUrl = getPlayableUrl(targetMp3Url);
-    const audio = new Audio(playableUrl);
-
-    const updateProgress = () => {
-      setPlayingStates(prev => ({
-        ...prev,
-        [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
-      }));
-    };
-
-    audio.addEventListener('loadedmetadata', updateProgress);
-    audio.addEventListener('timeupdate', updateProgress);
-
-    audio.addEventListener('ended', () => {
-      playingAudiosRef.current.delete(slotKey);
-      setPlayingStates(prev => {
-        const copy = { ...prev };
-        delete copy[slotKey];
-        return copy;
-      });
-    });
-
-    audio.addEventListener('error', () => {
-      playingAudiosRef.current.delete(slotKey);
-      setPlayingStates(prev => {
-        const copy = { ...prev };
-        delete copy[slotKey];
-        return copy;
-      });
-    });
-
-    audio.play().then(() => {
-      playingAudiosRef.current.set(slotKey, audio);
-      setPlayingStates(prev => ({
-        ...prev,
-        [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
-      }));
+    try {
+      const audio = await playAudio(slotKey, targetMp3Url);
+      if (!audio) return;
 
       if (playMode !== 'Export') {
         const playedAt = new Date().toISOString();
@@ -2482,7 +2337,7 @@ export default function PlayerTab({
           saveCurrentShowPlaylistLog(updatedPlayed);
         }
       }
-    }).catch(err => {
+    } catch (err) {
       console.error('Playback failed', err);
       if (playMode !== 'Export') {
         const failedAt = new Date().toISOString();
@@ -2506,57 +2361,13 @@ export default function PlayerTab({
           } : {})
         });
       }
-    });
+    }
   };
 
-  const playBackupAudioTrack = (backupUrl: string, slotKey: string, s: Interstitial, slot: Date, skipLogging = false) => {
-    if (playingAudiosRef.current.has(slotKey)) {
-      const a = playingAudiosRef.current.get(slotKey);
-      if (a) {
-        a.pause();
-        a.src = "";
-      }
-      playingAudiosRef.current.delete(slotKey);
-    }
-
-    const playableUrl = getPlayableUrl(backupUrl);
-    if (!playableUrl) return;
-    const audio = new Audio(playableUrl);
-
-    const updateProgress = () => {
-      setPlayingStates(prev => ({
-        ...prev,
-        [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
-      }));
-    };
-
-    audio.addEventListener('loadedmetadata', updateProgress);
-    audio.addEventListener('timeupdate', updateProgress);
-
-    audio.addEventListener('ended', () => {
-      playingAudiosRef.current.delete(slotKey);
-      setPlayingStates(prev => {
-        const copy = { ...prev };
-        delete copy[slotKey];
-        return copy;
-      });
-    });
-
-    audio.addEventListener('error', () => {
-      playingAudiosRef.current.delete(slotKey);
-      setPlayingStates(prev => {
-        const copy = { ...prev };
-        delete copy[slotKey];
-        return copy;
-      });
-    });
-
-    audio.play().then(() => {
-      playingAudiosRef.current.set(slotKey, audio);
-      setPlayingStates(prev => ({
-        ...prev,
-        [slotKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
-      }));
+  const playBackupAudioTrack = async (backupUrl: string, slotKey: string, s: Interstitial, slot: Date, skipLogging = false) => {
+    try {
+      const audio = await playAudio(slotKey, backupUrl);
+      if (!audio) return;
 
       if (playMode !== 'Export') {
         const playedAt = new Date().toISOString();
@@ -2602,9 +2413,9 @@ export default function PlayerTab({
           saveCurrentShowPlaylistLog(updatedPlayed);
         }
       }
-    }).catch(err => {
+    } catch (err) {
       console.error('Backup MP3 playback failed', err);
-    });
+    }
   };
 
   const isPlayed = (interstitialId: string, slot: Date) => {
@@ -3055,7 +2866,7 @@ export default function PlayerTab({
                 }
 
                 if (item.type === 'track') {
-                  const isCurrentlyPlaying = !!playingStates[item.track.id] || playingAudiosRef.current.has(item.track.id);
+                  const isCurrentlyPlaying = !!playingStates[item.track.id] || isAudioPlaying(item.track.id);
                   const isPlayedTrack = !!item.played || !!playedPlaylistTracks[item.track.id] || !!playedPlaylistTracks[item.track.fileName] || !!pendingPlayedPlaylistTracksRef.current[item.track.id] || !!pendingPlayedPlaylistTracksRef.current[item.track.fileName];
                   const playedAtTime = item.playedAt || playedPlaylistTracks[item.track.id]?.playedAt || playedPlaylistTracks[item.track.fileName]?.playedAt || pendingPlayedPlaylistTracksRef.current[item.track.id]?.playedAt || pendingPlayedPlaylistTracksRef.current[item.track.fileName]?.playedAt;
                   const formattedPlayedAt = playedAtTime ? format(parseISO(playedAtTime), 'HH:mm') : format(new Date(), 'HH:mm');
@@ -3319,7 +3130,7 @@ export default function PlayerTab({
                         const activeMp3Url = activeMp3?.mp3Url || '';
                         const status = getMP3Status(activeMp3Url);
                         const isVerified = isScript ? status.exists : (status.exists && status.valid);
-                        const isCurrentlyPlaying = !!playingStates[previewKey] || playingAudiosRef.current.has(previewKey);
+                        const isCurrentlyPlaying = !!playingStates[previewKey] || isAudioPlaying(previewKey);
                         const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
 
                         const isMissedRecent = isPast && !played && !exported && diffSeconds <= 1800;
@@ -3416,44 +3227,9 @@ export default function PlayerTab({
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       if (isCurrentlyPlaying) {
-                                        const a = playingAudiosRef.current.get(previewKey);
-                                        if (a) {
-                                          a.pause();
-                                          a.src = "";
-                                        }
-                                        playingAudiosRef.current.delete(previewKey);
-                                        setPlayingStates(prev => {
-                                          const copy = { ...prev };
-                                          delete copy[previewKey];
-                                          return copy;
-                                        });
+                                        stopAudio(previewKey);
                                       } else {
-                                        const playableUrl = getPlayableUrl(activeMp3Url);
-                                        if (!playableUrl) return;
-                                        const audio = new Audio(playableUrl);
-
-                                        const updateProgress = () => {
-                                          setPlayingStates(prev => ({
-                                            ...prev,
-                                            [previewKey]: { currentTime: audio.currentTime, duration: audio.duration || 0 }
-                                          }));
-                                        };
-
-                                        audio.addEventListener('loadedmetadata', updateProgress);
-                                        audio.addEventListener('timeupdate', updateProgress);
-
-                                        audio.addEventListener('ended', () => {
-                                          playingAudiosRef.current.delete(previewKey);
-                                          setPlayingStates(prev => {
-                                            const copy = { ...prev };
-                                            delete copy[previewKey];
-                                            return copy;
-                                          });
-                                        });
-
-                                        audio.play().then(() => {
-                                          playingAudiosRef.current.set(previewKey, audio);
-                                        }).catch(err => {
+                                        playAudio(previewKey, activeMp3Url).catch(err => {
                                           console.error("Preview playback failed", err);
                                         });
                                       }
@@ -3770,7 +3546,7 @@ export default function PlayerTab({
                   ) : null;
 
                   if (item.type === 'track') {
-                    const isCurrentlyPlaying = !!playingStates[item.track.id] || playingAudiosRef.current.has(item.track.id);
+                    const isCurrentlyPlaying = !!playingStates[item.track.id] || isAudioPlaying(item.track.id);
                     const isPlayedTrack = !!item.played || !!playedPlaylistTracks[item.track.id] || !!playedPlaylistTracks[item.track.fileName] || !!pendingPlayedPlaylistTracksRef.current[item.track.id] || !!pendingPlayedPlaylistTracksRef.current[item.track.fileName];
                     const playedAtTime = item.playedAt || playedPlaylistTracks[item.track.id]?.playedAt || playedPlaylistTracks[item.track.fileName]?.playedAt || pendingPlayedPlaylistTracksRef.current[item.track.id]?.playedAt || pendingPlayedPlaylistTracksRef.current[item.track.fileName]?.playedAt;
                     const formattedPlayedAt = playedAtTime ? format(parseISO(playedAtTime), 'HH:mm') : format(new Date(), 'HH:mm');
@@ -4069,7 +3845,7 @@ export default function PlayerTab({
                         const activeMp3Url = activeMp3?.mp3Url || '';
                         const status = getMP3Status(activeMp3Url);
                         const isVerified = isScript ? status.exists : (status.exists && status.valid);
-                        const isCurrentlyPlaying = !!playingStates[slotKey] || playingAudiosRef.current.has(slotKey);
+                        const isCurrentlyPlaying = !!playingStates[slotKey] || isAudioPlaying(slotKey);
                         const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
 
                         const isMissedRecent = isPast && !played && !exported && diffSeconds <= 1800;
@@ -4517,7 +4293,7 @@ export default function PlayerTab({
                  const activeMp3Url = activeMp3?.mp3Url || '';
                  const status = getMP3Status(activeMp3Url);
                  const isVerified = isScript ? status.exists : (status.exists && status.valid);
-                 const isCurrentlyPlaying = !!playingStates[slotKey] || playingAudiosRef.current.has(slotKey);
+                 const isCurrentlyPlaying = !!playingStates[slotKey] || isAudioPlaying(slotKey);
                  const isUpcoming = !played && !exported && !isPast && !isPresent && diffSeconds <= 600 && isAfter(slot, now);
                  
                  // RECENT MISSED: Less than 30 mins ago, not played or exported

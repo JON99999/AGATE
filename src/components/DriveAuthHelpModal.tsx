@@ -38,7 +38,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
           {/* Welcome Intro */}
           <div className="space-y-1.5">
             <p>
-              This guide explains how the connection methods work in <strong>Interstitial-er</strong> and how to retrieve or set up Google API credentials for secure synchronization across automated broadcast endpoints.
+              This guide explains how the connection methods work in <strong>WIPE (Wonderful Interstitial PlayEr)</strong> and how to retrieve or set up Google API credentials for secure synchronization across automated broadcast endpoints.
             </p>
           </div>
 
@@ -59,7 +59,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
                   <span>Option: Preapproved (Pop-up login using OAUTH Client ID)</span>
                 </div>
                 <p className="text-slate-600 leading-relaxed">
-                  With an OAUTH Client ID, Interstitial-er opens a pop-up login window. Google user email must be preapproved in that Client ID in Google OAUTH. See your admin to be added.
+                  With an OAUTH Client ID, WIPE opens a pop-up login window. Google user email must be preapproved in that Client ID in Google OAUTH. See your admin to be added.
                 </p>
                 <div className="text-xs text-slate-500 font-mono italic">
                   * Note: Once configured, this is utilized as the primary, default standard connection for regular operation.
@@ -84,7 +84,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
                     <li>Sufficiently authorize via your Google account.</li>
                     <li>On Step 2 in the playground, click the <strong>Exchange authorization code for tokens</strong> button.</li>
                     <li>Copy the <strong>Access Token</strong> value from the input/details panel (this is the <code className="text-emerald-700 font-mono">access_token</code> value).</li>
-                    <li>Open Interstitial-er settings, expand Advanced options, select Option: Access Token, paste the access_token value, and click <strong>Connect</strong>.</li>
+                    <li>Open WIPE settings, expand Advanced options, select Option: Access Token, paste the access_token value, and click <strong>Connect</strong>.</li>
                   </ol>
                 </div>
 
@@ -144,7 +144,7 @@ export default function DriveAuthHelpModal({ isOpen, onClose }: DriveAuthHelpMod
                 <ol className="list-decimal pl-4 space-y-1">
                   <li>Go to <strong>APIs & Services</strong> &gt; <strong>OAuth consent screen</strong>.</li>
                   <li>Select <strong>External</strong> and click <strong>Create</strong>.</li>
-                  <li>Fill in mandatory App Details (App Name: `Interstitial-er`, support email, and developer contact email).</li>
+                  <li>Fill in mandatory App Details (App Name: `WIPE`, support email, and developer contact email).</li>
                   <li>Save and continue to skipping to the <strong>Test Users</strong> stage.</li>
                 </ol>
               </div>

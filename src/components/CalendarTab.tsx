@@ -6,716 +6,40 @@ import { evaluateScheduleDiagnostics } from '../lib/scheduleDiagnostics';
 import { getPlayableUrl, DRIVE_FOLDERS, getSavedSettings, verifyEvergreensOnDrive, checkEvergreenFolderOnDrive, applyEvergreenChangeOnDrive, availableFilesCache, driveFileNameCache, loadCalendarFromDrive, loadShowsFromDrive } from '../lib/driveService';
 import LiveReadPopout from './LiveReadPopout';
 import ScheduleAuditModal from './ScheduleAuditModal';
-
-export interface SchedulePresetOption {
-  id: string;
-  label: string;
-  subLabel?: string;
-  displayStartDate?: string;
-  displayStartTime?: string;
-  displayEndDate?: string;
-  displayEndTime?: string;
-  startDate: string;
-  startTime: string;
-  endDate: string;
-  endTime: string;
-  suggestedStartDate?: string;
-  suggestedStartTime?: string;
-  transitionMp3Id?: string;
-  transitionMp3Index?: number;
-  referenceStartDate?: string;
-  isLeadingGap?: boolean;
-}
-
-export interface InterstitialPlacementModalState {
-  pendingFile?: { name: string; duration?: string | number; path?: string };
-  inferredAssetType?: 'audio' | 'script';
-  nextIndex: number;
-  presets: SchedulePresetOption[];
-  selectedPresetId: string;
-  startDate: string;
-  startTime: string;
-  endDate: string;
-  endTime: string;
-  transitionMp3Id?: string;
-  transitionMp3Index?: number;
-}
-
-export function computeSchedulePlacementOptions(
-  current: TimeGatedMp3[],
-  profileStartDate?: string,
-  profileEndDate?: string,
-  nowIso: string = getCurrentDatetimeLocal()
-): { presets: SchedulePresetOption[]; sorted: TimeGatedMp3[]; hasLeadingGap: boolean } {
-  const sorted = sortMp3sByStartDate(current);
-  const presets: SchedulePresetOption[] = [];
-
-  const nowDate = getDatePart(nowIso);
-  const nowTime = getTimePart(nowIso) || '00:00';
-
-  const getItemTitle = (m?: TimeGatedMp3) => {
-    if (!m) return 'File';
-    if (m.mp3Url) return getFilenameFromUrlOrPath(m.mp3Url);
-    return 'File';
-  };
-
-  // 1. Check for leading gap from now() to first forward-looking startDate
-  const firstForwardItem = sorted.find(m => m.startDate && formatToDatetimeLocal(m.startDate) > nowIso);
-  const activeCurrentItem = sorted.find(m => {
-    const s = m.startDate ? formatToDatetimeLocal(m.startDate) : '';
-    const e = m.endDate ? formatToDatetimeLocal(m.endDate) : '';
-    if (s && s <= nowIso) {
-      if (!e || e > nowIso) return true;
-    }
-    return false;
-  });
-
-  let hasLeadingGap = false;
-  if (firstForwardItem && (!activeCurrentItem || sorted.indexOf(firstForwardItem) === 0)) {
-    const fIdx = sorted.indexOf(firstForwardItem) + 1;
-    const fTitle = getItemTitle(firstForwardItem);
-    const fStart = formatToDatetimeLocal(firstForwardItem.startDate);
-    const backfillEnd = computeBackfilledEndTime(fStart);
-    const fEndDate = getDatePart(backfillEnd);
-    const fEndTime = getTimePart(backfillEnd) || '00:00';
-
-    hasLeadingGap = true;
-
-    presets.push({
-      id: 'leading-gap',
-      label: `Before #${fIdx} ${fTitle}`,
-      displayStartDate: nowDate,
-      displayStartTime: nowTime,
-      displayEndDate: fEndDate,
-      displayEndTime: fEndTime,
-      startDate: nowDate,
-      startTime: nowTime,
-      endDate: fEndDate,
-      endTime: fEndTime,
-      isLeadingGap: true
-    });
-  }
-
-  // 2. Any subsequent gaps between interstitials
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const item = sorted[i];
-    const nextItem = sorted[i + 1];
-    if (item.endDate && item.endDate.trim() && nextItem.startDate && nextItem.startDate.trim()) {
-      const itemEnd = formatToDatetimeLocal(item.endDate);
-      const nextStart = formatToDatetimeLocal(nextItem.startDate);
-      if (itemEnd < nextStart && !isContiguousMidnightTransition(itemEnd, nextStart)) {
-        const titleA = getItemTitle(item);
-        const titleB = getItemTitle(nextItem);
-        const autoFillStart = getNextGapAutoFillStart(itemEnd);
-        const autoFillEnd = computeBackfilledEndTime(nextStart);
-        presets.push({
-          id: `gap-${i}`,
-          label: `Between #${i + 1} ${titleA} and #${i + 2} ${titleB}`,
-          displayStartDate: autoFillStart.startDate,
-          displayStartTime: autoFillStart.startTime,
-          displayEndDate: getDatePart(autoFillEnd),
-          displayEndTime: getTimePart(autoFillEnd) || '00:00',
-          startDate: autoFillStart.startDate,
-          startTime: autoFillStart.startTime,
-          endDate: getDatePart(autoFillEnd),
-          endTime: getTimePart(autoFillEnd) || '00:00'
-        });
-      }
-    }
-  }
-
-  // 3. Trailing Option (after the last item)
-  const lastItem = sorted[sorted.length - 1];
-  if (lastItem) {
-    const lastIdx = sorted.length;
-    const lastTitle = getItemTitle(lastItem);
-    if (lastItem.endDate && lastItem.endDate.trim()) {
-      const lastEnd = formatToDatetimeLocal(lastItem.endDate);
-      const autoFillStart = getNextGapAutoFillStart(lastEnd);
-      const profEnd = profileEndDate ? formatToDatetimeLocal(profileEndDate) : '';
-      const autoFillProfEnd = profEnd ? computeBackfilledEndTime(profEnd) : '';
-      presets.push({
-        id: 'trailing-end',
-        label: `After #${lastIdx} ${lastTitle}`,
-        displayStartDate: autoFillStart.startDate,
-        displayStartTime: autoFillStart.startTime,
-        displayEndDate: autoFillProfEnd ? getDatePart(autoFillProfEnd) : '',
-        displayEndTime: autoFillProfEnd ? (getTimePart(autoFillProfEnd) || '00:00') : '',
-        startDate: autoFillStart.startDate,
-        startTime: autoFillStart.startTime,
-        endDate: autoFillProfEnd ? getDatePart(autoFillProfEnd) : '',
-        endTime: autoFillProfEnd ? (getTimePart(autoFillProfEnd) || '00:00') : ''
-      });
-    } else {
-      // Open-ended last item -> 1 week forward transition option
-      const lastFormatted = lastItem.startDate ? formatToDatetimeLocal(lastItem.startDate) : (profileStartDate ? formatToDatetimeLocal(profileStartDate) : '');
-      const lastSetTime = lastFormatted ? (getTimePart(lastFormatted) || '00:00') : '00:00';
-      const lastSetDate = lastFormatted ? getDatePart(lastFormatted) : nowDate;
-
-      const pad = (n: number) => String(n).padStart(2, '0');
-      let suggestedDate = nowDate;
-      if (lastSetDate) {
-        const [y, m, d] = lastSetDate.split('-').map(Number);
-        if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-          const baseDate = new Date(y, m - 1, d);
-          baseDate.setDate(baseDate.getDate() + 7);
-          suggestedDate = `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}`;
-        }
-      }
-      const suggestedTime = lastSetTime;
-
-      presets.push({
-        id: 'trailing-1week',
-        label: `After #${lastIdx} ${lastTitle}`,
-        displayStartDate: lastSetDate,
-        displayStartTime: lastSetTime,
-        startDate: suggestedDate,
-        startTime: suggestedTime,
-        suggestedStartDate: suggestedDate,
-        suggestedStartTime: suggestedTime,
-        endDate: '',
-        endTime: '',
-        transitionMp3Id: lastItem.id,
-        transitionMp3Index: lastIdx,
-        referenceStartDate: lastFormatted || `${nowDate}T${nowTime}`
-      });
-    }
-  }
-
-  // 4. "Enter My Own" option
-  presets.push({
-    id: 'custom',
-    label: 'Enter My Own',
-    startDate: '',
-    startTime: '',
-    endDate: '',
-    endTime: ''
-  });
-
-  return { presets, sorted, hasLeadingGap };
-}
-
-const cleanNameShort = (val: string): string => {
-  let cleaned = val.replace(/[^a-zA-Z0-9_]/g, '_');
-  cleaned = cleaned.replace(/_+/g, '_');
-  cleaned = cleaned.replace(/^_+|_+$/g, '');
-  return cleaned.slice(0, 24);
-};
-
-export function addSoftHyphensForFirstLine(text: string, maxCharIndex: number = 15): string {
-  if (!text) return '';
-  let count = 0;
-  let result = '';
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    result += char;
-    if (char !== ' ') {
-      count++;
-      if (count < maxCharIndex && i < text.length - 1 && text[i + 1] !== ' ') {
-        result += '\u00AD';
-      }
-    }
-  }
-  return result;
-}
-
-interface MilitaryTimeInputProps {
-  value: string;
-  onChange: (newTime: string) => void;
-  className?: string;
-  placeholder?: string;
-  disabled?: boolean;
-}
-
-function MilitaryTimeInput({ value, onChange, className, placeholder = "HH:mm", disabled }: MilitaryTimeInputProps) {
-  const [localVal, setLocalVal] = useState(value || '');
-
-  useEffect(() => {
-    setLocalVal(value || '');
-  }, [value]);
-
-  const handleBlur = () => {
-    const trimmed = localVal.trim();
-    if (!trimmed) {
-      onChange('');
-      return;
-    }
-    const clean = trimmed.replace(/[^0-9:]/g, '');
-    let hh = 0;
-    let mm = 0;
-
-    if (clean.includes(':')) {
-      const parts = clean.split(':');
-      hh = parseInt(parts[0], 10) || 0;
-      mm = parseInt(parts[1], 10) || 0;
-    } else if (clean.length === 3) {
-      hh = parseInt(clean.substring(0, 1), 10) || 0;
-      mm = parseInt(clean.substring(1, 3), 10) || 0;
-    } else if (clean.length === 4) {
-      hh = parseInt(clean.substring(0, 2), 10) || 0;
-      mm = parseInt(clean.substring(2, 4), 10) || 0;
-    } else {
-      hh = parseInt(clean, 10) || 0;
-      mm = 0;
-    }
-
-    hh = Math.max(0, Math.min(23, hh));
-    mm = Math.max(0, Math.min(59, mm));
-
-    const formatted = `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}`;
-    setLocalVal(formatted);
-    onChange(formatted);
-  };
-
-  return (
-    <div className="flex items-center gap-0.5 shrink-0">
-      <input
-        type="text"
-        value={localVal}
-        onChange={e => setLocalVal(e.target.value)}
-        onBlur={handleBlur}
-        placeholder={placeholder}
-        maxLength={5}
-        disabled={disabled}
-        className={cn(className, "w-[44px] font-mono text-center")}
-      />
-      <span className="text-[10px] font-mono font-bold text-slate-400 pointer-events-none uppercase tracking-tight select-none shrink-0">
-        24h
-      </span>
-    </div>
-  );
-}
-
-export interface InterstitialConflict {
-  interstitial1: Interstitial;
-  interstitial2: Interstitial;
-  message: string;
-}
-
-export interface ShowConflict {
-  show1: Show;
-  show2: Show;
-  message: string;
-}
-
-const daysOrderList = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
-
-function formatGridRulesSummary(gridRules: string[]): string {
-  if (!gridRules || gridRules.length === 0) return '';
-  if (gridRules.length === 168) return 'Every hour of every day';
-  
-  const formatted = gridRules.map(rule => {
-    const parts = rule.split('-');
-    if (parts.length < 2) return rule;
-    const d = parseInt(parts[0], 10);
-    const h = parseInt(parts[1], 10);
-    const dayName = daysOrderList[d] || `Day ${d}`;
-    const hStr = h.toString().padStart(2, '0');
-    return `${dayName} ${hStr}:00`;
-  });
-
-  if (formatted.length <= 3) {
-    return formatted.join(', ');
-  }
-  return `${formatted.slice(0, 3).join(', ')} (+${formatted.length - 3} more timeslots)`;
-}
-
-export function getInterstitialConflicts(interstitialsList: Interstitial[]): InterstitialConflict[] {
-  const active = interstitialsList.filter(s => s.enabled !== false);
-  const conflicts: InterstitialConflict[] = [];
-
-  for (let i = 0; i < active.length; i++) {
-    for (let j = i + 1; j < active.length; j++) {
-      const a = active[i];
-      const b = active[j];
-
-      const minA = a.minute || 0;
-      const minB = b.minute || 0;
-      if (minA !== minB) continue;
-
-      const mStr = minA.toString().padStart(2, '0');
-
-      if (a.type === InterstitialType.BASIC_HOURLY && b.type === InterstitialType.BASIC_HOURLY) {
-        conflicts.push({
-          interstitial1: a,
-          interstitial2: b,
-          message: `"${a.name}" and "${b.name}" both start at :${mStr} every hour`
-        });
-        continue;
-      }
-
-      if (
-        (a.type === InterstitialType.BASIC_HOURLY && b.type === InterstitialType.ADVANCED) ||
-        (b.type === InterstitialType.BASIC_HOURLY && a.type === InterstitialType.ADVANCED)
-      ) {
-        const adv = a.type === InterstitialType.ADVANCED ? a : b;
-        const hly = a.type === InterstitialType.BASIC_HOURLY ? a : b;
-        const rules = adv.gridRules || [];
-        if (rules.length > 0) {
-          conflicts.push({
-            interstitial1: a,
-            interstitial2: b,
-            message: `"${hly.name}" and "${adv.name}" both start at :${mStr} (${formatGridRulesSummary(rules)})`
-          });
-        }
-        continue;
-      }
-
-      if (a.type === InterstitialType.ADVANCED && b.type === InterstitialType.ADVANCED) {
-        const rulesA = new Set(a.gridRules || []);
-        const commonRules = (b.gridRules || []).filter(r => rulesA.has(r));
-        if (commonRules.length > 0) {
-          conflicts.push({
-            interstitial1: a,
-            interstitial2: b,
-            message: `"${a.name}" and "${b.name}" both start at :${mStr} (${formatGridRulesSummary(commonRules)})`
-          });
-        }
-        continue;
-      }
-
-      if (a.type === InterstitialType.ONE_TIME && b.type === InterstitialType.ONE_TIME) {
-        if (a.date && b.date && a.date === b.date) {
-          const hA = parseInt(a.time || '0', 10);
-          const hB = parseInt(b.time || '0', 10);
-          if (hA === hB) {
-            conflicts.push({
-              interstitial1: a,
-              interstitial2: b,
-              message: `"${a.name}" and "${b.name}" both start on ${a.date} at ${hA.toString().padStart(2, '0')}:${mStr}`
-            });
-          }
-        }
-        continue;
-      }
-
-      const ot = a.type === InterstitialType.ONE_TIME ? a : b.type === InterstitialType.ONE_TIME ? b : null;
-      const rec = ot === a ? b : ot === b ? a : null;
-
-      if (ot && rec && ot.date && ot.time) {
-        const otHour = parseInt(ot.time, 10);
-        const otDayIdx = new Date(`${ot.date}T00:00:00`).getDay();
-        const otRule = `${otDayIdx}-${otHour}`;
-
-        if (rec.type === InterstitialType.BASIC_HOURLY) {
-          conflicts.push({
-            interstitial1: a,
-            interstitial2: b,
-            message: `"${ot.name}" and "${rec.name}" both start on ${ot.date} at ${otHour.toString().padStart(2, '0')}:${mStr}`
-          });
-        } else if (rec.type === InterstitialType.ADVANCED) {
-          if ((rec.gridRules || []).includes(otRule)) {
-            conflicts.push({
-              interstitial1: a,
-              interstitial2: b,
-              message: `"${ot.name}" and "${rec.name}" both start on ${ot.date} at ${otHour.toString().padStart(2, '0')}:${mStr}`
-            });
-          }
-        }
-      }
-    }
-  }
-
-  return conflicts;
-}
-
-export function getShowConflicts(showsList: Show[]): ShowConflict[] {
-  const active = showsList.filter(s => s.active !== false);
-  const conflicts: ShowConflict[] = [];
-
-  for (let i = 0; i < active.length; i++) {
-    for (let j = i + 1; j < active.length; j++) {
-      const a = active[i];
-      const b = active[j];
-
-      const dayIdxA = daysOrderList.indexOf(a.day as any);
-      const dayIdxB = daysOrderList.indexOf(b.day as any);
-      if (dayIdxA === -1 || dayIdxB === -1) continue;
-
-      const startA = dayIdxA * 1440 + a.startHour * 60 + (a.startMinute || 0);
-      const durA = (a.durationHours || 0) * 60 + (a.durationMinutes || 0);
-      const startB = dayIdxB * 1440 + b.startHour * 60 + (b.startMinute || 0);
-      const durB = (b.durationHours || 0) * 60 + (b.durationMinutes || 0);
-
-      if (durA <= 0 || durB <= 0) continue;
-
-      const endA = startA + durA;
-      const intervalsA = endA <= 10080 
-        ? [{ s: startA, e: endA }] 
-        : [{ s: startA, e: 10080 }, { s: 0, e: endA - 10080 }];
-
-      const endB = startB + durB;
-      const intervalsB = endB <= 10080 
-        ? [{ s: startB, e: endB }] 
-        : [{ s: startB, e: 10080 }, { s: 0, e: endB - 10080 }];
-
-      let hasOverlap = false;
-      for (const iA of intervalsA) {
-        for (const iB of intervalsB) {
-          const ovStart = Math.max(iA.s, iB.s);
-          const ovEnd = Math.min(iA.e, iB.e);
-
-          if (ovStart < ovEnd) {
-            const dIdx = Math.floor(ovStart / 1440);
-            const sH = Math.floor((ovStart % 1440) / 60).toString().padStart(2, '0');
-            const sM = (ovStart % 60).toString().padStart(2, '0');
-            const eH = Math.floor((ovEnd % 1440) / 60).toString().padStart(2, '0');
-            const eM = (ovEnd % 60).toString().padStart(2, '0');
-            const timeStr = `${daysOrderList[dIdx]} ${sH}:${sM}–${eH}:${eM}`;
-
-            conflicts.push({
-              show1: a,
-              show2: b,
-              message: `"${a.name}" and "${b.name}" overlap on ${timeStr}`
-            });
-            hasOverlap = true;
-            break;
-          }
-        }
-        if (hasOverlap) break;
-      }
-    }
-  }
-
-  return conflicts;
-}
-
-export interface InterstitialGap {
-  interstitialId: string;
-  interstitialName: string;
-  type: 'leading_gap' | 'coverage_gap' | 'trailing_gap' | 'overlap' | 'missing_media' | 'missing_file';
-  typeLabel: string;
-  message: string;
-  shortNotice: string;
-  severity: 'critical' | 'warning';
-}
-
-export function getInterstitialGaps(interstitialsList: Interstitial[], now: Date = new Date()): InterstitialGap[] {
-  const active = interstitialsList.filter(s => s.enabled !== false);
-  const gaps: InterstitialGap[] = [];
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const hours = String(now.getHours()).padStart(2, '0');
-  const mins = String(now.getMinutes()).padStart(2, '0');
-  const nowIso = `${year}-${month}-${day}T${hours}:${mins}`;
-
-  for (const s of active) {
-    const timeGated = s.timeGatedMp3s || [];
-
-    if (timeGated.length > 0) {
-      const validation = validateTimeGatedMp3s(timeGated, nowIso, s.endDate);
-      const sorted = validation.sorted || sortMp3sByStartDate(timeGated);
-
-      // 1. Leading Gap: first item starts in future
-      if (sorted.length > 0 && sorted[0].startDate) {
-        const firstStart = formatToDatetimeLocal(sorted[0].startDate);
-        if (firstStart && firstStart > nowIso) {
-          const formattedDate = firstStart.replace('T', ' ');
-          gaps.push({
-            interstitialId: s.id,
-            interstitialName: s.name,
-            type: 'leading_gap',
-            typeLabel: 'Leading Gap',
-            message: `"${s.name}" has no media scheduled until ${formattedDate}`,
-            shortNotice: `Leading Gap (starts ${formattedDate})`,
-            severity: 'warning'
-          });
-        }
-      }
-
-      // 2. Schedule Gaps between adjacent items
-      for (let i = 0; i < sorted.length - 1; i++) {
-        const a = sorted[i];
-        const b = sorted[i + 1];
-        const aEnd = a.endDate ? formatToDatetimeLocal(a.endDate) : null;
-        const bStart = b.startDate ? formatToDatetimeLocal(b.startDate) : null;
-
-        if (aEnd && bStart && aEnd < bStart && !isContiguousMidnightTransition(aEnd, bStart)) {
-          const startFormatted = aEnd.replace('T', ' ');
-          const endFormatted = bStart.replace('T', ' ');
-          gaps.push({
-            interstitialId: s.id,
-            interstitialName: s.name,
-            type: 'coverage_gap',
-            typeLabel: 'Schedule Gap',
-            message: `"${s.name}" has a gap between ${startFormatted} and ${endFormatted}`,
-            shortNotice: `Schedule Gap (${startFormatted} to ${endFormatted})`,
-            severity: 'critical'
-          });
-        }
-      }
-
-      // 3. Trailing Gap: last item has an endDate, but schedule is open-ended or extends beyond
-      if (sorted.length > 0) {
-        const lastItem = sorted[sorted.length - 1];
-        if (lastItem.endDate && lastItem.endDate.trim()) {
-          const lastEnd = formatToDatetimeLocal(lastItem.endDate);
-          const parentEnd = s.endDate ? formatToDatetimeLocal(s.endDate) : null;
-          if (!parentEnd || (parentEnd > lastEnd && !isContiguousMidnightTransition(lastEnd, parentEnd))) {
-            const endFormatted = lastEnd.replace('T', ' ');
-            gaps.push({
-              interstitialId: s.id,
-              interstitialName: s.name,
-              type: 'trailing_gap',
-              typeLabel: 'Trailing Gap',
-              message: `"${s.name}" has no media scheduled after ${endFormatted}`,
-              shortNotice: `Trailing Gap (ends ${endFormatted})`,
-              severity: 'warning'
-            });
-          }
-        }
-      }
-
-      // 4. Overlaps
-      if (validation.overlapStartIds && validation.overlapStartIds.size > 0) {
-        gaps.push({
-          interstitialId: s.id,
-          interstitialName: s.name,
-          type: 'overlap',
-          typeLabel: 'Media Overlap',
-          message: `"${s.name}" has overlapping media time ranges`,
-          shortNotice: 'Media Overlap',
-          severity: 'critical'
-        });
-      }
-
-      // 5. Missing Attachment on a time-gated item
-      if (validation.missingFileIds && validation.missingFileIds.size > 0) {
-        gaps.push({
-          interstitialId: s.id,
-          interstitialName: s.name,
-          type: 'missing_media',
-          typeLabel: 'Missing Media',
-          message: `"${s.name}" has time-gated entries without attached files`,
-          shortNotice: 'Attachment Missing',
-          severity: 'critical'
-        });
-      }
-    } else {
-      gaps.push({
-        interstitialId: s.id,
-        interstitialName: s.name,
-        type: 'missing_media',
-        typeLabel: 'Missing Media',
-        message: `"${s.name}" has no media assigned`,
-        shortNotice: 'No Media Assigned',
-        severity: 'critical'
-      });
-    }
-
-    // 6. Active file missing check
-    const activeMp3 = getActiveMp3ForSlot(s, now);
-    const activeUrl = activeMp3?.mp3Url || '';
-    if (activeUrl && activeUrl.trim() !== '') {
-      const status = getMP3Status(activeUrl);
-      if (!status.exists) {
-        gaps.push({
-          interstitialId: s.id,
-          interstitialName: s.name,
-          type: 'missing_file',
-          typeLabel: 'Missing File',
-          message: `"${s.name}" file "${status.filename || activeUrl}" not found in storage`,
-          shortNotice: `File Not Found: ${status.filename || activeUrl}`,
-          severity: 'critical'
-        });
-      }
-    }
-  }
-
-  return gaps;
-}
-
-export interface ShowGap {
-  message: string;
-}
-
-export function getShowGaps(showsList: Show[]): ShowGap[] {
-  const active = showsList.filter(s => s.active !== false);
-  if (active.length === 0) {
-    return [{ message: 'No active shows scheduled for the entire week' }];
-  }
-
-  const intervals: { s: number; e: number }[] = [];
-  for (const show of active) {
-    const dayIdx = daysOrderList.indexOf(show.day as any);
-    if (dayIdx === -1) continue;
-
-    const start = dayIdx * 1440 + (show.startHour || 0) * 60 + (show.startMinute || 0);
-    const dur = (show.durationHours || 0) * 60 + (show.durationMinutes || 0);
-    if (dur <= 0) continue;
-
-    const end = start + dur;
-    if (end <= 10080) {
-      intervals.push({ s: start, e: end });
-    } else {
-      intervals.push({ s: start, e: 10080 });
-      intervals.push({ s: 0, e: end - 10080 });
-    }
-  }
-
-  if (intervals.length === 0) {
-    return [{ message: 'No active shows scheduled for the entire week' }];
-  }
-
-  intervals.sort((a, b) => a.s - b.s);
-
-  const merged: { s: number; e: number }[] = [];
-  for (const interval of intervals) {
-    if (merged.length === 0) {
-      merged.push({ ...interval });
-    } else {
-      const last = merged[merged.length - 1];
-      if (interval.s <= last.e) {
-        last.e = Math.max(last.e, interval.e);
-      } else {
-        merged.push({ ...interval });
-      }
-    }
-  }
-
-  const formatWeekMin = (min: number) => {
-    const norm = (min % 10080 + 10080) % 10080;
-    const dIdx = Math.floor(norm / 1440);
-    const h = Math.floor((norm % 1440) / 60).toString().padStart(2, '0');
-    const m = (norm % 60).toString().padStart(2, '0');
-    return { dayName: daysOrderList[dIdx], timeStr: `${h}:${m}`, dIdx };
-  };
-
-  const formatGapMessage = (gapStart: number, gapEnd: number) => {
-    const startInfo = formatWeekMin(gapStart);
-    const endInfo = formatWeekMin(gapEnd);
-
-    if (startInfo.dIdx === endInfo.dIdx && gapStart < gapEnd && (gapEnd - gapStart) < 1440) {
-      return `No show scheduled on ${startInfo.dayName} ${startInfo.timeStr}–${endInfo.timeStr}`;
-    }
-    return `No show scheduled from ${startInfo.dayName} ${startInfo.timeStr} to ${endInfo.dayName} ${endInfo.timeStr}`;
-  };
-
-  const gaps: ShowGap[] = [];
-
-  for (let i = 0; i < merged.length - 1; i++) {
-    const gStart = merged[i].e;
-    const gEnd = merged[i + 1].s;
-    if (gEnd > gStart) {
-      gaps.push({ message: formatGapMessage(gStart, gEnd) });
-    }
-  }
-
-  const lastEnd = merged[merged.length - 1].e;
-  const firstStart = merged[0].s;
-
-  if (lastEnd < 10080 || firstStart > 0) {
-    const totalUncovered = (10080 - lastEnd) + firstStart;
-    if (totalUncovered >= 10080) {
-      gaps.push({ message: 'No active shows scheduled for the entire week' });
-    } else if (totalUncovered > 0) {
-      gaps.push({ message: formatGapMessage(lastEnd, firstStart) });
-    }
-  }
-
-  return gaps;
-}
+import { MilitaryTimeInput } from './MilitaryTimeInput';
+import { PlacementPresetModal } from './PlacementPresetModal';
+import { MediaPickerModal } from './MediaPickerModal';
+import {
+  DeleteInterstitialModal,
+  CancelUnsavedModal,
+  InterstitialConflictModal,
+  ShowOverlapModal,
+  ShowDetailsModal,
+} from './CalendarModals';
+import {
+  SchedulePresetOption,
+  InterstitialPlacementModalState,
+  computeSchedulePlacementOptions,
+  cleanNameShort,
+  addSoftHyphensForFirstLine,
+} from '../lib/schedulePlacement';
+import {
+  InterstitialConflict,
+  ShowConflict,
+  getInterstitialConflicts,
+  getShowConflicts,
+  formatGridRulesSummary,
+} from '../lib/scheduleConflicts';
+
+import {
+  InterstitialGap,
+  ShowGap,
+  getInterstitialGaps,
+  getShowGaps,
+} from '../lib/scheduleGaps';
+
+export type { SchedulePresetOption, InterstitialPlacementModalState, InterstitialConflict, ShowConflict, InterstitialGap, ShowGap };
+export { computeSchedulePlacementOptions, addSoftHyphensForFirstLine, getInterstitialConflicts, getShowConflicts, formatGridRulesSummary, getInterstitialGaps, getShowGaps };
 
 interface CalendarTabProps {
   interstitials: Interstitial[];
@@ -1748,6 +1072,100 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
     
     return nameLower.includes(searchQuery.toLowerCase());
   });
+
+  const handleSelectFileFromPicker = (file: { name: string; duration?: string | number; path?: string; size?: string }) => {
+    const nameLower = file.name.toLowerCase();
+    const isScriptExt = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].some(ext => nameLower.endsWith(ext));
+    const inferredAssetType = isScriptExt ? 'script' : 'audio';
+    const fileDuration = pickerDurations[file.name] || file.duration;
+
+    // Cache file immediately
+    availableFilesCache.set(file.name, {
+      path: file.path || file.name,
+      size: file.size || '0.1 MB',
+      duration: fileDuration ? String(fileDuration) : ''
+    });
+    if (file.path) {
+      driveFileNameCache.set(file.path, file.name);
+    }
+
+    if (pickerTarget === 'newTimeGated') {
+      setIsPickerOpen(false);
+      applyAddMp3WithDateChecks({ name: file.name, duration: fileDuration, path: file.path }, inferredAssetType);
+    } else if (pickerTarget === 'timeGated' && pickerMp3Id) {
+      const currentMp3s = formData.timeGatedMp3s || [];
+      const updatedMp3s = currentMp3s.map(m => {
+        if (m.id === pickerMp3Id) {
+          return {
+            ...m,
+            mp3Url: file.name,
+            duration: pickerDurations[file.name] || file.duration || m.duration
+          };
+        }
+        return m;
+      });
+
+      const sorted = sortMp3sByStartDate(updatedMp3s);
+
+      setFormData({ 
+        ...formData, 
+        assetType: inferredAssetType,
+        timeGatedMp3s: sorted,
+        mp3Url: sorted[0]?.mp3Url || file.name,
+        duration: sorted[0]?.duration
+      });
+      setIsPickerOpen(false);
+      setPickerTarget('main');
+    } else if (pickerTarget === 'backup') {
+      const currentMp3s = formData.timeGatedMp3s || [];
+      let updatedMp3s: TimeGatedMp3[];
+      if (pickerMp3Id) {
+        updatedMp3s = currentMp3s.map(m => m.id === pickerMp3Id ? { ...m, backupMp3Url: file.name } : m);
+      } else if (currentMp3s.length > 0) {
+        updatedMp3s = currentMp3s.map((m, idx) => idx === 0 ? { ...m, backupMp3Url: file.name } : m);
+      } else {
+        updatedMp3s = [{
+          id: `mp3-${Date.now()}-1`,
+          mp3Url: '',
+          backupMp3Url: file.name,
+          startDate: formData.startDate ? formatToDatetimeLocal(formData.startDate) : getCurrentDatetimeLocal()
+        }];
+      }
+      const sorted = sortMp3sByStartDate(updatedMp3s);
+      setFormData({
+        ...formData,
+        timeGatedMp3s: sorted,
+        backupMp3Url: sorted.find(m => m.id === pickerMp3Id)?.backupMp3Url || sorted[0]?.backupMp3Url || file.name
+      });
+      setIsPickerOpen(false);
+      setPickerTarget('main');
+    } else {
+      const currentMp3s = formData.timeGatedMp3s || [];
+      let updatedMp3s: TimeGatedMp3[];
+      if (currentMp3s.length > 0) {
+        updatedMp3s = currentMp3s.map((m, idx) => idx === 0 ? { ...m, mp3Url: file.name, duration: pickerDurations[file.name] || file.duration || m.duration } : m);
+      } else {
+        updatedMp3s = [{
+          id: `mp3-${Date.now()}-1`,
+          mp3Url: file.name,
+          startDate: formData.startDate ? formatToDatetimeLocal(formData.startDate) : getCurrentDatetimeLocal(),
+          duration: pickerDurations[file.name] || file.duration
+        }];
+      }
+
+      const sorted = sortMp3sByStartDate(updatedMp3s);
+
+      setFormData({ 
+        ...formData, 
+        mp3Url: file.name,
+        assetType: inferredAssetType,
+        timeGatedMp3s: sorted,
+        duration: sorted[0]?.duration
+      });
+      setIsPickerOpen(false);
+      setPickerTarget('main');
+    }
+  };
 
   const startEdit = (s: Interstitial, fromAudit: boolean = false) => {
     const norm = normalizeInterstitial(s);
@@ -5792,816 +5210,80 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
       )}
 
       {/* MP3 Picker Modal */}
-      {isPickerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-center gap-4 justify-between">
-              {/* Left Title block */}
-              <div className="flex items-center gap-3 shrink-0">
-                <div className="bg-blue-600 p-2 rounded">
-                  <FolderOpen className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest leading-none">
-                    Select File Asset
-                  </h3>
-                  <p className="text-xs font-bold text-slate-400 mt-1">
-                    Allowed: .mp3, .txt, .pdf, .png, .jpg, .jpeg
-                  </p>
-                </div>
-              </div>
-
-              {/* Middle Search Bar - between Title and close x */}
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="Search audio, scripts & images..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-blue-500 transition-all font-sans"
-                />
-              </div>
-
-              {/* Right Exit & Refresh */}
-              <div className="flex items-center gap-2 shrink-0">
-                <button 
-                  type="button" 
-                  onClick={async () => {
-                    if (onRefresh) {
-                      setIsRefreshing(true);
-                      await onRefresh();
-                      setTimeout(() => setIsRefreshing(false), 800);
-                    }
-                  }} 
-                  className="text-slate-400 hover:text-slate-600 cursor-pointer p-1 rounded-full hover:bg-slate-100 transition-colors"
-                  title="Refresh Files"
-                >
-                  <RefreshCw className={cn("w-4.5 h-4.5", isRefreshing && "animate-spin")} />
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    setIsPickerOpen(false);
-                    setPickerTarget('main');
-                  }} 
-                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
-                  title="Close"
-                >
-                  <XCircle className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            
-            <div className="p-4">
-              <div className="space-y-1 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
-                {filteredFiles.length > 0 ? filteredFiles.map((file, i) => {
-                  const dispDuration = pickerDurations[file.name] || file.duration || '';
-                  const isMp3 = file.name.toLowerCase().endsWith('.mp3');
-                  return (
-                    <div 
-                      key={i}
-                      className={cn(
-                        "w-full text-left p-1.5 px-3 rounded-lg flex items-center transition-all border gap-3 duration-150 shadow-xs",
-                        i % 2 === 0
-                          ? "bg-white border-slate-300/90 hover:border-blue-600 hover:bg-blue-50/40 hover:ring-1 hover:ring-blue-600/20 hover:shadow-md"
-                          : "bg-slate-100 border-slate-300/90 hover:border-blue-600 hover:bg-blue-50/40 hover:ring-1 hover:ring-blue-600/20 hover:shadow-md"
-                      )}
-                    >
-                      {/* Left: Move ONLY the Select button here */}
-                      <div className="shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const nameLower = file.name.toLowerCase();
-                            const isScriptExt = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].some(ext => nameLower.endsWith(ext));
-                            const inferredAssetType = isScriptExt ? 'script' : 'audio';
-                            const fileDuration = pickerDurations[file.name] || file.duration;
-
-                            // Cache file immediately
-                            availableFilesCache.set(file.name, {
-                              path: file.path || file.name,
-                              size: file.size || '0.1 MB',
-                              duration: fileDuration ? String(fileDuration) : ''
-                            });
-                            if (file.path) {
-                              driveFileNameCache.set(file.path, file.name);
-                            }
-
-                            if (pickerTarget === 'newTimeGated') {
-                              setIsPickerOpen(false);
-                              applyAddMp3WithDateChecks({ name: file.name, duration: fileDuration, path: file.path }, inferredAssetType);
-                            } else if (pickerTarget === 'timeGated' && pickerMp3Id) {
-                              const currentMp3s = formData.timeGatedMp3s || [];
-                              const updatedMp3s = currentMp3s.map(m => {
-                                if (m.id === pickerMp3Id) {
-                                  return {
-                                    ...m,
-                                    mp3Url: file.name,
-                                    duration: pickerDurations[file.name] || file.duration || m.duration
-                                  };
-                                }
-                                return m;
-                              });
-
-                              const sorted = sortMp3sByStartDate(updatedMp3s);
-
-                              setFormData({ 
-                                ...formData, 
-                                assetType: inferredAssetType,
-                                timeGatedMp3s: sorted,
-                                mp3Url: sorted[0]?.mp3Url || file.name,
-                                duration: sorted[0]?.duration
-                              });
-                              setIsPickerOpen(false);
-                              setPickerTarget('main');
-                            } else if (pickerTarget === 'backup') {
-                              const currentMp3s = formData.timeGatedMp3s || [];
-                              let updatedMp3s: TimeGatedMp3[];
-                              if (pickerMp3Id) {
-                                updatedMp3s = currentMp3s.map(m => m.id === pickerMp3Id ? { ...m, backupMp3Url: file.name } : m);
-                              } else if (currentMp3s.length > 0) {
-                                updatedMp3s = currentMp3s.map((m, idx) => idx === 0 ? { ...m, backupMp3Url: file.name } : m);
-                              } else {
-                                updatedMp3s = [{
-                                  id: `mp3-${Date.now()}-1`,
-                                  mp3Url: '',
-                                  backupMp3Url: file.name,
-                                  startDate: formData.startDate ? formatToDatetimeLocal(formData.startDate) : getCurrentDatetimeLocal()
-                                }];
-                              }
-                              const sorted = sortMp3sByStartDate(updatedMp3s);
-                              setFormData({
-                                ...formData,
-                                timeGatedMp3s: sorted,
-                                backupMp3Url: sorted.find(m => m.id === pickerMp3Id)?.backupMp3Url || sorted[0]?.backupMp3Url || file.name
-                              });
-                              setIsPickerOpen(false);
-                              setPickerTarget('main');
-                            } else {
-                              const currentMp3s = formData.timeGatedMp3s || [];
-                              let updatedMp3s: TimeGatedMp3[];
-                              if (currentMp3s.length > 0) {
-                                updatedMp3s = currentMp3s.map((m, idx) => idx === 0 ? { ...m, mp3Url: file.name, duration: pickerDurations[file.name] || file.duration || m.duration } : m);
-                              } else {
-                                updatedMp3s = [{
-                                  id: `mp3-${Date.now()}-1`,
-                                  mp3Url: file.name,
-                                  startDate: formData.startDate ? formatToDatetimeLocal(formData.startDate) : getCurrentDatetimeLocal(),
-                                  duration: pickerDurations[file.name] || file.duration
-                                }];
-                              }
-
-                              const sorted = sortMp3sByStartDate(updatedMp3s);
-
-                              setFormData({ 
-                                ...formData, 
-                                mp3Url: file.name,
-                                assetType: inferredAssetType,
-                                timeGatedMp3s: sorted,
-                                duration: sorted[0]?.duration
-                              });
-                              setIsPickerOpen(false);
-                              setPickerTarget('main');
-                            }
-                          }}
-                          className="px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-black uppercase tracking-wider transition-all shadow-sm cursor-pointer flex items-center justify-center h-7 shrink-0 w-[64px]"
-                        >
-                          Select
-                        </button>
-                      </div>
-
-                      {/* Middle: File description and meta info */}
-                      <div className="min-w-0 flex-1 flex flex-col justify-center">
-                        <div className="flex flex-wrap items-baseline gap-1.5 leading-tight">
-                          <span className="text-xs font-bold line-clamp-1 break-all text-slate-800">
-                            {file.name}
-                          </span>
-                          
-                          {/* Audio metadata duration logic - format same as on edit page */}
-                          {isMp3 && dispDuration && (
-                            <span className="text-xs font-mono font-bold text-slate-400 whitespace-nowrap ml-1">
-                              ({dispDuration})
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Display ID3 Metadata and subtitles if cached */}
-                        {isMp3 && (() => {
-                          const meta = metadataCache[file.name];
-                          if (meta && (meta.title || meta.artist || meta.album)) {
-                            const parts = [meta.title, meta.artist, meta.album].filter(Boolean);
-                            return (
-                              <p className="text-xs text-slate-500 italic font-medium leading-none mt-0.5">
-                                {parts.join(", ")}
-                              </p>
-                            );
-                          }
-                          return null;
-                        })()}
-
-                        {!isMp3 && (
-                          <span className="text-xs font-black text-blue-600 uppercase bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded inline-block mt-0.5 font-sans self-start">
-                            {file.name.toLowerCase().endsWith('.txt') ? "Plain Text Script" :
-                             file.name.toLowerCase().endsWith('.pdf') ? "PDF Document" : "Image Asset"}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Right: Preview button (play audio or display script) */}
-                      <div className="shrink-0 flex items-center">
-                        {!isMp3 ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPreviewScriptFile(file.name);
-                            }}
-                            className="rounded text-xs font-bold uppercase tracking-wider transition-all border border-blue-300 text-blue-600 bg-white hover:bg-blue-50 cursor-pointer flex items-center justify-center gap-1.5 h-7 w-[88px] shrink-0"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span>Preview</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              togglePreview(file.name);
-                            }}
-                            className={cn(
-                              "rounded text-xs font-bold uppercase tracking-wider transition-all border cursor-pointer flex items-center justify-center gap-1 h-7 w-[88px] shrink-0",
-                              previewUrl === file.name 
-                                ? "bg-slate-900 text-white border-slate-900" 
-                                : "bg-white text-blue-600 border-blue-300 hover:bg-blue-50"
-                            )}
-                          >
-                            {previewUrl === file.name ? (
-                              <>
-                                <Square className="w-2.5 h-2.5 fill-current" />
-                                <span>Stop</span>
-                              </>
-                            ) : (
-                              <>
-                                <Play className="w-2.5 h-2.5 fill-current" />
-                                <span>Preview</span>
-                              </>
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                }) : (
-                  <div className="py-12 text-center">
-                    <AlertCircle className="w-8 h-8 text-amber-500/60 mx-auto mb-2" />
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                      {isDriveActive ? "No files inside Drive folder" : "No matching resources"}
-                    </p>
-                    {isDriveActive && (
-                      <p className="text-xs text-slate-400 mt-2 max-w-[225px] mx-auto leading-relaxed uppercase font-bold">
-                        Please upload your custom .mp3 files into the Google Drive "medialibrary" folder!
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <MediaPickerModal
+        isOpen={isPickerOpen}
+        searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
+        filteredFiles={filteredFiles}
+        pickerDurations={pickerDurations}
+        metadataCache={metadataCache}
+        previewUrl={previewUrl}
+        onTogglePreview={togglePreview}
+        onPreviewScript={(name) => setPreviewScriptFile(name)}
+        onSelectFile={handleSelectFileFromPicker}
+        onClose={() => {
+          setIsPickerOpen(false);
+          setPickerTarget('main');
+        }}
+        onRefresh={async () => {
+          if (onRefresh) {
+            setIsRefreshing(true);
+            await onRefresh();
+            setTimeout(() => setIsRefreshing(false), 800);
+          }
+        }}
+        isRefreshing={isRefreshing}
+        isDriveActive={isDriveActive}
+      />
 
       {/* Delete Confirmation Modal Overlay */}
-      {deleteConfirmId && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
-            <div className="p-4 bg-red-50 border-b border-red-100 flex items-center gap-3">
-              <div className="bg-red-600 p-2 rounded">
-                <Trash2 className="w-4 h-4 text-white" />
-              </div>
-              <h3 className="text-xs font-black text-red-800 uppercase tracking-widest">
-                Delete Interstitial?
-              </h3>
-            </div>
-            <div className="p-5 space-y-4">
-              <p className="text-xs text-slate-650 font-bold leading-relaxed">
-                This will permanently remove the interstitial. If you want to keep it, but suspend it, cancel the delete and instead choose "suspend".
-              </p>
-            </div>
-            <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-              <button
-                type="button"
-                disabled={isSavingInterstitial}
-                onClick={() => setDeleteConfirmId(null)}
-                className="px-4 py-2 border border-slate-200 rounded text-xs font-black text-slate-500 hover:bg-slate-100 uppercase tracking-widest transition-all cursor-pointer disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={isSavingInterstitial}
-                onClick={async () => {
-                  const targetId = deleteConfirmId;
-                  setDeleteConfirmId(null);
-                  if (targetId) {
-                    await deleteInterstitial(targetId);
-                  }
-                }}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-xs font-black uppercase tracking-widest transition-all shadow-md shadow-red-100 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {isSavingInterstitial && <RefreshCw className="w-3 h-3 animate-spin" />}
-                <span>{isSavingInterstitial ? "Deleting..." : "I understand, delete"}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteInterstitialModal
+        isOpen={!!deleteConfirmId}
+        isSaving={isSavingInterstitial}
+        onCancel={() => setDeleteConfirmId(null)}
+        onConfirm={async () => {
+          const targetId = deleteConfirmId;
+          setDeleteConfirmId(null);
+          if (targetId) {
+            await deleteInterstitial(targetId);
+          }
+        }}
+      />
 
       {/* Cancel Unsaved Changes Confirmation Modal Overlay */}
-      {showCancelConfirm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
-            <div className="p-4 bg-amber-50 border-b border-amber-200 flex items-center gap-3">
-              <div className="bg-amber-600 p-2 rounded shrink-0">
-                <AlertCircle className="w-4 h-4 text-white" />
-              </div>
-              <div>
-                <h3 className="text-xs font-black text-amber-900 uppercase tracking-widest leading-none">
-                  Discard Unsaved Changes?
-                </h3>
-                <p className="text-[10px] font-bold text-amber-700 mt-1 uppercase tracking-tight">
-                  Unsaved modifications detected
-                </p>
-              </div>
-            </div>
-            <div className="p-5 space-y-3 text-xs font-bold text-slate-600">
-              <p className="leading-relaxed">
-                You have unsaved changes in this interstitial window.
-              </p>
-              <p className="text-[11px] text-slate-500 font-medium leading-normal bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                Canceling now will discard all your changes, including any modified dates, scheduling rules, and newly configured time-gated MP3 items.
-              </p>
-            </div>
-            <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCancelConfirm(false)}
-                className="px-4 py-2 border border-slate-300 rounded text-xs font-black text-slate-600 hover:bg-slate-100 uppercase tracking-widest transition-all cursor-pointer bg-white"
-              >
-                Keep Editing
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowCancelConfirm(false);
-                  setEditingId(null);
-                  if (openedFromAudit) {
-                    setOpenedFromAudit(false);
-                    setIsScheduleAuditOpen(true);
-                  }
-                }}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded text-xs font-black uppercase tracking-widest transition-all shadow-md shadow-amber-100 cursor-pointer"
-              >
-                Discard & Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CancelUnsavedModal
+        isOpen={showCancelConfirm}
+        onKeepEditing={() => setShowCancelConfirm(false)}
+        onDiscard={() => {
+          setShowCancelConfirm(false);
+          setEditingId(null);
+          if (openedFromAudit) {
+            setOpenedFromAudit(false);
+            setIsScheduleAuditOpen(true);
+          }
+        }}
+      />
 
       {/* Schedule Placement & Gap Selection Modal Overlay */}
       {placementModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="p-4 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="bg-blue-600 p-2 rounded shrink-0">
-                  <Calendar className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-black text-blue-900 uppercase tracking-widest leading-none">
-                    Schedule Placement Options
-                  </h3>
-                  <p className="text-xs font-bold text-blue-700/80 mt-1">
-                    Set a Start and End time
-                  </p>
-                </div>
-              </div>
-              <button 
-                type="button" 
-                onClick={handleCancelPlacementModal}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1 rounded-full hover:bg-blue-100/50 transition-colors"
-                title="Close"
-              >
-                <XCircle className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-3.5 text-xs font-bold text-slate-700 max-h-[75vh] overflow-y-auto custom-scrollbar">
-              {/* Available Gaps Selection */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-black text-slate-600 uppercase tracking-wider block select-none">
-                  Available gaps
-                </label>
-                <div className="grid grid-cols-1 gap-1.5 pl-2.5">
-                  {placementModal.presets.map((preset) => {
-                    const isCustom = preset.id === 'custom';
-                    const isSelected = placementModal.selectedPresetId === preset.id;
-                    return (
-                      <React.Fragment key={preset.id}>
-                        {isCustom && (
-                          <div className="flex items-center gap-2 py-1 select-none">
-                            <div className="h-px bg-slate-200 flex-1" />
-                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">- or -</span>
-                            <div className="h-px bg-slate-200 flex-1" />
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => handleSelectPlacementPreset(preset)}
-                          className={cn(
-                            "w-full text-left p-2.5 rounded-lg border transition-all cursor-pointer flex flex-col gap-1 shadow-xs",
-                            isSelected
-                              ? "border-blue-600 bg-blue-50/80 text-blue-900 ring-1 ring-blue-600 shadow-sm"
-                              : "border-slate-200 bg-slate-50 hover:bg-slate-100/80 text-slate-700"
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-black uppercase tracking-wide line-clamp-2 break-words leading-snug" title={preset.label}>
-                              {preset.label}
-                            </span>
-                          </div>
-                          {preset.startDate ? (
-                            <div className="space-y-0.5 mt-0.5">
-                              <div className="flex items-center gap-1.5 text-xs font-mono">
-                                <span className="text-slate-500 font-bold uppercase text-[10px] w-9 shrink-0 select-none">Start:</span>
-                                <span className={cn(isSelected ? "text-blue-800 font-bold" : "text-slate-700 font-medium")}>
-                                  {preset.displayStartDate || preset.startDate} @ {(preset.displayStartTime !== undefined ? preset.displayStartTime : preset.startTime) || '00:00'}
-                                  {preset.isLeadingGap && <span className="ml-1 text-[10px] text-blue-600 font-bold">(now)</span>}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1.5 text-xs font-mono">
-                                <span className="text-slate-500 font-bold uppercase text-[10px] w-9 shrink-0 select-none">End:</span>
-                                {(preset.displayEndDate || preset.endDate) ? (
-                                  <span className={cn(isSelected ? "text-blue-800 font-bold" : "text-slate-700 font-medium")}>
-                                    {preset.displayEndDate || preset.endDate} @ {(preset.displayEndTime !== undefined ? preset.displayEndTime : preset.endTime) || '00:00'}
-                                  </span>
-                                ) : preset.transitionMp3Id ? (
-                                  <span className="text-amber-700 font-bold text-[11px]">
-                                    {(() => {
-                                      const chosenStartDt = isSelected
-                                        ? (placementModal.startDate || preset.suggestedStartDate || preset.startDate)
-                                        : (preset.suggestedStartDate || preset.startDate);
-                                      const chosenStartTm = isSelected
-                                        ? (placementModal.startTime || preset.suggestedStartTime || preset.startTime || '00:00')
-                                        : (preset.suggestedStartTime || preset.startTime || '00:00');
-                                      const startIso = chosenStartDt ? `${chosenStartDt}T${chosenStartTm}` : '';
-                                      const backfillEndIso = computeBackfilledEndTime(startIso);
-                                      const bDate = getDatePart(backfillEndIso);
-                                      const bTime = getTimePart(backfillEndIso) || '00:00';
-                                      return `* Will be set to (${bDate} @ ${bTime})`;
-                                    })()}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-400 italic text-[11px]">(No end limit)</span>
-                                )}
-                              </div>
-                            </div>
-                          ) : null}
-                        </button>
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Data Entry / Range Editor with Editor window styling */}
-              <div className="bg-slate-50/70 p-3 rounded-lg border border-slate-200 space-y-2">
-                <div className="border-b border-slate-200 pb-1">
-                  <label className="text-[11px] font-black text-slate-700 uppercase tracking-wider block select-none">
-                    Effective Schedule Range (Editable)
-                  </label>
-                </div>
-
-                {/* Start Row */}
-                <div className="flex items-center gap-px">
-                  <label className="text-xs font-black text-slate-600 uppercase tracking-wider w-11 shrink-0 select-none">
-                    Start:
-                  </label>
-                  <div className="flex items-center gap-px">
-                    <input
-                      type="date"
-                      value={placementModal.startDate}
-                      onChange={e => handleUpdatePlacementModalDates({ startDate: e.target.value })}
-                      className="w-[110px] p-0.5 border-0 border-b border-slate-350 rounded-none text-xs font-bold font-mono outline-none bg-white text-slate-800 shadow-none focus:ring-0 focus:border-b-2 focus:border-blue-500 h-6.5 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:m-0 [&::-webkit-calendar-picker-indicator]:p-0"
-                    />
-                    <div className="shrink-0">
-                      <MilitaryTimeInput
-                        value={placementModal.startTime}
-                        onChange={t => handleUpdatePlacementModalDates({ startTime: t })}
-                        className="p-0.5 border-0 border-b border-slate-350 rounded-none text-xs font-bold outline-none bg-white text-slate-800 shadow-none focus:ring-0 focus:border-b-2 focus:border-blue-500 h-6.5"
-                        placeholder="HH:mm"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* End Row */}
-                <div className="flex items-center gap-px">
-                  <label className="text-xs font-black text-slate-600 uppercase tracking-wider w-11 shrink-0 select-none">
-                    End:
-                  </label>
-                  <div className="flex items-center gap-px">
-                    <input
-                      type="date"
-                      value={placementModal.endDate}
-                      onChange={e => handleUpdatePlacementModalDates({ endDate: e.target.value })}
-                      className="w-[110px] p-0.5 border-0 border-b border-slate-350 rounded-none text-xs font-bold font-mono outline-none bg-white text-slate-800 shadow-none focus:ring-0 focus:border-b-2 focus:border-blue-500 h-6.5 [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:m-0 [&::-webkit-calendar-picker-indicator]:p-0"
-                    />
-                    <div className="shrink-0">
-                      <MilitaryTimeInput
-                        value={placementModal.endTime}
-                        onChange={t => handleUpdatePlacementModalDates({ endTime: t })}
-                        className="p-0.5 border-0 border-b border-slate-350 rounded-none text-xs font-bold outline-none bg-white text-slate-800 shadow-none focus:ring-0 focus:border-b-2 focus:border-blue-500 h-6.5"
-                        placeholder="HH:mm"
-                      />
-                    </div>
-                    {placementModal.endDate ? (
-                      <button
-                        type="button"
-                        onClick={() => handleUpdatePlacementModalDates({ endDate: '', endTime: '' })}
-                        className="ml-2 text-[11px] font-bold text-slate-400 hover:text-red-600 transition-colors cursor-pointer select-none"
-                        title="Clear End Date"
-                      >
-                        (optional)
-                      </button>
-                    ) : (
-                      <span className="ml-2 text-[11px] font-bold text-slate-400 select-none">
-                        (optional)
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Target File Info Card at the bottom */}
-              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs font-black text-slate-700 select-none">File:</span>
-                  <span className="font-mono text-xs font-black text-blue-600 shrink-0">
-                    New
-                  </span>
-                  <span className="text-xs font-bold font-mono text-slate-800 truncate" title={placementModal.pendingFile?.name}>
-                    {placementModal.pendingFile?.name || 'Selected File'}
-                  </span>
-                </div>
-                {placementModal.pendingFile?.duration && (
-                  <span className="text-xs font-mono font-bold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded shrink-0">
-                    {typeof placementModal.pendingFile.duration === 'number' 
-                      ? formatDuration(placementModal.pendingFile.duration) 
-                      : placementModal.pendingFile.duration}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Modal Actions Footer */}
-            <div className="p-3 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={handleCancelPlacementModal}
-                className="px-4 py-2 border border-slate-300 rounded text-xs font-black text-slate-600 hover:bg-slate-100 uppercase tracking-widest transition-all cursor-pointer bg-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmPlacementModal}
-                disabled={!placementModal.startDate}
-                className={cn(
-                  "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-black uppercase tracking-widest transition-all shadow-md shadow-blue-100 cursor-pointer flex items-center gap-1.5",
-                  !placementModal.startDate && "opacity-50 cursor-not-allowed hover:bg-blue-600 shadow-none"
-                )}
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add Interstitial
-              </button>
-            </div>
-          </div>
-        </div>
+        <PlacementPresetModal
+          placementModal={placementModal}
+          onSelectPreset={handleSelectPlacementPreset}
+          onUpdateDates={handleUpdatePlacementModalDates}
+          onConfirm={handleConfirmPlacementModal}
+          onCancel={handleCancelPlacementModal}
+        />
       )}
-
-      {/* Calendar Interstitial Details Modal Overlay - Commented out per instructions to navigate directly to Edit Interstitial */}
-      {/*
-      {selectedCalendarInterstitial && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[90]">
-          <div className="bg-white rounded-xl border border-slate-250 shadow-2xl max-w-md w-full overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
-            <div className="p-4 bg-slate-50 border-b border-slate-155 flex items-center justify-between shadow-sm">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-slate-500" />
-                <h3 className="text-xs font-black text-slate-800 uppercase tracking-tighter">Interstitial Details</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedCalendarInterstitial(null)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-base leading-none cursor-pointer"
-              >
-                &times;
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <div>
-                <span className="text-xs font-black font-mono text-slate-350 uppercase block tracking-widest leading-none mb-1">ID: {selectedCalendarInterstitial.id}</span>
-                <p className="text-sm font-black text-slate-800 leading-tight tracking-tight">{selectedCalendarInterstitial.name}</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 bg-slate-50 rounded-lg p-3 text-xs">
-                <div>
-                  <span className="text-slate-400 uppercase font-bold block mb-0.5">Type</span>
-                  <span className="font-bold text-slate-700 capitalize">
-                    {selectedCalendarInterstitial.type === InterstitialType.ONE_TIME ? "One-Time" : selectedCalendarInterstitial.type.split('-').pop()}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400 uppercase font-bold block mb-0.5">Status</span>
-                  <span className={cn("font-bold", selectedCalendarInterstitial.enabled ? "text-green-600" : "text-slate-400")}>
-                    {selectedCalendarInterstitial.enabled ? "Enabled" : "Suspended"}
-                  </span>
-                </div>
-                <div className="col-span-2 border-t border-slate-200/50 pt-2">
-                  <span className="text-slate-400 uppercase font-bold block mb-0.5">Timing Summary</span>
-                  <span className="font-bold text-slate-755 block font-mono">
-                    :{selectedCalendarInterstitial.minute.toString().padStart(2, '0')}m • {getInterstitialSummary(selectedCalendarInterstitial)}
-                  </span>
-                </div>
-              </div>
-
-              {(() => {
-                const activeMp3 = getActiveMp3ForSlot(selectedCalendarInterstitial, now);
-                const activeUrl = activeMp3?.mp3Url || '';
-                const isScript = getGatedAssetType(activeMp3) === 'script';
-                const readTime = activeMp3?.approximateReadTime || selectedCalendarInterstitial.approximateReadTime;
-                return (
-                  <div className="space-y-1">
-                    <span className="text-xs text-slate-400 uppercase font-bold block">
-                      {isScript ? "Target Script / Image File" : "Target Audio Track"}
-                    </span>
-                    <div className="p-2 border border-slate-200 rounded flex items-center justify-between gap-2 bg-slate-50/50">
-                      <div className="flex items-center gap-2 min-w-0">
-                        {isScript ? (
-                          <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        ) : (
-                          <Music className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        )}
-                        <span className="text-xs font-bold text-slate-650 truncate font-mono" title={activeUrl}>
-                          {activeUrl || 'No File Attached'}
-                        </span>
-                      </div>
-                      {isScript && (
-                        <span className="text-xs font-mono font-bold text-slate-600 shrink-0">
-                          {readTime ? (readTime.startsWith('~') ? readTime : `~${readTime}`) : '-:--'}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div>
-                  <span className="text-slate-400 uppercase font-bold block mb-0.5">Effective From</span>
-                  <span className="font-mono text-slate-600 font-bold">{selectedCalendarInterstitial.startDate || "Any Date"}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 uppercase font-bold block mb-0.5">Expiration Limit</span>
-                  <span className="font-mono text-slate-600 font-bold">{selectedCalendarInterstitial.endDate || "No Limit"}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-3 bg-slate-50 border-t border-slate-150 flex justify-end gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setSelectedCalendarInterstitial(null)}
-                className="px-3.5 py-1.5 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 text-xs font-black uppercase tracking-tighter cursor-pointer"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const s = selectedCalendarInterstitial;
-                  setSelectedCalendarInterstitial(null);
-                  startEdit(s);
-                }}
-                className="px-3.5 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-tighter flex items-center gap-1 cursor-pointer"
-              >
-                <FileText className="w-3 h-3" />
-                <span>Edit Interstitial</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      */}
 
       {/* Calendar Show Details Modal Overlay */}
-      {selectedCalendarShow && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[90]">
-          <div className="bg-white rounded-xl border border-slate-250 shadow-2xl max-w-md w-full overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-100">
-            <div className="p-4 bg-slate-50 border-b border-slate-155 flex items-center justify-between shadow-sm">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-slate-500" />
-                <h3 className="text-xs font-black text-slate-800 uppercase tracking-tighter">Show Details</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedCalendarShow(null)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-base leading-none cursor-pointer"
-              >
-                &times;
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <div>
-                <span className="text-xs font-black font-mono text-slate-350 uppercase block tracking-widest leading-none mb-1">ID: {selectedCalendarShow.id}</span>
-                <p className="text-base font-black text-slate-800 leading-tight tracking-tight">{selectedCalendarShow.name}</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 bg-slate-50 rounded-lg p-3 text-xs">
-                <div>
-                  <span className="text-slate-400 uppercase font-bold block mb-0.5 text-xs">Short Name</span>
-                  <span className="font-bold text-slate-700 uppercase font-mono">
-                    {selectedCalendarShow.nameShort}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400 uppercase font-bold block mb-0.5 text-xs">Status</span>
-                  <span className={cn("font-bold", selectedCalendarShow.active ? "text-green-600" : "text-slate-400")}>
-                    {selectedCalendarShow.active ? "Active" : "Inactive"}
-                  </span>
-                </div>
-                <div className="col-span-2 border-t border-slate-200/50 pt-2">
-                  <span className="text-slate-400 uppercase font-bold block mb-0.5 text-xs">Interstitial Timing</span>
-                  <span className="font-bold text-slate-755 block font-mono">
-                    {selectedCalendarShow.day} at {selectedCalendarShow.startHour.toString().padStart(2, '0')}:{selectedCalendarShow.startMinute?.toString().padStart(2, '0') || '00'}
-                  </span>
-                </div>
-                <div className="col-span-2 border-t border-slate-200/50 pt-2">
-                  <span className="text-slate-400 uppercase font-bold block mb-0.5 text-xs">Duration</span>
-                  <span className="font-bold text-slate-755 block">
-                    {selectedCalendarShow.durationHours}h {selectedCalendarShow.durationMinutes}m
-                  </span>
-                </div>
-              </div>
-
-              {selectedCalendarShow.host && (
-                <div className="space-y-1">
-                  <span className="text-xs text-slate-400 uppercase font-bold block">Host</span>
-                  <div className="p-2 border border-slate-200 rounded flex items-center gap-2 bg-slate-50/50 text-xs">
-                    <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                    <span className="font-bold text-slate-650">{selectedCalendarShow.host}</span>
-                  </div>
-                </div>
-              )}
-
-              {selectedCalendarShow.description && (
-                <div className="space-y-1">
-                  <span className="text-xs text-slate-400 uppercase font-bold block">Description</span>
-                  <div className="p-2 border border-slate-200 rounded bg-slate-50/50 text-xs text-slate-650 font-medium leading-relaxed whitespace-pre-wrap max-h-32 overflow-y-auto">
-                    {selectedCalendarShow.description}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="p-3 bg-slate-50 border-t border-slate-150 flex justify-end gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setSelectedCalendarShow(null)}
-                className="px-3.5 py-1.5 rounded border border-slate-250 bg-white hover:bg-slate-50 text-slate-700 text-xs font-black uppercase tracking-tighter cursor-pointer"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const s = selectedCalendarShow;
-                  setSelectedCalendarShow(null);
-                  startEditShow(s);
-                }}
-                className="px-3.5 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-tighter flex items-center gap-1 cursor-pointer"
-              >
-                <FileText className="w-3 h-3" />
-                <span>Edit Show</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ShowDetailsModal
+        show={selectedCalendarShow}
+        onClose={() => setSelectedCalendarShow(null)}
+        onEditShow={(s) => {
+          setSelectedCalendarShow(null);
+          startEditShow(s);
+        }}
+      />
 
       {previewScriptFile && (
         <div id="preview-script-modal-backdrop" className="fixed inset-0 bg-slate-950/80 flex items-center justify-center p-4 z-[100] animate-in fade-in duration-150">
@@ -6620,136 +5302,48 @@ export default function CalendarTab({ interstitials, onSave, isAdmin, onAdminTog
       )}
 
       {/* Interstitial Conflict Confirmation Dialog */}
-      {pendingSaveInterstitial && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[110] animate-in fade-in duration-150">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-5 border border-slate-200 space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-amber-100 text-amber-700 rounded-full shrink-0">
-                <AlertCircle className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Interstitial Conflict Detected</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  The changes you are saving introduce the following start-time conflict(s):
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-lg text-xs italic text-amber-900 space-y-1.5 max-h-40 overflow-y-auto">
-              {pendingSaveInterstitial.conflicts.map((c, idx) => (
-                <div key={idx} className="flex items-start gap-1.5">
-                  <span className="shrink-0 font-bold not-italic">•</span>
-                  <span>{c.message}</span>
-                </div>
-              ))}
-            </div>
-
-            <p className="text-xs text-slate-600 font-medium">
-              Are you sure you want to save this interstitial with the conflict?
-            </p>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                disabled={isSavingInterstitial}
-                onClick={() => setPendingSaveInterstitial(null)}
-                className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer disabled:opacity-50"
-              >
-                Continue Editing
-              </button>
-              <button
-                type="button"
-                disabled={isSavingInterstitial}
-                onClick={async () => {
-                  setIsSavingInterstitial(true);
-                  try {
-                    const res = await onSave(pendingSaveInterstitial.updatedList);
-                    if (res !== false) {
-                      setEditingId(null);
-                      setPendingSaveInterstitial(null);
-                      if (openedFromAudit) {
-                        setOpenedFromAudit(false);
-                        setIsScheduleAuditOpen(true);
-                      }
-                    }
-                  } finally {
-                    setIsSavingInterstitial(false);
-                  }
-                }}
-                className="px-3.5 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-md transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {isSavingInterstitial && <RefreshCw className="w-3 h-3 animate-spin" />}
-                <span>{isSavingInterstitial ? "Saving..." : "Save Anyway"}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <InterstitialConflictModal
+        pendingSaveInterstitial={pendingSaveInterstitial}
+        isSaving={isSavingInterstitial}
+        onContinueEditing={() => setPendingSaveInterstitial(null)}
+        onSaveAnyway={async () => {
+          if (!pendingSaveInterstitial) return;
+          setIsSavingInterstitial(true);
+          try {
+            const res = await onSave(pendingSaveInterstitial.updatedList);
+            if (res !== false) {
+              setEditingId(null);
+              setPendingSaveInterstitial(null);
+              if (openedFromAudit) {
+                setOpenedFromAudit(false);
+                setIsScheduleAuditOpen(true);
+              }
+            }
+          } finally {
+            setIsSavingInterstitial(false);
+          }
+        }}
+      />
 
       {/* Show Overlap Confirmation Dialog */}
-      {pendingSaveShow && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[110] animate-in fade-in duration-150">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-5 border border-slate-200 space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-amber-100 text-amber-700 rounded-full shrink-0">
-                <AlertCircle className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Show Overlap Detected</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  The show you are saving overlaps with existing show(s):
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-lg text-xs italic text-amber-900 space-y-1.5 max-h-40 overflow-y-auto">
-              {pendingSaveShow.conflicts.map((c, idx) => (
-                <div key={idx} className="flex items-start gap-1.5">
-                  <span className="shrink-0 font-bold not-italic">•</span>
-                  <span>{c.message}</span>
-                </div>
-              ))}
-            </div>
-
-            <p className="text-xs text-slate-600 font-medium">
-              Are you sure you want to save this show with the overlap?
-            </p>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                disabled={isSavingShow}
-                onClick={() => setPendingSaveShow(null)}
-                className="px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer disabled:opacity-50"
-              >
-                Continue Editing
-              </button>
-              <button
-                type="button"
-                disabled={isSavingShow}
-                onClick={async () => {
-                  if (onSaveShows) {
-                    setIsSavingShow(true);
-                    try {
-                      const res = await onSaveShows(pendingSaveShow.updatedList);
-                      if (res !== false) {
-                        setEditingShowId(null);
-                        setPendingSaveShow(null);
-                      }
-                    } finally {
-                      setIsSavingShow(false);
-                    }
-                  }
-                }}
-                className="px-3.5 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-md transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {isSavingShow && <RefreshCw className="w-3 h-3 animate-spin" />}
-                <span>{isSavingShow ? "Saving..." : "Save Anyway"}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ShowOverlapModal
+        pendingSaveShow={pendingSaveShow}
+        isSaving={isSavingShow}
+        onContinueEditing={() => setPendingSaveShow(null)}
+        onSaveAnyway={async () => {
+          if (!pendingSaveShow || !onSaveShows) return;
+          setIsSavingShow(true);
+          try {
+            const res = await onSaveShows(pendingSaveShow.updatedList);
+            if (res !== false) {
+              setEditingShowId(null);
+              setPendingSaveShow(null);
+            }
+          } finally {
+            setIsSavingShow(false);
+          }
+        }}
+      />
 
       {/* Issues Audit Modal */}
       <ScheduleAuditModal

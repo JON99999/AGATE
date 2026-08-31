@@ -1,9 +1,9 @@
 {
-  "name": "interstitial-er",
+  "name": "wipe",
   "private": true,
-  "version": "0.12.21",
-  "description": "Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.",
-  "author": "Interstitial-er",
+  "version": "0.13.0",
+  "description": "WIPE - Wonderful Interstitial PlayEr: Cross-platform Desktop MP3 Scheduler optimized for MacOS and Windows.",
+  "author": "WIPE",
   "repository": {
     "type": "git",
     "url": "https://github.com/JON99999/Interstitial-er.git"
@@ -21,8 +21,8 @@
     "dist": "node build-apps.cjs"
   },
   "build": {
-    "appId": "com.interstitialer.scheduler",
-    "productName": "Interstitial-er",
+    "appId": "com.wipe.scheduler",
+    "productName": "WIPE",
     "publish": [
       {
         "provider": "github",

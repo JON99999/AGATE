@@ -1,6 +1,6 @@
-# Interstitial-er User Guide
+# WIPE - Wonderful Interstitial PlayEr User Guide
 
-Interstitial-er is a cross-platform desktop audio scheduling utility designed to coordinate precise playback of interstitial MP3 files. 
+WIPE (Wonderful Interstitial PlayEr) is a cross-platform desktop audio scheduling utility designed to coordinate precise playback of interstitial MP3 files. 
 
 Because these installation files are distributed directly and are not downloaded from the official Mac App Store or Microsoft Store, both macOS and Windows will flag them as untrusted or "scary internet files" upon first launch. Follow the guide below to authorize and run the application.
 

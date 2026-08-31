@@ -1,5 +1,5 @@
 {
-  "name": "Interstitial-er",
+  "name": "WIPE - Wonderful Interstitial PlayEr",
   "description": "Cross-platform Desktop MP3 Interstitial Calendar optimized for MacOS (Silicon/Intel) and Windows 10/11.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

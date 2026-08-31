@@ -15,8 +15,8 @@ export const getMP3Status = (url: string | undefined) => {
 
   // 2. Extract clean filename / decoded file parameter if url is a stream URL or path
   let cleanName = url;
-  if (cleanName.includes('/api/stream-local')) {
-    const parts = cleanName.split('file=');
+  if (cleanName.includes('/api/media/stream')) {
+    const parts = cleanName.split(/(?:file|path)=/);
     if (parts.length > 1) {
       cleanName = decodeURIComponent(parts[1].split('&')[0]);
     }
@@ -59,7 +59,7 @@ export const getMP3Status = (url: string | undefined) => {
   let filename = baseName || cleanUrl.split('/').pop() || 'Unknown';
   
   const isDrive = url.includes('googleapis.com') || url.includes('drive.google.com') || url.includes('id=');
-  const isLocal = url.includes('/api/stream-local');
+  const isLocal = url.includes('/api/media/stream');
   const isExternalWeb = (url.startsWith('http://') || url.startsWith('https://')) && !isLocal && !isDrive;
   
   if (driveFileNameCache.has(url)) {
