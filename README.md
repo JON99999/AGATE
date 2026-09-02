@@ -1,6 +1,6 @@
-# WIPE - Wonderful Interstitial PlayEr User Guide
+# AGATE - A Gated Announcement Tracking Engine User Guide
 
-WIPE (Wonderful Interstitial PlayEr) is a cross-platform desktop audio scheduling utility designed to coordinate precise playback of interstitial MP3 files. 
+AGATE (A Gated Announcement Tracking Engine) is a cross-platform desktop audio scheduling utility designed to coordinate precise playback of interstitial MP3 files. 
 
 Because these installation files are distributed directly and are not downloaded from the official Mac App Store or Microsoft Store, both macOS and Windows will flag them as untrusted or "scary internet files" upon first launch. Follow the guide below to authorize and run the application.
 
@@ -31,7 +31,7 @@ Because the app is unsigned, macOS will block execution on the first attempt:
 1. Double-click the application icon to launch it. A dialog box will appear stating that the app cannot be opened because it is from an unidentified developer. Click **OK**.
 2. Open **System Settings** on your Mac.
 3. Navigate to **Privacy & Security** and scroll down to the Security section.
-4. Locate the message stating that *"Interstitial-er was blocked from use because it is not from an identified developer"* and click **Open Anyway**.
+4. Locate the message stating that *"AGATE was blocked from use because it is not from an identified developer"* and click **Open Anyway**.
 5. Authenticate with your Mac password or Touch ID, then click **Open** on the confirmation dialog. The app will launch normally from this point forward.
 
 ---
@@ -52,7 +52,7 @@ When opening the executable on Windows:
 
 ## License & Alternative Licensing
 
-**WIPE (Wonderful Interstitial PlayEr)** is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](./LICENSE) file for the complete license terms.
+**AGATE (A Gated Announcement Tracking Engine)** is licensed under the **GNU General Public License v3.0 (GPLv3)**. See the [LICENSE](./LICENSE) file for the complete license terms.
 
 Third-party dependencies and their respective open source licenses are documented in [OPEN_SOURCE_LICENSES.md](./OPEN_SOURCE_LICENSES.md).
 
