@@ -51,41 +51,58 @@ function getPngDimensions(filePath) {
 function downloadFile(url, destPath) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.dirname(destPath), { recursive: true });
-    const file = fs.createWriteStream(destPath);
-    https.get(url, (response) => {
+    const tempPath = `${destPath}.tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const file = fs.createWriteStream(tempPath);
+
+    const cleanup = () => {
+      try {
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+      } catch (_) {}
+    };
+
+    const handleStream = (res) => {
+      res.pipe(file);
+      file.on('finish', () => {
+        file.close(() => {
+          try {
+            fs.renameSync(tempPath, destPath);
+            resolve();
+          } catch (renErr) {
+            cleanup();
+            reject(renErr);
+          }
+        });
+      });
+    };
+
+    const req = https.get(url, (response) => {
       // Handle HTTP redirects
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
         https.get(response.headers.location, (redirectResponse) => {
           if (redirectResponse.statusCode !== 200) {
-            fs.unlink(destPath, () => {});
+            cleanup();
             reject(new Error(`Redirect response failed: status ${redirectResponse.statusCode}`));
             return;
           }
-          redirectResponse.pipe(file);
-          file.on('finish', () => {
-            file.close();
-            resolve();
-          });
+          handleStream(redirectResponse);
         }).on('error', (err) => {
-          fs.unlink(destPath, () => {});
+          cleanup();
           reject(err);
         });
         return;
       }
 
       if (response.statusCode !== 200) {
-        fs.unlink(destPath, () => {});
+        cleanup();
         reject(new Error(`Request failed: status ${response.statusCode}`));
         return;
       }
 
-      response.pipe(file);
-      file.on('finish', () => {
-        file.close();
-        resolve();
-      });
-    }).on('error', (err) => {
-      fs.unlink(destPath, () => {});
+      handleStream(response);
+    });
+
+    req.on('error', (err) => {
+      cleanup();
       reject(err);
     });
   });
@@ -94,7 +111,23 @@ function downloadFile(url, destPath) {
 async function syncRemoteIcons() {
   console.log('\nSynchronizing remote builder icon assets from GitHub (branch: assets)...');
   const baseRawUrl = 'https://raw.githubusercontent.com/JON99999/AGATE/assets';
-  
+
+  const macIconFiles = [
+    'icon.icns',
+    '1024x1024.png',
+    '512x512@2x.png',
+    '512x512.png',
+    '256x256@2x.png',
+    '256x256.png',
+    '128x128@2x.png',
+    '128x128.png',
+    '64x64.png',
+    '32x32@2x.png',
+    '32x32.png',
+    '16x16@2x.png',
+    '16x16.png'
+  ];
+
   const filesToSync = [
     {
       remote: `${baseRawUrl}/src/assets/images/user-icon.png`,
@@ -102,12 +135,14 @@ async function syncRemoteIcons() {
       name: 'user-icon.png (Application and installer logo)',
       requiredSpec: 'High-resolution 1024x1024 pixel PNG file.'
     },
-    {
-      remote: `${baseRawUrl}/src/assets/images/mac/icon.icns`,
-      local: path.join(__dirname, 'src', 'assets', 'images', 'mac', 'icon.icns'),
-      name: 'mac/icon.icns (macOS application icon bundle)',
-      requiredSpec: 'Standard Apple ICNS file containing multiple resolutions up to 1024x1024 pixels.'
-    },
+    ...macIconFiles.map((filename) => ({
+      remote: `${baseRawUrl}/src/assets/images/mac/${encodeURIComponent(filename)}`,
+      local: path.join(__dirname, 'src', 'assets', 'images', 'mac', filename),
+      name: `mac/${filename} (macOS icon asset)`,
+      requiredSpec: filename.endsWith('.icns')
+        ? 'Standard Apple ICNS file containing multiple resolutions up to 1024x1024 pixels.'
+        : `macOS icon resolution asset (${filename}).`
+    })),
     {
       remote: `${baseRawUrl}/src/assets/images/win/icon.ico`,
       local: path.join(__dirname, 'src', 'assets', 'images', 'win', 'icon.ico'),
@@ -295,6 +330,7 @@ CONFIGURATION & PERSISTENCE:
       }
 
       const userIconPath = path.join(__dirname, 'src', 'assets', 'images', 'user-icon.png');
+      const mac1024Path = path.join(__dirname, 'src', 'assets', 'images', 'mac', '1024x1024.png');
       const placeholderPath = path.join(__dirname, 'src', 'assets', 'images', 'interstitialer_icon_1779637727966.png');
       let chosenIconSource = placeholderPath;
 
@@ -305,13 +341,24 @@ CONFIGURATION & PERSISTENCE:
           chosenIconSource = userIconPath;
         } else {
           if (dims) {
-            console.log(`Custom user-icon.png has incorrect dimensions (${dims.width}x${dims.height}). Falling back to preseeded placeholder.`);
+            console.log(`Custom user-icon.png has incorrect dimensions (${dims.width}x${dims.height}).`);
           } else {
-            console.log('Custom user-icon.png is not a valid PNG file. Falling back to preseeded placeholder.');
+            console.log('Custom user-icon.png is not a valid PNG file.');
           }
         }
-      } else {
-        console.log(`No custom user-icon.png present. Using preseeded placeholder for mode: ${mode}`);
+      }
+
+      // If user-icon.png was not chosen or missing, check mac/1024x1024.png
+      if (chosenIconSource === placeholderPath && fs.existsSync(mac1024Path)) {
+        const macDims = getPngDimensions(mac1024Path);
+        if (macDims && macDims.width === 1024 && macDims.height === 1024) {
+          console.log(`Using mac/1024x1024.png with validated 1024x1024 dimensions as active build launcher icon for mode: ${mode}`);
+          chosenIconSource = mac1024Path;
+        }
+      }
+
+      if (chosenIconSource === placeholderPath && !fs.existsSync(userIconPath) && !fs.existsSync(mac1024Path)) {
+        console.log(`No custom user-icon.png or mac/1024x1024.png present. Using preseeded placeholder for mode: ${mode}`);
       }
 
       if (fs.existsSync(chosenIconSource)) {
@@ -324,7 +371,8 @@ CONFIGURATION & PERSISTENCE:
       }
 
       // Copy pre-generated native system-specific icons (icns, ico)
-      const macIconSource = path.join(__dirname, 'src', 'assets', 'images', 'mac', 'icon.icns');
+      const macIconDir = path.join(__dirname, 'src', 'assets', 'images', 'mac');
+      const macIconSource = path.join(macIconDir, 'icon.icns');
       const winIconSource = path.join(__dirname, 'src', 'assets', 'images', 'win', 'icon.ico');
 
       const isRealIconFile = (filePath) => {
@@ -344,6 +392,56 @@ CONFIGURATION & PERSISTENCE:
         }
       } else {
         console.log(`mac/icon.icns not found or is placeholder at ${macIconSource}. (Skipping local copy; expected to be handled in GitHub CI environment or generated.)`);
+      }
+
+      // Populate multi-resolution macOS icons in build/icons and build/icon.iconset
+      const buildIconsSubdir = path.join(buildIconDir, 'icons');
+      const buildIconsetSubdir = path.join(buildIconDir, 'icon.iconset');
+      if (!fs.existsSync(buildIconsSubdir)) fs.mkdirSync(buildIconsSubdir, { recursive: true });
+      if (!fs.existsSync(buildIconsetSubdir)) fs.mkdirSync(buildIconsetSubdir, { recursive: true });
+
+      const iconsetFileMap = [
+        { src: '16x16.png', dest: 'icon_16x16.png' },
+        { src: '16x16@2x.png', dest: 'icon_16x16@2x.png' },
+        { src: '32x32.png', dest: 'icon_32x32.png' },
+        { src: '32x32@2x.png', dest: 'icon_32x32@2x.png' },
+        { src: '128x128.png', dest: 'icon_128x128.png' },
+        { src: '128x128@2x.png', dest: 'icon_128x128@2x.png' },
+        { src: '256x256.png', dest: 'icon_256x256.png' },
+        { src: '256x256@2x.png', dest: 'icon_256x256@2x.png' },
+        { src: '512x512.png', dest: 'icon_512x512.png' },
+        { src: '512x512@2x.png', dest: 'icon_512x512@2x.png' },
+        { src: '1024x1024.png', dest: 'icon_512x512@2x.png' }
+      ];
+
+      if (fs.existsSync(macIconDir)) {
+        try {
+          const macPngs = fs.readdirSync(macIconDir).filter((f) => f.endsWith('.png'));
+          for (const pngFile of macPngs) {
+            const srcPath = path.join(macIconDir, pngFile);
+            fs.copyFileSync(srcPath, path.join(buildIconsSubdir, pngFile));
+          }
+          for (const item of iconsetFileMap) {
+            const srcPath = path.join(macIconDir, item.src);
+            if (fs.existsSync(srcPath)) {
+              fs.copyFileSync(srcPath, path.join(buildIconsetSubdir, item.dest));
+            }
+          }
+          console.log(`Successfully populated macOS icons in build/icons/ and build/icon.iconset/`);
+        } catch (copyErr) {
+          console.warn('Could not populate build/icons or build/icon.iconset:', copyErr.message);
+        }
+      }
+
+      // If running on macOS host and build/icon.icns is still missing, attempt native compilation via iconutil
+      if (process.platform === 'darwin' && !fs.existsSync(path.join(buildIconDir, 'icon.icns'))) {
+        try {
+          console.log('Compiling build/icon.icns via native macOS iconutil from build/icon.iconset...');
+          execSync(`iconutil -c icns "${buildIconsetSubdir}" -o "${path.join(buildIconDir, 'icon.icns')}"`, { stdio: 'inherit' });
+          console.log('Successfully generated build/icon.icns via iconutil.');
+        } catch (iconutilErr) {
+          console.warn('Native iconutil generation fallback skipped or failed:', iconutilErr.message);
+        }
       }
 
       if (isRealIconFile(winIconSource)) {

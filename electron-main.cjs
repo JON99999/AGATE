@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, Menu, session, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, screen, Menu, session, dialog, ipcMain, shell, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -370,6 +370,37 @@ ipcMain.on('set-live-read-active', (event, active) => {
   buildAppMenu(currentActiveTab, currentCalendarSubTab);
 });
 
+function getAppIcon() {
+  const candidates = isMac
+    ? [
+        path.join(__dirname, 'src', 'assets', 'images', 'mac', 'icon.icns'),
+        path.join(__dirname, 'build', 'icon.icns'),
+        path.join(__dirname, 'src', 'assets', 'images', 'mac', '512x512@2x.png'),
+        path.join(__dirname, 'src', 'assets', 'images', 'mac', '1024x1024.png'),
+        path.join(__dirname, 'src', 'assets', 'images', 'user-icon.png'),
+        path.join(__dirname, 'build', 'icon.png'),
+      ]
+    : [
+        path.join(__dirname, 'src', 'assets', 'images', 'win', 'icon.ico'),
+        path.join(__dirname, 'build', 'icon.ico'),
+        path.join(__dirname, 'src', 'assets', 'images', 'user-icon.png'),
+        path.join(__dirname, 'src', 'assets', 'images', 'mac', '1024x1024.png'),
+        path.join(__dirname, 'build', 'icon.png'),
+      ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      try {
+        const img = nativeImage.createFromPath(candidate);
+        if (!img.isEmpty()) {
+          return img;
+        }
+      } catch (_) {}
+    }
+  }
+  return undefined;
+}
+
 function createWindow() {
   const disableShadows = DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC && isIntelMac;
 
@@ -378,6 +409,8 @@ function createWindow() {
     : appMode === 'Studio'
       ? "Agate Studio"
       : "Agate Admin";
+
+  const appIcon = getAppIcon();
 
   let windowOptions = {
     height: 800,
@@ -391,6 +424,10 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
     },
   };
+
+  if (appIcon) {
+    windowOptions.icon = appIcon;
+  }
 
   if (appMode !== 'Admin') {
     // Disable dev tools and remove menus for Live and Studio versions
@@ -458,6 +495,17 @@ function createWindow() {
 }
 
 app.on('ready', async () => {
+  if (isMac && app.dock && typeof app.dock.setIcon === 'function') {
+    const dockIcon = getAppIcon();
+    if (dockIcon) {
+      try {
+        app.dock.setIcon(dockIcon);
+      } catch (err) {
+        console.warn('Could not set macOS dock icon:', err);
+      }
+    }
+  }
+
   await startServer();
   createWindow();
 
@@ -525,11 +573,14 @@ global.spawnLiveRead = async (data) => {
 
   const disableShadows = DISABLE_WINDOW_SHADOWS_FOR_INTEL_MAC && isIntelMac;
 
+  const popoutIcon = getAppIcon();
+
   liveReadWindow = new BrowserWindow({
     width: 720,
     height: 620,
     minWidth: 480,
     minHeight: 380,
+    ...(popoutIcon ? { icon: popoutIcon } : {}),
     title: "Live Read Script - " + (data.name || data.interstitialName || "Script"),
     alwaysOnTop: true, // Floats over other apps for the broadcaster
     resizable: true,
