@@ -6,7 +6,7 @@
   "author": "Agate",
   "repository": {
     "type": "git",
-    "url": "https://github.com/JON99999/Interstitial-er.git"
+    "url": "https://github.com/JON99999/AGATE.git"
   },
   "main": "electron-main.cjs",
   "type": "module",

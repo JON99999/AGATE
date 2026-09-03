@@ -93,7 +93,7 @@ function downloadFile(url, destPath) {
 
 async function syncRemoteIcons() {
   console.log('\nSynchronizing remote builder icon assets from GitHub (branch: assets)...');
-  const baseRawUrl = 'https://raw.githubusercontent.com/JON99999/Interstitial-er/assets';
+  const baseRawUrl = 'https://raw.githubusercontent.com/JON99999/AGATE/assets';
   
   const filesToSync = [
     {
