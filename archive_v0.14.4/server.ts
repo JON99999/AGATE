@@ -21,7 +21,7 @@ const BASE_DIR = IS_PORTABLE
   : (process.env.APP_USER_DATA_PATH || process.cwd());
 
 // Persist settings in the launch directory (portable) or application user directory (installed/dev)
-const SETTINGS_FILE = path.join(BASE_DIR, 'interstitial-er_settings.json');
+const SETTINGS_FILE = path.join(BASE_DIR, 'agate_settings.json');
 
 // Guaranteed synchronous directory verification for fresh installations
 try {

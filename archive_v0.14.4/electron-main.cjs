@@ -38,6 +38,19 @@ if (isPortableMode) {
   } catch (err) {
     console.error('[Portable Mode] Failed to set custom isolated userData path:', err);
   }
+} else {
+  // Canonical application directory: ensures all installed modes (Admin, Live, Studio)
+  // and all installed version upgrades share the same canonical "Agate" user data directory.
+  try {
+    const sharedUserData = path.join(app.getPath('appData'), 'Agate');
+    if (!fs.existsSync(sharedUserData)) {
+      fs.mkdirSync(sharedUserData, { recursive: true });
+    }
+    app.setPath('userData', sharedUserData);
+    console.log(`[Installed Mode] Canonical suite userData path set to: ${sharedUserData}`);
+  } catch (err) {
+    console.error('[Installed Mode] Failed to set canonical Agate userData path:', err);
+  }
 }
 // ------------------------------------------------------------------------------------------
 

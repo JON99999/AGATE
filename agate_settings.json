@@ -1,0 +1,22 @@
+{
+  "mode": "Drive",
+  "localPathAgate": "",
+  "paths": {
+    "logs": null,
+    "loghistory": null,
+    "settings": null,
+    "media_announcements": null,
+    "media_evergreens": null,
+    "media_shows": null,
+    "logsFile": null,
+    "interstitialsFile": null,
+    "showsFile": null
+  },
+  "localPathMP3s": "",
+  "localPathLogs": "",
+  "localPathCalendar": "",
+  "driveFolderLogs": "18XsnqeckKMZdc8D4mpI3x2QWlFNkSUhd",
+  "driveFolderMP3s": "15wbxZOI_m9BmEG6kRHBTUaGIHJB4IIKm",
+  "driveFolderPreferences": "1IVDbvtqXSm1eDnur2nzZwLqiGiaMnQJW",
+  "localPathSchedules": ""
+}
