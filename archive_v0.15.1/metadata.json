@@ -1,0 +1,6 @@
+{
+  "name": "Agate - A Gated Announcement Tracking Engine",
+  "description": "Agate - A Gated Announcement Tracking Engine - An app designed for Radio Stations to schedule, play, read, and log interstitials and drops.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
