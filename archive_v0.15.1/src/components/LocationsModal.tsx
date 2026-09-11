@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Folder,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import GoogleAuthSection from "./GoogleAuthSection";
 import { cn, extractFolderId } from "../lib/utils";
+import { checkMissingDriveItems } from "../lib/driveService";
 
 export interface LocationsModalProps {
   isOpen: boolean;
@@ -35,7 +36,7 @@ export interface LocationsModalProps {
   setDraftLocalPathMediaShows?: (path: string) => void;
   draftLocalPathLogs: string;
   setDraftLocalPathLogs: (path: string) => void;
-  onBrowseNative: (type: "agate" | "calendar" | "mp3s" | "announcements" | "evergreens" | "shows" | "logs") => void;
+  onBrowseNative: (type: "agate" | "calendar" | "mp3s" | "announcements" | "evergreens" | "shows" | "logs") => Promise<string | null | void> | void;
   onOpenLocalPath: (path: string) => void;
   interstitialsReadOnlyError: string | null;
   localPathsUnavailable: boolean;
@@ -89,7 +90,14 @@ export interface LocationsModalProps {
   toggleAnimations: () => void;
   showPixelRuler: boolean;
   togglePixelRuler: () => void;
-  onSaveLocations: (e: React.FormEvent) => void;
+  onSaveLocations: (e?: React.FormEvent, options?: { createMissing?: boolean }) => void | Promise<void>;
+}
+
+function formatMissingList(items: string[]): string {
+  if (!items || items.length === 0) return "required files or folders";
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
 }
 
 export const LocationsModal: React.FC<LocationsModalProps> = ({
@@ -168,6 +176,109 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
 }) => {
   const isNarrow = (windowSize?.width ?? (typeof window !== "undefined" ? window.innerWidth : 1024)) < 540;
 
+  const [showClearOverridesModal, setShowClearOverridesModal] = useState(false);
+  const [showMissingModal, setShowMissingModal] = useState(false);
+  const [missingCheckData, setMissingCheckData] = useState<{ missingItems: string[]; targetFolderDesc: string } | null>(null);
+  const [isCheckingMissing, setIsCheckingMissing] = useState(false);
+
+  const handleBrowseAgate = async () => {
+    const selected = await onBrowseNative("agate");
+    const hasOverrides = !!(
+      draftLocalPathCalendar ||
+      draftLocalPathMediaAnnouncements ||
+      draftLocalPathMP3s ||
+      draftLocalPathMediaEvergreens ||
+      draftLocalPathMediaShows ||
+      draftLocalPathLogs
+    );
+    if (selected && hasOverrides) {
+      setShowClearOverridesModal(true);
+    }
+  };
+
+  const handleClearAdvanced = () => {
+    if (locationMode === "Local") {
+      setDraftLocalPathCalendar("");
+      if (setDraftLocalPathMediaAnnouncements) setDraftLocalPathMediaAnnouncements("");
+      setDraftLocalPathMP3s("");
+      if (setDraftLocalPathMediaEvergreens) setDraftLocalPathMediaEvergreens("");
+      if (setDraftLocalPathMediaShows) setDraftLocalPathMediaShows("");
+      setDraftLocalPathLogs("");
+    } else if (locationMode === "Drive") {
+      setDraftDriveFolderPreferences("");
+      if (setDraftDriveFolderAnnouncements) setDraftDriveFolderAnnouncements("");
+      setDraftDriveFolderMP3s("");
+      if (setDraftDriveFolderEvergreens) setDraftDriveFolderEvergreens("");
+      if (setDraftDriveFolderShows) setDraftDriveFolderShows("");
+      setDraftDriveFolderLogs("");
+    }
+    setShowClearOverridesModal(false);
+  };
+
+  const handleKeepAdvanced = () => {
+    setShowClearOverridesModal(false);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (locationMode === "Local") {
+      setIsCheckingMissing(true);
+      try {
+        const res = await fetch("/api/check-missing-items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            localPathAgate: draftLocalPathAgate,
+            localPathCalendar: draftLocalPathCalendar,
+            localPathMP3s: draftLocalPathMediaAnnouncements || draftLocalPathMP3s,
+            localPathMediaAnnouncements: draftLocalPathMediaAnnouncements,
+            localPathMediaEvergreens: draftLocalPathMediaEvergreens,
+            localPathMediaShows: draftLocalPathMediaShows,
+            localPathLogs: draftLocalPathLogs,
+          }),
+        });
+        const data = await res.json();
+        setIsCheckingMissing(false);
+        if (data.hasMissing) {
+          setMissingCheckData({
+            missingItems: data.missingItems || [],
+            targetFolderDesc: data.targetFolderDesc || (draftLocalPathAgate || "target folder"),
+          });
+          setShowMissingModal(true);
+          return;
+        }
+      } catch (err) {
+        setIsCheckingMissing(false);
+      }
+    } else if (locationMode === "Drive") {
+      setIsCheckingMissing(true);
+      try {
+        const driveMissing = await checkMissingDriveItems({
+          driveFolderAgate: draftDriveFolderAgate,
+          driveFolderPreferences: draftDriveFolderPreferences,
+          driveFolderAnnouncements: draftDriveFolderAnnouncements || draftDriveFolderMP3s,
+          driveFolderMP3s: draftDriveFolderAnnouncements || draftDriveFolderMP3s,
+          driveFolderEvergreens: draftDriveFolderEvergreens,
+          driveFolderShows: draftDriveFolderShows,
+          driveFolderLogs: draftDriveFolderLogs,
+        });
+        setIsCheckingMissing(false);
+        if (driveMissing.hasMissing) {
+          setMissingCheckData({
+            missingItems: driveMissing.missingItems,
+            targetFolderDesc: driveMissing.targetFolderDesc,
+          });
+          setShowMissingModal(true);
+          return;
+        }
+      } catch (err) {
+        setIsCheckingMissing(false);
+      }
+    }
+
+    onSaveLocations(e, { createMissing: false });
+  };
+
   return (
     <>
       <AnimatePresence>
@@ -191,7 +302,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
 
               {/* Modal Core Form */}
               <form
-                onSubmit={onSaveLocations}
+                onSubmit={handleSubmit}
                 className="flex flex-col flex-1 overflow-hidden"
               >
                 {/* Modal Content */}
@@ -278,9 +389,9 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                       <div>
                         <div className={cn("mb-1", isNarrow ? "flex flex-col items-start gap-1" : "flex justify-between items-center")}>
                           <label className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            AGATE Station Location
+                            AGATE FOLDER
                           </label>
-                          {!(draftLocalPathAgate || draftLocalPathCalendar) ? (
+                          {!draftLocalPathAgate ? (
                             <span className="text-xs bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold uppercase">
                               To be set
                             </span>
@@ -293,28 +404,27 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                         <input
                           type="text"
                           placeholder="e.g. /Users/name/AGATE or C:\AGATE"
-                          value={draftLocalPathAgate || draftLocalPathCalendar}
+                          value={draftLocalPathAgate || ""}
                           onChange={(e) => {
                             if (setDraftLocalPathAgate) {
                               setDraftLocalPathAgate(e.target.value);
                             }
-                            setDraftLocalPathCalendar(e.target.value);
                           }}
                           className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded text-xs font-mono text-slate-900 outline-none focus:ring-1 focus:ring-blue-500"
                         />
                         <div className="flex gap-2 mt-1">
                           <button
                             type="button"
-                            onClick={() => onBrowseNative("agate")}
+                            onClick={handleBrowseAgate}
                             className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                           >
                             Browse
                           </button>
-                          {(draftLocalPathAgate || draftLocalPathCalendar) && (
+                          {draftLocalPathAgate && (
                             <button
                               type="button"
                               onClick={() =>
-                                onOpenLocalPath(draftLocalPathAgate || draftLocalPathCalendar)
+                                onOpenLocalPath(draftLocalPathAgate)
                               }
                               className="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded text-xs font-black uppercase transition-all shadow-sm flex items-center gap-1 cursor-pointer active:translate-y-px"
                             >
@@ -323,20 +433,20 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                           )}
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          Root station directory containing logs, settings, and media folders.
+                          Root directory that stores logs, settings, and media.
                         </p>
                       </div>
 
                       {/* Optional Advanced Overrides Details */}
                       <details className="text-xs border border-slate-200 rounded p-2 bg-slate-50/50">
                         <summary className="cursor-pointer font-bold text-slate-700 select-none">
-                          Advanced / Legacy Path Overrides
+                          Advanced - Folder Overrides
                         </summary>
                         <div className="mt-2.5 space-y-3 pt-2 border-t border-slate-200">
                           <div>
                             <div className="flex justify-between items-center mb-1">
                               <label className="text-[11px] font-bold uppercase text-slate-600">
-                                Interstitials & Schedules Path
+                                Settings Folder
                               </label>
                             </div>
                             <input
@@ -352,7 +462,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                                 onClick={() => onBrowseNative("calendar")}
                                 className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-[11px] font-bold uppercase"
                               >
-                                Edit
+                                Browse
                               </button>
                               {draftLocalPathCalendar && (
                                 <button
@@ -369,7 +479,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                           <div>
                             <div className="flex justify-between items-center mb-1">
                               <label className="text-[11px] font-bold uppercase text-slate-600">
-                                Announcements Media Path
+                                Media_Announcements Folder
                               </label>
                             </div>
                             <input
@@ -390,7 +500,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                                 onClick={() => onBrowseNative("announcements")}
                                 className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-[11px] font-bold uppercase"
                               >
-                                Edit
+                                Browse
                               </button>
                               {(draftLocalPathMediaAnnouncements || draftLocalPathMP3s) && (
                                 <button
@@ -407,7 +517,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                           <div>
                             <div className="flex justify-between items-center mb-1">
                               <label className="text-[11px] font-bold uppercase text-slate-600">
-                                Evergreens Media Path
+                                Media_Evergreens Folder
                               </label>
                             </div>
                             <input
@@ -427,7 +537,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                                 onClick={() => onBrowseNative("evergreens")}
                                 className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-[11px] font-bold uppercase"
                               >
-                                Edit
+                                Browse
                               </button>
                               {draftLocalPathMediaEvergreens && (
                                 <button
@@ -444,7 +554,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                           <div>
                             <div className="flex justify-between items-center mb-1">
                               <label className="text-[11px] font-bold uppercase text-slate-600">
-                                Shows & Playlists Media Path
+                                Media_Shows Folder
                               </label>
                             </div>
                             <input
@@ -464,7 +574,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                                 onClick={() => onBrowseNative("shows")}
                                 className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-[11px] font-bold uppercase"
                               >
-                                Edit
+                                Browse
                               </button>
                               {draftLocalPathMediaShows && (
                                 <button
@@ -481,7 +591,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                           <div>
                             <div className="flex justify-between items-center mb-1">
                               <label className="text-[11px] font-bold uppercase text-slate-600">
-                                Logs Directory Path
+                                Logs Folder
                               </label>
                             </div>
                             <input
@@ -497,7 +607,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                                 onClick={() => onBrowseNative("logs")}
                                 className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-[11px] font-bold uppercase"
                               >
-                                Edit
+                                Browse
                               </button>
                               {draftLocalPathLogs && (
                                 <button
@@ -535,7 +645,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                       <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
                         <div className={cn("mb-1", isNarrow ? "flex flex-col items-start gap-1" : "flex justify-between items-center")}>
                           <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                            AGATE Station Location
+                            AGATE FOLDER
                           </span>
                           {draftDriveFolderAgate ? (
                             <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
@@ -561,7 +671,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                             }}
                             className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                           >
-                            Edit
+                            Browse
                           </button>
                           {draftDriveFolderAgate && (
                             <button
@@ -576,21 +686,21 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                           )}
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          Root Google Drive station folder containing settings, media, and logs subfolders.
+                          Root directory that stores logs, settings, and media.
                         </p>
                       </div>
 
-                      {/* Advanced / Legacy Folder Overrides */}
+                      {/* Advanced - Folder Overrides */}
                       <details className="text-xs border border-slate-200 rounded p-2 bg-slate-50/50">
                         <summary className="cursor-pointer font-bold text-slate-700 select-none">
-                          Advanced / Legacy Folder Overrides
+                          Advanced - Folder Overrides
                         </summary>
                         <div className="mt-2.5 space-y-3 pt-2 border-t border-slate-200">
-                          {/* Preferences/Interstitials Container */}
+                          {/* Settings Folder Container */}
                           <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
                             <div className={cn("mb-1", isNarrow ? "flex flex-col items-start gap-1" : "flex justify-between items-center")}>
                               <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                                Interstitial
+                                Settings Folder
                               </span>
                               {draftDriveFolderPreferences ? (
                                 <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
@@ -615,7 +725,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                                 }}
                                 className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                               >
-                                Edit
+                                Browse
                               </button>
                               {draftDriveFolderPreferences && (
                                 <>
@@ -646,7 +756,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                           <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
                             <div className={cn("mb-1", isNarrow ? "flex flex-col items-start gap-1" : "flex justify-between items-center")}>
                               <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                                Announcements Media
+                                Media_Announcements Folder
                               </span>
                               {(draftDriveFolderAnnouncements || draftDriveFolderMP3s) ? (
                                 <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
@@ -671,7 +781,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                                 }}
                                 className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                               >
-                                Edit
+                                Browse
                               </button>
                               {(draftDriveFolderAnnouncements || draftDriveFolderMP3s) && (
                                 <>
@@ -703,7 +813,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                           <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
                             <div className={cn("mb-1", isNarrow ? "flex flex-col items-start gap-1" : "flex justify-between items-center")}>
                               <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                                Evergreens Media
+                                Media_Evergreens Folder
                               </span>
                               {draftDriveFolderEvergreens ? (
                                 <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
@@ -728,7 +838,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                                 }}
                                 className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                               >
-                                Edit
+                                Browse
                               </button>
                               {draftDriveFolderEvergreens && (
                                 <>
@@ -759,7 +869,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                           <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
                             <div className={cn("mb-1", isNarrow ? "flex flex-col items-start gap-1" : "flex justify-between items-center")}>
                               <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                                Shows & Playlists Media
+                                Media_Shows Folder
                               </span>
                               {draftDriveFolderShows ? (
                                 <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
@@ -784,7 +894,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                                 }}
                                 className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                               >
-                                Edit
+                                Browse
                               </button>
                               {draftDriveFolderShows && (
                                 <>
@@ -815,7 +925,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                           <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1">
                             <div className={cn("mb-1", isNarrow ? "flex flex-col items-start gap-1" : "flex justify-between items-center")}>
                               <span className="text-xs font-black uppercase text-blue-600 tracking-wider">
-                                Play Logs
+                                Logs Folder
                               </span>
                               {draftDriveFolderLogs ? (
                                 <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">
@@ -840,7 +950,7 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                                 }}
                                 className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded text-xs font-black uppercase tracking-wider transition-all cursor-pointer"
                               >
-                                Edit
+                                Browse
                               </button>
                               {draftDriveFolderLogs && (
                                 <>
@@ -1282,6 +1392,96 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                   className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase rounded shadow cursor-pointer active:translate-y-px"
                 >
                   Apply
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Modal to Ask User if they Want to Clear Advanced Overrides */}
+      <AnimatePresence>
+        {showClearOverridesModal && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white border border-slate-200 rounded-xl max-w-sm w-full overflow-hidden text-slate-900 flex flex-col shadow-2xl p-5 space-y-4"
+            >
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                <h3 className="text-xs font-black uppercase text-slate-900 tracking-wider">
+                  Clear Advanced Settings?
+                </h3>
+              </div>
+              <p className="text-xs text-slate-700 leading-relaxed">
+                Advanced folder overrides have been previously specified. Would you like to clear the advanced settings so default subfolders under the selected AGATE folder are used?
+              </p>
+              <div className="flex gap-2 justify-end pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={handleKeepAdvanced}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold uppercase rounded border border-slate-300 transition cursor-pointer"
+                >
+                  Keep Advanced
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearAdvanced}
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase rounded shadow transition cursor-pointer"
+                >
+                  Clear Advanced
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal for Missing Folders / Files Confirmation */}
+      <AnimatePresence>
+        {showMissingModal && missingCheckData && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white border border-slate-200 rounded-xl max-w-md w-full overflow-hidden text-slate-900 flex flex-col shadow-2xl p-5 space-y-4"
+            >
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                <h3 className="text-xs font-black uppercase text-amber-700 tracking-wider">
+                  Missing Folders / Files Detected
+                </h3>
+              </div>
+              <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                Did not find {formatMissingList(missingCheckData.missingItems)} in folders {missingCheckData.targetFolderDesc}.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2 justify-end pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setShowMissingModal(false)}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold uppercase rounded border border-slate-300 transition cursor-pointer"
+                >
+                  Cancel and edit folders
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMissingModal(false);
+                    onSaveLocations(undefined, { createMissing: false });
+                  }}
+                  className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold uppercase rounded border border-slate-400 transition cursor-pointer"
+                >
+                  Continue without creating
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMissingModal(false);
+                    onSaveLocations(undefined, { createMissing: true });
+                  }}
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase rounded shadow transition cursor-pointer"
+                >
+                  Create and continue
                 </button>
               </div>
             </motion.div>

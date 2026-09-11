@@ -82,6 +82,11 @@ import {
   availableFilesCache,
   triggerDriveBackup,
   checkPlaylistShowFilesOnDrive,
+  getOrCreateDrivePreferencesFolder,
+  getOrCreateDriveLogsFolder,
+  getOrCreateDrivePlaylistsFolder,
+  getOrCreateDriveEvergreensFolder,
+  getOrCreateDriveAnnouncementsFolder,
 } from "./lib/driveService";
 import { useStartupGate } from "./hooks/useStartupGate";
 import { useAppClock } from "./hooks/useAppClock";
@@ -923,6 +928,7 @@ export default function App() {
     mp3s: string,
     logs: string,
     calendar: string,
+    createMissing: boolean = false,
   ): Promise<boolean> => {
     try {
       const gate = await verifyStartup({
@@ -930,6 +936,10 @@ export default function App() {
         localPathMP3s: mp3s,
         localPathLogs: logs,
         localPathCalendar: calendar,
+        localPathMediaAnnouncements: draftLocalPathMediaAnnouncements,
+        localPathMediaEvergreens: draftLocalPathMediaEvergreens,
+        localPathMediaShows: draftLocalPathMediaShows,
+        createMissing,
         mode: "Local",
       });
       return !!gate.ready;
@@ -2137,7 +2147,7 @@ export default function App() {
       | "evergreens"
       | "shows"
       | "logs",
-  ) => {
+  ): Promise<string | null> => {
     try {
       let defaultPath: string | undefined;
       if (targetField === "agate") defaultPath = draftLocalPathAgate || localPathAgate;
@@ -2166,12 +2176,12 @@ export default function App() {
           } else if (targetField === "evergreens") setDraftLocalPathMediaEvergreens(data.path);
           else if (targetField === "shows") setDraftLocalPathMediaShows(data.path);
           else if (targetField === "logs") setDraftLocalPathLogs(data.path);
-          return;
+          return data.path;
         } else if (data && data.cancelled) {
-          return;
+          return null;
         } else if (data && data.error) {
           alert(data.error);
-          return;
+          return null;
         }
       }
 
@@ -2191,11 +2201,15 @@ export default function App() {
         } else if (targetField === "evergreens") setDraftLocalPathMediaEvergreens(data.path);
         else if (targetField === "shows") setDraftLocalPathMediaShows(data.path);
         else if (targetField === "logs") setDraftLocalPathLogs(data.path);
+        return data.path;
       } else if (data.error) {
         alert(data.error);
+        return null;
       }
+      return null;
     } catch (err: any) {
       alert(err.message || "Failed to open folder selection window.");
+      return null;
     }
   };
 
@@ -2425,8 +2439,8 @@ export default function App() {
     }
   };
 
-  const handleSaveLocations = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveLocations = async (e?: React.FormEvent, options?: { createMissing?: boolean }) => {
+    if (e && e.preventDefault) e.preventDefault();
     setLocationsError(null);
     setLocationsSuccess(null);
     setIsSavingAndVerifying(true);
@@ -2514,7 +2528,7 @@ export default function App() {
       const settingsRes = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedSettings),
+        body: JSON.stringify({ ...updatedSettings, createMissing: options?.createMissing === true }),
       }).catch(() => null);
       if (settingsRes && !settingsRes.ok) {
         const errData = await settingsRes.json().catch(() => ({}));
@@ -2523,11 +2537,13 @@ export default function App() {
 
       // For Local mode, run the verify API on back-end
       if (locationMode === "Local") {
+        const createMissing = options?.createMissing === true;
         const exists = await checkLocalPathsSafely(
           draftLocalPathAgate,
           draftLocalPathMediaAnnouncements || draftLocalPathMP3s,
           draftLocalPathLogs,
           draftLocalPathCalendar,
+          createMissing,
         );
 
         setLocalPathsUnavailable(!exists);
@@ -2558,6 +2574,17 @@ export default function App() {
 
         if (success) {
           const currentToken = getAccessToken() || token;
+          if (options?.createMissing === true) {
+            try {
+              await getOrCreateDrivePreferencesFolder();
+              await getOrCreateDriveLogsFolder();
+              await getOrCreateDrivePlaylistsFolder();
+              await getOrCreateDriveEvergreensFolder();
+              await getOrCreateDriveAnnouncementsFolder();
+            } catch (createErr) {
+              console.warn("Drive folder auto-creation warning:", createErr);
+            }
+          }
           const validationResult = await verifyGoogleDriveDetails(updatedSettings, currentToken);
           if (validationResult.valid) {
             setIsDriveValidated(true);

@@ -756,6 +756,9 @@ export const getOrCreateDriveSettingsFolder = async (): Promise<string> => {
   return settingsId;
 };
 
+// Backwards compatibility alias
+export const getOrCreateDrivePreferencesFolder = getOrCreateDriveSettingsFolder;
+
 /**
  * Resolves or creates the 'logs' folder strictly inside the AGATE station root on Google Drive
  * (or uses the legacy/override logs folder if configured).
@@ -2038,6 +2041,80 @@ export const loadShowPlaylistLogFromDrive = async (
   } catch (err) {
     console.error('Error loading show playlist log from Drive:', err);
     return null;
+  }
+};
+
+export const checkMissingDriveItems = async (
+  settingsOverride?: Partial<LocationSettings>
+): Promise<{ hasMissing: boolean; missingItems: string[]; targetFolderDesc: string }> => {
+  const currentToken = getAccessToken();
+  if (!currentToken) {
+    return { hasMissing: false, missingItems: [], targetFolderDesc: '' };
+  }
+
+  const s = { ...getSavedSettings(), ...(settingsOverride || {}) };
+  const rootFolderId = s.driveFolderAgate;
+  if (!rootFolderId) {
+    return { hasMissing: false, missingItems: [], targetFolderDesc: '' };
+  }
+
+  const missingItems: string[] = [];
+
+  try {
+    const rootRes = await driveFetch(`drive/v3/files/${rootFolderId}?fields=id,name`);
+    if (!rootRes.ok) {
+      return { hasMissing: true, missingItems: ['AGATE folder'], targetFolderDesc: rootFolderId };
+    }
+    const rootData = await rootRes.json();
+    const targetFolderDesc = rootData.name || rootFolderId;
+
+    const settingsFolder = s.driveFolderPreferences || await findFileInFolderCaseInsensitive('settings', rootFolderId) || await findFileInFolderCaseInsensitive('preferences', rootFolderId);
+    if (!settingsFolder) {
+      missingItems.push('settings folder');
+    } else {
+      const interstitialsFile = await findFileInFolderCaseInsensitive('interstitials.json', settingsFolder);
+      if (!interstitialsFile) {
+        missingItems.push('interstitials.json');
+      }
+      const showsFile = await findFileInFolderCaseInsensitive('shows.json', settingsFolder);
+      if (!showsFile) {
+        missingItems.push('shows.json');
+      }
+    }
+
+    const logsFolder = s.driveFolderLogs || await findFileInFolderCaseInsensitive('logs', rootFolderId);
+    if (!logsFolder) {
+      missingItems.push('logs folder');
+    } else {
+      const logsFile = await findFileInFolderCaseInsensitive('logs.json', logsFolder);
+      if (!logsFile) {
+        missingItems.push('logs.json');
+      }
+    }
+
+    const announcementsFolder = s.driveFolderAnnouncements || s.driveFolderMP3s || await findFileInFolderCaseInsensitive('media_announcements', rootFolderId);
+    if (!announcementsFolder) {
+      missingItems.push('media_announcements folder');
+    }
+
+    const evergreensFolder = s.driveFolderEvergreens || await findFileInFolderCaseInsensitive('media_evergreens', rootFolderId);
+    if (!evergreensFolder) {
+      missingItems.push('media_evergreens folder');
+    }
+
+    const showsFolder = s.driveFolderShows || await findFileInFolderCaseInsensitive('media_shows', rootFolderId);
+    if (!showsFolder) {
+      missingItems.push('media_shows folder');
+    }
+
+    return {
+      hasMissing: missingItems.length > 0,
+      missingItems,
+      targetFolderDesc
+    };
+  } catch (err) {
+    console.warn('Error checking missing Drive items:', err);
+    return { hasMissing: false, missingItems: [], targetFolderDesc: rootFolderId };
   }
 };
 

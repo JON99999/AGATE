@@ -52,6 +52,9 @@ interface ServerSettings {
   driveFolderAgate?: string;
   paths?: LocationPathsOverride;
   localPathMP3s: string;
+  localPathMediaAnnouncements?: string;
+  localPathMediaEvergreens?: string;
+  localPathMediaShows?: string;
   localPathLogs: string;
   localPathCalendar: string;
   driveFolderLogs: string;
@@ -105,15 +108,15 @@ function getAgateLogsDir(settings: ServerSettings = currentSettings): string | n
   if (settings.paths?.logs && fs.existsSync(settings.paths.logs)) {
     return settings.paths.logs;
   }
+  if (settings.localPathLogs && fs.existsSync(settings.localPathLogs)) {
+    return settings.localPathLogs;
+  }
   if (settings.localPathAgate && fs.existsSync(settings.localPathAgate)) {
     const p1 = path.join(settings.localPathAgate, 'logs');
     if (fs.existsSync(p1)) return p1;
     const p2 = path.join(settings.localPathAgate, 'Logs');
     if (fs.existsSync(p2)) return p2;
     return p1;
-  }
-  if (settings.localPathLogs && fs.existsSync(settings.localPathLogs)) {
-    return settings.localPathLogs;
   }
   return null;
 }
@@ -143,6 +146,9 @@ function getAgateSettingsDir(settings: ServerSettings = currentSettings): string
   if (settings.paths?.settings && fs.existsSync(settings.paths.settings)) {
     return settings.paths.settings;
   }
+  if (settings.localPathCalendar && fs.existsSync(settings.localPathCalendar)) {
+    return settings.localPathCalendar;
+  }
   if (settings.localPathAgate && fs.existsSync(settings.localPathAgate)) {
     const p1 = path.join(settings.localPathAgate, 'settings');
     if (fs.existsSync(p1)) return p1;
@@ -150,15 +156,16 @@ function getAgateSettingsDir(settings: ServerSettings = currentSettings): string
     if (fs.existsSync(p2)) return p2;
     return p1;
   }
-  if (settings.localPathCalendar && fs.existsSync(settings.localPathCalendar)) {
-    return settings.localPathCalendar;
-  }
   return null;
 }
 
 function getAgateMediaAnnouncementsDir(settings: ServerSettings = currentSettings): string | null {
   if (settings.paths?.media_announcements && fs.existsSync(settings.paths.media_announcements)) {
     return settings.paths.media_announcements;
+  }
+  const announceOverride = settings.localPathMediaAnnouncements || settings.localPathMP3s;
+  if (announceOverride && fs.existsSync(announceOverride)) {
+    return announceOverride;
   }
   if (settings.localPathAgate && fs.existsSync(settings.localPathAgate)) {
     const p1 = path.join(settings.localPathAgate, 'media_announcements');
@@ -174,6 +181,9 @@ function getAgateMediaEvergreensDir(settings: ServerSettings = currentSettings):
   if (settings.paths?.media_evergreens && fs.existsSync(settings.paths.media_evergreens)) {
     return settings.paths.media_evergreens;
   }
+  if (settings.localPathMediaEvergreens && fs.existsSync(settings.localPathMediaEvergreens)) {
+    return settings.localPathMediaEvergreens;
+  }
   if (settings.localPathAgate && fs.existsSync(settings.localPathAgate)) {
     const p1 = path.join(settings.localPathAgate, 'media_evergreens');
     if (fs.existsSync(p1)) return p1;
@@ -187,6 +197,9 @@ function getAgateMediaEvergreensDir(settings: ServerSettings = currentSettings):
 function getAgateMediaShowsDir(settings: ServerSettings = currentSettings): string | null {
   if (settings.paths?.media_shows && fs.existsSync(settings.paths.media_shows)) {
     return settings.paths.media_shows;
+  }
+  if (settings.localPathMediaShows && fs.existsSync(settings.localPathMediaShows)) {
+    return settings.localPathMediaShows;
   }
   if (settings.localPathAgate && fs.existsSync(settings.localPathAgate)) {
     const p1 = path.join(settings.localPathAgate, 'media_shows');
@@ -684,32 +697,36 @@ async function startServer() {
           mediaShowsDir
         ];
 
-        // Auto-create missing subdirectories
-        dirsToEnsure.forEach(dir => {
-          if (!fs.existsSync(dir)) {
-            try {
-              fs.mkdirSync(dir, { recursive: true });
-            } catch (err) {
-              console.error(`Error ensuring directory ${dir}:`, err);
+        const createMissing = req.body?.createMissing === true || req.path === '/api/create-local-paths';
+
+        if (createMissing) {
+          // Auto-create missing subdirectories
+          dirsToEnsure.forEach(dir => {
+            if (!fs.existsSync(dir)) {
+              try {
+                fs.mkdirSync(dir, { recursive: true });
+              } catch (err) {
+                console.error(`Error ensuring directory ${dir}:`, err);
+              }
             }
+          });
+
+          // Atomic auto-seeding of missing database stores
+          const logsFile = settings.paths?.logsFile || path.join(logsDir, 'logs.json');
+          const interstitialsFile = settings.paths?.interstitialsFile || path.join(settingsDir, 'interstitials.json');
+          const showsFile = settings.paths?.showsFile || path.join(settingsDir, 'shows.json');
+
+          if (!fs.existsSync(logsFile)) {
+            atomicWriteFileSync(logsFile, JSON.stringify({ LogsBackupCounter: 0, data: [] }, null, 2));
           }
-        });
 
-        // Atomic auto-seeding of missing database stores
-        const logsFile = settings.paths?.logsFile || path.join(logsDir, 'logs.json');
-        const interstitialsFile = settings.paths?.interstitialsFile || path.join(settingsDir, 'interstitials.json');
-        const showsFile = settings.paths?.showsFile || path.join(settingsDir, 'shows.json');
+          if (!fs.existsSync(interstitialsFile)) {
+            atomicWriteFileSync(interstitialsFile, JSON.stringify({ InterstitialsBackupCounter: 0, data: [] }, null, 2));
+          }
 
-        if (!fs.existsSync(logsFile)) {
-          atomicWriteFileSync(logsFile, JSON.stringify({ LogsBackupCounter: 0, data: [] }, null, 2));
-        }
-
-        if (!fs.existsSync(interstitialsFile)) {
-          atomicWriteFileSync(interstitialsFile, JSON.stringify({ InterstitialsBackupCounter: 0, data: [] }, null, 2));
-        }
-
-        if (!fs.existsSync(showsFile)) {
-          atomicWriteFileSync(showsFile, JSON.stringify({ ShowsBackupCounter: 0, data: [] }, null, 2));
+          if (!fs.existsSync(showsFile)) {
+            atomicWriteFileSync(showsFile, JSON.stringify({ ShowsBackupCounter: 0, data: [] }, null, 2));
+          }
         }
 
         return res.json({
@@ -749,39 +766,61 @@ async function startServer() {
       if (mediaEvergreensDir && !fs.existsSync(mediaEvergreensDir)) missingFolders.media_evergreens = true;
       if (mediaShowsDir && !fs.existsSync(mediaShowsDir)) missingFolders.media_shows = true;
 
+      const createMissing = req.body?.createMissing === true || req.path === '/api/create-local-paths';
+
       if (Object.keys(missingFolders).length > 0) {
-        return res.json({
-          ready: false,
-          status: 'INACCESSIBLE',
-          message: 'Configured folders could not be accessed on the local filesystem.',
-          missingFolders
-        });
+        if (createMissing) {
+          if (settingsDir && !fs.existsSync(settingsDir)) {
+            try { fs.mkdirSync(settingsDir, { recursive: true }); } catch (e) {}
+          }
+          if (logsDir && !fs.existsSync(logsDir)) {
+            try { fs.mkdirSync(logsDir, { recursive: true }); } catch (e) {}
+          }
+          if (mediaAnnounceDir && !fs.existsSync(mediaAnnounceDir)) {
+            try { fs.mkdirSync(mediaAnnounceDir, { recursive: true }); } catch (e) {}
+          }
+          if (mediaEvergreensDir && !fs.existsSync(mediaEvergreensDir)) {
+            try { fs.mkdirSync(mediaEvergreensDir, { recursive: true }); } catch (e) {}
+          }
+          if (mediaShowsDir && !fs.existsSync(mediaShowsDir)) {
+            try { fs.mkdirSync(mediaShowsDir, { recursive: true }); } catch (e) {}
+          }
+        } else {
+          return res.json({
+            ready: false,
+            status: 'INACCESSIBLE',
+            message: 'Configured folders could not be accessed on the local filesystem.',
+            missingFolders
+          });
+        }
       }
 
-      // Ensure backup directories and data stores in configured locations
-      if (settingsDir && fs.existsSync(settingsDir)) {
-        const backupsDir = path.join(settingsDir, 'backups');
-        if (!fs.existsSync(backupsDir)) {
-          try { fs.mkdirSync(backupsDir, { recursive: true }); } catch (e) {}
+      // Ensure backup directories and data stores in configured locations if createMissing is true
+      if (createMissing) {
+        if (settingsDir && fs.existsSync(settingsDir)) {
+          const backupsDir = path.join(settingsDir, 'backups');
+          if (!fs.existsSync(backupsDir)) {
+            try { fs.mkdirSync(backupsDir, { recursive: true }); } catch (e) {}
+          }
+          const interstitialsFile = settings.paths?.interstitialsFile || path.join(settingsDir, 'interstitials.json');
+          if (!fs.existsSync(interstitialsFile)) {
+            atomicWriteFileSync(interstitialsFile, JSON.stringify({ InterstitialsBackupCounter: 0, data: [] }, null, 2));
+          }
+          const showsFile = settings.paths?.showsFile || path.join(settingsDir, 'shows.json');
+          if (!fs.existsSync(showsFile)) {
+            atomicWriteFileSync(showsFile, JSON.stringify({ ShowsBackupCounter: 0, data: [] }, null, 2));
+          }
         }
-        const interstitialsFile = settings.paths?.interstitialsFile || path.join(settingsDir, 'interstitials.json');
-        if (!fs.existsSync(interstitialsFile)) {
-          atomicWriteFileSync(interstitialsFile, JSON.stringify({ InterstitialsBackupCounter: 0, data: [] }, null, 2));
-        }
-        const showsFile = settings.paths?.showsFile || path.join(settingsDir, 'shows.json');
-        if (!fs.existsSync(showsFile)) {
-          atomicWriteFileSync(showsFile, JSON.stringify({ ShowsBackupCounter: 0, data: [] }, null, 2));
-        }
-      }
 
-      if (logsDir && fs.existsSync(logsDir)) {
-        const logHistoryDir = getAgateLogHistoryDir(settings) || path.join(logsDir, 'loghistory');
-        if (!fs.existsSync(logHistoryDir)) {
-          try { fs.mkdirSync(logHistoryDir, { recursive: true }); } catch (e) {}
-        }
-        const logsFile = settings.paths?.logsFile || path.join(logsDir, 'logs.json');
-        if (!fs.existsSync(logsFile)) {
-          atomicWriteFileSync(logsFile, JSON.stringify({ LogsBackupCounter: 0, data: [] }, null, 2));
+        if (logsDir && fs.existsSync(logsDir)) {
+          const logHistoryDir = getAgateLogHistoryDir(settings) || path.join(logsDir, 'loghistory');
+          if (!fs.existsSync(logHistoryDir)) {
+            try { fs.mkdirSync(logHistoryDir, { recursive: true }); } catch (e) {}
+          }
+          const logsFile = settings.paths?.logsFile || path.join(logsDir, 'logs.json');
+          if (!fs.existsSync(logsFile)) {
+            atomicWriteFileSync(logsFile, JSON.stringify({ LogsBackupCounter: 0, data: [] }, null, 2));
+          }
         }
       }
 
@@ -799,6 +838,71 @@ async function startServer() {
   app.post('/api/startup/verify', handleStartupVerify);
   app.post('/api/check-local-paths', handleStartupVerify);
   app.post('/api/create-local-paths', handleStartupVerify);
+
+  // Pre-flight check for missing folders/files before saving
+  app.post('/api/check-missing-items', (req, res) => {
+    try {
+      const settings = { ...currentSettings, ...(req.body || {}) };
+      const missingItems: string[] = [];
+
+      const agateRoot = settings.localPathAgate || '';
+      const targetFolderDesc = agateRoot || 'configured folder locations';
+
+      const logsDir = settings.localPathLogs || (agateRoot ? path.join(agateRoot, 'logs') : '');
+      const settingsDir = settings.localPathCalendar || (agateRoot ? path.join(agateRoot, 'settings') : '');
+      const mediaAnnounceDir = settings.localPathMediaAnnouncements || settings.localPathMP3s || (agateRoot ? path.join(agateRoot, 'media_announcements') : '');
+      const mediaEvergreensDir = settings.localPathMediaEvergreens || (agateRoot ? path.join(agateRoot, 'media_evergreens') : '');
+      const mediaShowsDir = settings.localPathMediaShows || (agateRoot ? path.join(agateRoot, 'media_shows') : '');
+
+      if (agateRoot && !fs.existsSync(agateRoot)) {
+        missingItems.push('AGATE folder');
+      }
+
+      if (settingsDir) {
+        if (!fs.existsSync(settingsDir)) {
+          missingItems.push('settings folder');
+        } else {
+          const interstitialsFile = settings.paths?.interstitialsFile || path.join(settingsDir, 'interstitials.json');
+          if (!fs.existsSync(interstitialsFile)) {
+            missingItems.push('interstitials.json');
+          }
+          const showsFile = settings.paths?.showsFile || path.join(settingsDir, 'shows.json');
+          if (!fs.existsSync(showsFile)) {
+            missingItems.push('shows.json');
+          }
+        }
+      }
+
+      if (logsDir) {
+        if (!fs.existsSync(logsDir)) {
+          missingItems.push('logs folder');
+        } else {
+          const logsFile = settings.paths?.logsFile || path.join(logsDir, 'logs.json');
+          if (!fs.existsSync(logsFile)) {
+            missingItems.push('logs.json');
+          }
+        }
+      }
+
+      if (mediaAnnounceDir && !fs.existsSync(mediaAnnounceDir)) {
+        missingItems.push('media_announcements folder');
+      }
+      if (mediaEvergreensDir && !fs.existsSync(mediaEvergreensDir)) {
+        missingItems.push('media_evergreens folder');
+      }
+      if (mediaShowsDir && !fs.existsSync(mediaShowsDir)) {
+        missingItems.push('media_shows folder');
+      }
+
+      return res.json({
+        hasMissing: missingItems.length > 0,
+        missingItems,
+        targetFolderDesc
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
 
   // API - Standard Native selection dialogue via Electron Process
   app.post('/api/browse-folder', (req, res) => {
