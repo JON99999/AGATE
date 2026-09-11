@@ -511,6 +511,27 @@ export function formatTime12(
 }
 
 /**
+ * Formats hour and minute into "hh-mm AM/PM" format for file and folder exports
+ * e.g. (9, 0) -> "09-00 AM", (14, 30) -> "02-30 PM", (0, 0) -> "12-00 AM", (12, 0) -> "12-00 PM"
+ */
+export function formatExportTimeAmPm(hoursInput: number | string, minutesInput: number | string = 0): string {
+  let h = typeof hoursInput === 'string' ? parseInt(hoursInput, 10) : Math.floor(hoursInput);
+  let m = typeof minutesInput === 'string' ? parseInt(minutesInput, 10) : Math.floor(minutesInput);
+  if (isNaN(h)) h = 0;
+  if (isNaN(m)) m = 0;
+  h = Math.max(0, Math.min(23, h));
+  m = Math.max(0, Math.min(59, m));
+
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  let h12 = h % 12;
+  if (h12 === 0) h12 = 12;
+
+  const hStr = h12.toString().padStart(2, '0');
+  const mStr = m.toString().padStart(2, '0');
+  return `${hStr}-${mStr} ${ampm}`;
+}
+
+/**
  * Formats an hour index (0-23) into 12-hour AM/PM format (e.g. 0 -> "12:00 AM", 9 -> "09:00 AM", 14 -> "02:00 PM").
  */
 export function formatHour12(hour: number, padHour = true): string {

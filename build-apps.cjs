@@ -113,18 +113,17 @@ async function syncRemoteIcons() {
   const baseRawUrl = 'https://raw.githubusercontent.com/JON99999/AGATE/assets';
 
   const modes = ['admin', 'live', 'studio'];
-  const macPngSizes = [
-    '512x512@2x.png',
-    '512x512.png',
-    '256x256@2x.png',
-    '256x256.png',
-    '128x128@2x.png',
-    '128x128.png',
-    '64x64.png',
-    '32x32@2x.png',
-    '32x32.png',
-    '16x16@2x.png',
-    '16x16.png'
+  const macIconFrames = [
+    { target: 'icon_512x512@2x.png', candidates: ['icon_512x512@2x.png', 'icon_1024x1024.png', 'icon_1024.png', '512x512@2x.png', '1024x1024.png'] },
+    { target: 'icon_512x512.png', candidates: ['icon_512x512.png', 'icon_512.png', '512x512.png'] },
+    { target: 'icon_256x256@2x.png', candidates: ['icon_256x256@2x.png', 'icon_512x512.png', 'icon_512.png', '256x256@2x.png', '512x512.png'] },
+    { target: 'icon_256x256.png', candidates: ['icon_256x256.png', 'icon_256.png', '256x256.png'] },
+    { target: 'icon_128x128@2x.png', candidates: ['icon_128x128@2x.png', 'icon_256x256.png', 'icon_256.png', '128x128@2x.png', '256x256.png'] },
+    { target: 'icon_128x128.png', candidates: ['icon_128x128.png', 'icon_128.png', '128x128.png'] },
+    { target: 'icon_32x32@2x.png', candidates: ['icon_32x32@2x.png', 'icon_64x64.png', 'icon_64.png', '32x32@2x.png', '64x64.png'] },
+    { target: 'icon_32x32.png', candidates: ['icon_32x32.png', 'icon_32.png', '32x32.png'] },
+    { target: 'icon_16x16@2x.png', candidates: ['icon_16x16@2x.png', 'icon_32x32.png', 'icon_32.png', '16x16@2x.png', '32x32.png'] },
+    { target: 'icon_16x16.png', candidates: ['icon_16x16.png', 'icon_16.png', '16x16.png'] }
   ];
 
   const filesToSync = [];
@@ -138,7 +137,7 @@ async function syncRemoteIcons() {
     filesToSync.push({
       remote: `${baseRawUrl}/src/assets/images/${mode}/icon.png`,
       local: path.join(modeDir, 'icon.png'),
-      name: `${mode}/icon.png (Primary launcher icon for Agate ${mode.toUpperCase()})`,
+      name: `${mode}/icon.png (Primary launcher icon for AMP ${mode.toUpperCase()})`,
       requiredSpec: 'High-resolution 1024x1024 pixel PNG file.'
     });
 
@@ -146,25 +145,29 @@ async function syncRemoteIcons() {
     filesToSync.push({
       remote: `${baseRawUrl}/src/assets/images/${mode}/macos/icon.icns`,
       local: path.join(macDir, 'icon.icns'),
-      name: `${mode}/macos/icon.icns (Compiled macOS icon bundle for Agate ${mode.toUpperCase()})`,
+      name: `${mode}/macos/icon.icns (Compiled macOS icon bundle for AMP ${mode.toUpperCase()})`,
       requiredSpec: 'Multi-resolution Apple ICNS file.'
     });
 
-    // 3. Mode macOS resolution PNGs
-    for (const sizeFile of macPngSizes) {
-      filesToSync.push({
-        remote: `${baseRawUrl}/src/assets/images/${mode}/macos/${encodeURIComponent(sizeFile)}`,
-        local: path.join(macDir, sizeFile),
-        name: `${mode}/macos/${sizeFile} (macOS iconset frame)`,
-        requiredSpec: `macOS resolution frame (${sizeFile}).`
-      });
+    // 3. Mode macOS resolution PNGs (preferential icon_ prefix)
+    for (const frame of macIconFrames) {
+      for (const cand of frame.candidates) {
+        // Skip malformed/broken patterns containing 'px.png'
+        if (cand.toLowerCase().includes('px.png')) continue;
+        filesToSync.push({
+          remote: `${baseRawUrl}/src/assets/images/${mode}/macos/${encodeURIComponent(cand)}`,
+          local: path.join(macDir, cand),
+          name: `${mode}/macos/${cand} (macOS icon frame)`,
+          requiredSpec: `macOS resolution frame (${cand}).`
+        });
+      }
     }
 
     // 4. Mode Windows icon.ico bundle
     filesToSync.push({
       remote: `${baseRawUrl}/src/assets/images/${mode}/windows/icon.ico`,
       local: path.join(winDir, 'icon.ico'),
-      name: `${mode}/windows/icon.ico (Windows multi-resolution ICO for Agate ${mode.toUpperCase()})`,
+      name: `${mode}/windows/icon.ico (Windows multi-resolution ICO for AMP ${mode.toUpperCase()})`,
       requiredSpec: 'Multi-resolution Windows ICO file.'
     });
   }
@@ -236,7 +239,7 @@ async function syncRemoteIcons() {
       }
 
       // 1. Folder name inside zip contains build type but NO version
-      const folderName = `Agate ${mode} Windows Portable`;
+      const folderName = `AMP ${mode} Windows Portable`;
       const stagingDir = path.join(releaseDir, folderName);
       if (fs.existsSync(stagingDir)) {
         fs.rmSync(stagingDir, { recursive: true, force: true });
@@ -250,7 +253,7 @@ async function syncRemoteIcons() {
 
       // 3. Create README.txt in the staging folder
       const readmeContent = `================================================================================
-  Agate ${mode.toUpperCase()} — WINDOWS PORTABLE EDITION
+  AMP ${mode.toUpperCase()} — WINDOWS PORTABLE EDITION
 ================================================================================
 
 IMPORTANT INSTRUCTION:
@@ -264,7 +267,7 @@ DO NOT run the executable from inside the compressed (.zip) archive preview.
 CONFIGURATION & PERSISTENCE:
 --------------------------------------------------------------------------------
 - When run from the extracted folder, all configuration and local folder paths
-  are saved in 'agate_settings.json' directly in this same folder.
+  are saved in 'amp_settings.json' directly in this same folder.
 - You can move this extracted folder between drives or broadcast machines, and
   your settings will remain intact.
 ================================================================================
@@ -272,7 +275,7 @@ CONFIGURATION & PERSISTENCE:
       fs.writeFileSync(path.join(stagingDir, 'README.txt'), readmeContent, 'utf8');
 
       // 4. Create zip archive
-      const zipName = `Agate ${mode}-${version}-Windows-Portable.zip`;
+      const zipName = `AMP ${mode}-${version}-Windows-Portable.zip`;
       const zipPath = path.join(releaseDir, zipName);
       if (fs.existsSync(zipPath)) {
         fs.unlinkSync(zipPath);
@@ -336,10 +339,10 @@ CONFIGURATION & PERSISTENCE:
       const pkg = JSON.parse(fs.readFileSync(pkgBakPath, 'utf8'));
 
       // Inject App names & IDs
-      pkg.productName = `Agate ${mode}`;
+      pkg.productName = `AMP ${mode}`;
       if (!pkg.build) pkg.build = {};
-      pkg.build.productName = `Agate ${mode}`;
-      pkg.build.appId = `com.agate.scheduler.${mode.toLowerCase()}`;
+      pkg.build.productName = `AMP ${mode}`;
+      pkg.build.appId = `com.amp.scheduler.${mode.toLowerCase()}`;
 
       // Ensure build directory exists and has our physical composite icon copied as build/icon.png
       const buildIconDir = path.join(__dirname, 'build');
@@ -408,40 +411,49 @@ CONFIGURATION & PERSISTENCE:
       if (!fs.existsSync(buildIconsSubdir)) fs.mkdirSync(buildIconsSubdir, { recursive: true });
       if (!fs.existsSync(buildIconsetSubdir)) fs.mkdirSync(buildIconsetSubdir, { recursive: true });
 
-      const iconsetFileMap = [
-        { src: '16x16.png', dest: 'icon_16x16.png' },
-        { src: '16x16@2x.png', dest: 'icon_16x16@2x.png' },
-        { src: '32x32.png', dest: 'icon_32x32.png' },
-        { src: '32x32@2x.png', dest: 'icon_32x32@2x.png' },
-        { src: '128x128.png', dest: 'icon_128x128.png' },
-        { src: '128x128@2x.png', dest: 'icon_128x128@2x.png' },
-        { src: '256x256.png', dest: 'icon_256x256.png' },
-        { src: '256x256@2x.png', dest: 'icon_256x256@2x.png' },
-        { src: '512x512.png', dest: 'icon_512x512.png' },
-        { src: '512x512@2x.png', dest: 'icon_512x512@2x.png' }
+      // Map and populate multi-resolution macOS icons in build/icons and build/icon.iconset
+      const macIconFramesMapping = [
+        { dest: 'icon_512x512@2x.png', candidates: ['icon_512x512@2x.png', 'icon_1024x1024.png', 'icon_1024.png', '512x512@2x.png', '1024x1024.png'] },
+        { dest: 'icon_512x512.png', candidates: ['icon_512x512.png', 'icon_512.png', '512x512.png'] },
+        { dest: 'icon_256x256@2x.png', candidates: ['icon_256x256@2x.png', 'icon_512x512.png', 'icon_512.png', '256x256@2x.png', '512x512.png'] },
+        { dest: 'icon_256x256.png', candidates: ['icon_256x256.png', 'icon_256.png', '256x256.png'] },
+        { dest: 'icon_128x128@2x.png', candidates: ['icon_128x128@2x.png', 'icon_256x256.png', 'icon_256.png', '128x128@2x.png', '256x256.png'] },
+        { dest: 'icon_128x128.png', candidates: ['icon_128x128.png', 'icon_128.png', '128x128.png'] },
+        { dest: 'icon_32x32@2x.png', candidates: ['icon_32x32@2x.png', 'icon_64x64.png', 'icon_64.png', '32x32@2x.png', '64x64.png'] },
+        { dest: 'icon_32x32.png', candidates: ['icon_32x32.png', 'icon_32.png', '32x32.png'] },
+        { dest: 'icon_16x16@2x.png', candidates: ['icon_16x16@2x.png', 'icon_32x32.png', 'icon_32.png', '16x16@2x.png', '32x32.png'] },
+        { dest: 'icon_16x16.png', candidates: ['icon_16x16.png', 'icon_16.png', '16x16.png'] }
       ];
 
       if (fs.existsSync(macIconDir)) {
         try {
-          const macPngs = fs.readdirSync(macIconDir).filter((f) => f.endsWith('.png'));
+          const macPngs = fs.readdirSync(macIconDir).filter((f) => f.endsWith('.png') && !f.toLowerCase().includes('px.png'));
           for (const pngFile of macPngs) {
             const srcPath = path.join(macIconDir, pngFile);
             fs.copyFileSync(srcPath, path.join(buildIconsSubdir, pngFile));
           }
-          for (const item of iconsetFileMap) {
-            const srcPath = path.join(macIconDir, item.src);
-            if (fs.existsSync(srcPath)) {
-              fs.copyFileSync(srcPath, path.join(buildIconsetSubdir, item.dest));
-            }
-          }
 
-          // If 1024x1024.png is not provided in macos directory, fall back to icon.png from mode folder
-          const direct1024 = path.join(macIconDir, '1024x1024.png');
-          const fallback1024 = fs.existsSync(direct1024) ? direct1024 : modeIconPath;
-          if (fs.existsSync(fallback1024)) {
-            fs.copyFileSync(fallback1024, path.join(buildIconsSubdir, '1024x1024.png'));
-            fs.copyFileSync(fallback1024, path.join(buildIconsetSubdir, 'icon_512x512@2x.png'));
-            console.log(`Using ${path.basename(fallback1024)} for 1024x1024 frame in build/icon.iconset.`);
+          for (const frame of macIconFramesMapping) {
+            let foundSource = null;
+            for (const cand of frame.candidates) {
+              const candPath = path.join(macIconDir, cand);
+              if (fs.existsSync(candPath) && fs.statSync(candPath).size > 100) {
+                foundSource = candPath;
+                break;
+              }
+            }
+
+            // Fallback for 1024x1024 frame to master icon.png
+            if (!foundSource && frame.dest === 'icon_512x512@2x.png') {
+              if (fs.existsSync(modeIconPath) && fs.statSync(modeIconPath).size > 100) {
+                foundSource = modeIconPath;
+              }
+            }
+
+            if (foundSource) {
+              fs.copyFileSync(foundSource, path.join(buildIconsetSubdir, frame.dest));
+              fs.copyFileSync(foundSource, path.join(buildIconsSubdir, frame.dest));
+            }
           }
 
           console.log(`Successfully populated macOS icons in build/icons/ and build/icon.iconset/ for ${mode}`);
@@ -476,9 +488,9 @@ CONFIGURATION & PERSISTENCE:
       if (!pkg.build.mac) pkg.build.mac = {};
       pkg.build.mac.icon = "build/icon.icns";
       pkg.build.mac.extendInfo = {
-        NSDocumentsFolderUsageDescription: "Agate requires access to local folders to schedule, read, and log announcement audio.",
-        NSDownloadsFolderUsageDescription: "Agate requires access to your folders for audio and log storage.",
-        NSDesktopFolderUsageDescription: "Agate requires access to your selected folders.",
+        NSDocumentsFolderUsageDescription: "AMP requires access to local folders to schedule, read, and log announcement audio.",
+        NSDownloadsFolderUsageDescription: "AMP requires access to your folders for audio and log storage.",
+        NSDesktopFolderUsageDescription: "AMP requires access to your selected folders.",
         NSFileSharingEnabled: true
       };
 

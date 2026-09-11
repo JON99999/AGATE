@@ -476,9 +476,9 @@ CONFIGURATION & PERSISTENCE:
       if (!pkg.build.mac) pkg.build.mac = {};
       pkg.build.mac.icon = "build/icon.icns";
       pkg.build.mac.extendInfo = {
-        NSDocumentsFolderUsageDescription: "Agate requires access to local folders to schedule, read, and log announcement audio.",
-        NSDownloadsFolderUsageDescription: "Agate requires access to your folders for audio and log storage.",
-        NSDesktopFolderUsageDescription: "Agate requires access to your selected folders.",
+        NSDocumentsFolderUsageDescription: "AMP requires access to local folders to schedule, read, and log announcement audio.",
+        NSDownloadsFolderUsageDescription: "AMP requires access to your folders for audio and log storage.",
+        NSDesktopFolderUsageDescription: "AMP requires access to your selected folders.",
         NSFileSharingEnabled: true
       };
 

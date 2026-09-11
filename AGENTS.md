@@ -81,7 +81,8 @@ This application is primarily a **Desktop Application** built with Electron and 
 
 ## Archive & Backup Guidelines
 
-- **Folder-Based Archiving (Strategy 2)**: When asked to create a codebase backup or version archive, store all archived files directly inside an uncompressed snapshot directory (e.g., `archive_v0.12.5/`) rather than packing them into `.tar.gz` or `.zip` binary archives.
+- **Explicit Authorization Required Only**: The agent MUST NEVER create, fix, modify, or synchronize any archive or backup directory (e.g., `archive_v0.15.2/`) unless the user explicitly directs you to do so in their prompt.
+- **Folder-Based Archiving (Strategy 2)**: When explicitly asked to create a codebase backup or version archive, store all archived files directly inside an uncompressed snapshot directory (e.g., `archive_v0.12.5/`) rather than packing them into `.tar.gz` or `.zip` binary archives.
 - **Binary Corruption Prevention**: Never attempt to inspect, view, or modify binary files or compressed archives using text-based inspection tools (`view_file`, `edit_file`), as UTF-8 string encoding transforms raw binary byte sequences (such as gzip magic headers `0x1f 0x8b`) into replacement characters (`0xef 0xbf 0xbd`), resulting in corrupt archive headers.
 
 ## Performance & Optimization Guidelines

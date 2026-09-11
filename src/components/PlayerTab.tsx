@@ -3,7 +3,7 @@ import { format, addMinutes, subMinutes, subDays, isSameMinute, isBefore, isAfte
 import { Play, Pause, Square, CheckCircle, AlertCircle, RefreshCw, Clock, X, Copy, RadioTower, CassetteTape, ListOrdered, Download, Ear, FileText, Volume2, ListMusic, ChevronUp, ChevronDown, RotateCcw, Music, Flag, ListPlus } from 'lucide-react';
 import { Announcement, AnnouncementType, LogEntry, Show } from '../types';
 import { useAudioEngine } from '../hooks/useAudioEngine';
-import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getActualShowStart, getSortedShows, getShowShade, readMp3ID3Metadata, Mp3ID3Metadata, formatDuration, formatTotalTrackTime, getActiveMp3ForSlot, getGatedAssetType } from '../lib/utils';
+import { cn, getMP3Status, parseCustomTimeText, getParsedCustomTimeISO, isTimeInShow, getActualShowStart, getSortedShows, getShowShade, readMp3ID3Metadata, Mp3ID3Metadata, formatDuration, formatTotalTrackTime, getActiveMp3ForSlot, getGatedAssetType, formatExportTimeAmPm } from '../lib/utils';
 import LiveReadPopout from './LiveReadPopout';
 import { WaveformVisualizer } from './WaveformVisualizer';
 import { mp3BlobCache, getPlayableUrl, mp3DurationCache, availableFilesCache, updateAudioCache, getAccessToken, driveFileNameCache, loadPlaylistTracksFromDrive, saveShowPlaylistLogToDrive, loadShowPlaylistLogFromDrive, formatShowPlaylistLogFileName, getSavedSettings } from '../lib/driveService';
@@ -2432,6 +2432,8 @@ export default function PlayerTab({
       album?: string;
     }> = [];
 
+    const showPrefix = (playlistShow?.nameShort || playlistShow?.name || 'Show').trim();
+
     playlistTimeline.forEach((item) => {
       if (item.type === 'break') {
         item.announcements.forEach((s) => {
@@ -2439,14 +2441,14 @@ export default function PlayerTab({
           const itemAssetType = getGatedAssetType(activeMp3);
           const itemIdx = items.length + 1;
           const slotTimeStr = format(item.slotTime, 'HH:mm');
-          const safeSlotTime = slotTimeStr.replace(/:/g, '-');
+          const safeSlotTime = formatExportTimeAmPm(item.slotTime.getHours(), item.slotTime.getMinutes());
           const rawName = s.name || 'Unnamed Break';
           const safeAnnouncementName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
           const sourceFileName = activeMp3?.mp3Url || '';
           const dotIndex = sourceFileName.lastIndexOf('.');
           const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex) : (itemAssetType === 'script' ? '.txt' : '.mp3');
           const paddedIdx = String(itemIdx).padStart(2, '0');
-          const targetFileName = `${paddedIdx} Break at ${safeSlotTime} - ${safeAnnouncementName}${ext}`;
+          const targetFileName = `${showPrefix} ${paddedIdx} Break at ${safeSlotTime} - ${safeAnnouncementName}${ext}`;
           const exists = sourceFileName ? getMP3Status(sourceFileName).exists : false;
 
           const backupUrl = activeMp3?.backupMp3Url;
@@ -2471,14 +2473,14 @@ export default function PlayerTab({
       } else if (item.type === 'track') {
         const itemIdx = items.length + 1;
         const slotTimeStr = format(item.startTime, 'HH:mm');
-        const safeSlotTime = slotTimeStr.replace(/:/g, '-');
+        const safeSlotTime = formatExportTimeAmPm(item.startTime.getHours(), item.startTime.getMinutes());
         const rawName = item.track.title || item.track.fileName || 'Evergreen Track';
         const safeTrackName = rawName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
         const sourceFileName = item.track.fileName || '';
         const dotIndex = sourceFileName.lastIndexOf('.');
         const ext = dotIndex !== -1 ? sourceFileName.substring(dotIndex) : '.mp3';
         const paddedIdx = String(itemIdx).padStart(2, '0');
-        const targetFileName = `${paddedIdx} Track at ${safeSlotTime} - ${safeTrackName}${ext}`;
+        const targetFileName = `${showPrefix} ${paddedIdx} Track at ${safeSlotTime} - ${safeTrackName}${ext}`;
         const exists = getMP3Status(sourceFileName).exists;
 
         const meta = trackMetadataMap[item.track.streamUrl] || 

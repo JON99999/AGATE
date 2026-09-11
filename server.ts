@@ -398,7 +398,7 @@ let registeredOAuthToken: string | null = null;
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = 3000;
 
   app.use(express.json());
 
@@ -3064,6 +3064,23 @@ async function startServer() {
     return false;
   }
 
+  function formatExportTimeAmPm(hoursInput: number | string, minutesInput: number | string = 0): string {
+    let h = typeof hoursInput === 'string' ? parseInt(hoursInput, 10) : Math.floor(hoursInput);
+    let m = typeof minutesInput === 'string' ? parseInt(minutesInput, 10) : Math.floor(minutesInput);
+    if (isNaN(h)) h = 0;
+    if (isNaN(m)) m = 0;
+    h = Math.max(0, Math.min(23, h));
+    m = Math.max(0, Math.min(59, m));
+
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    let h12 = h % 12;
+    if (h12 === 0) h12 = 12;
+
+    const hStr = h12.toString().padStart(2, '0');
+    const mStr = m.toString().padStart(2, '0');
+    return `${hStr}-${mStr} ${ampm}`;
+  }
+
   function computeExportFolderInfo(
     destParentFolder: string,
     prerecordDate: string | Date,
@@ -3081,7 +3098,7 @@ async function startServer() {
     const monthShort = monthShorts[parsedDate.getMonth()] || 'JUN';
 
     const dateStr = `${year}-${month}(${monthShort})-${day}`;
-    const timeStr = `${hours}-${minutes}`;
+    const timeStr = formatExportTimeAmPm(parsedDate.getHours(), parsedDate.getMinutes());
 
     const fPrefix = (folderPrefix && folderPrefix.trim()) || 'Show';
     const lengthMinutesNum = Number(lengthMinutes) || 0;
@@ -3281,7 +3298,15 @@ async function startServer() {
         const item = items[idx];
         const itemIdx = idx + 1;
         const itemSlotTime = item.slotTime; // e.g. "12:00"
-        const safeSlotTime = typeof itemSlotTime === 'string' ? itemSlotTime.replace(/:/g, '-') : '00-00';
+        let safeSlotTime = '00-00 AM';
+        if (typeof itemSlotTime === 'string') {
+          const parts = itemSlotTime.split(':');
+          if (parts.length >= 2) {
+            safeSlotTime = formatExportTimeAmPm(parts[0], parts[1]);
+          } else {
+            safeSlotTime = itemSlotTime.replace(/:/g, '-');
+          }
+        }
         
         const isScript = item.assetType === 'script';
         const rawName = item.announcementName || (item.isEvergreen ? 'Unnamed Evergreen Track' : (isScript ? 'Unnamed Live Read' : 'Unnamed Break'));
@@ -3292,7 +3317,8 @@ async function startServer() {
         
         const paddedIdx = String(itemIdx).padStart(2, '0');
         const typePrefix = item.isEvergreen ? 'Track' : 'Break';
-        const targetFileName = item.targetFileName || `${paddedIdx} ${typePrefix} at ${safeSlotTime} - ${safeName}${ext}`;
+        const fallbackShowPrefix = (item.showNameShort || item.showName || folderPrefix || textPrefix || playlistPrefix || 'Show').trim();
+        const targetFileName = item.targetFileName || `${fallbackShowPrefix} ${paddedIdx} ${typePrefix} at ${safeSlotTime} - ${safeName}${ext}`;
         
         let sourceFilePath: string | null = null;
         if (item.isEvergreen) {

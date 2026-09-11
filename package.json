@@ -1,7 +1,7 @@
 {
   "name": "amp",
   "private": true,
-  "version": "0.15.2",
+  "version": "0.15.3",
   "description": "AMP - Announcement Media Player - An app designed for Radio Stations to schedule, play, read, and log announcements and drops.",
   "author": "AMP",
   "repository": {

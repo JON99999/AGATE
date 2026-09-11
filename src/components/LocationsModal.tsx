@@ -438,7 +438,17 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                       </div>
 
                       {/* Optional Advanced Overrides Details */}
-                      <details className="text-xs border border-slate-200 rounded p-2 bg-slate-50/50">
+                      <details
+                        open={Boolean(
+                          draftLocalPathCalendar ||
+                          draftLocalPathMediaAnnouncements ||
+                          draftLocalPathMP3s ||
+                          draftLocalPathMediaEvergreens ||
+                          draftLocalPathMediaShows ||
+                          draftLocalPathLogs
+                        )}
+                        className="text-xs border border-slate-200 rounded p-2 bg-slate-50/50"
+                      >
                         <summary className="cursor-pointer font-bold text-slate-700 select-none">
                           Advanced - Folder Overrides
                         </summary>
@@ -691,7 +701,17 @@ export const LocationsModal: React.FC<LocationsModalProps> = ({
                       </div>
 
                       {/* Advanced - Folder Overrides */}
-                      <details className="text-xs border border-slate-200 rounded p-2 bg-slate-50/50">
+                      <details
+                        open={Boolean(
+                          draftDriveFolderPreferences ||
+                          draftDriveFolderAnnouncements ||
+                          draftDriveFolderMP3s ||
+                          draftDriveFolderEvergreens ||
+                          draftDriveFolderShows ||
+                          draftDriveFolderLogs
+                        )}
+                        className="text-xs border border-slate-200 rounded p-2 bg-slate-50/50"
+                      >
                         <summary className="cursor-pointer font-bold text-slate-700 select-none">
                           Advanced - Folder Overrides
                         </summary>

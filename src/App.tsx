@@ -51,7 +51,7 @@ import { PrerecordModal } from "./components/PrerecordModal";
 import { LocationsModal } from "./components/LocationsModal";
 import { ExportModal } from "./components/ExportModal";
 import { getInitialTheme, applyTheme, ThemeId } from "./lib/theme";
-import { cn, extractFolderId, getSortedShows, getShowShade, isTimeInShow, getActualShowStart, normalizeAnnouncements, getAllRequiredMp3Urls, getActiveMp3ForSlot } from "./lib/utils";
+import { cn, extractFolderId, getSortedShows, getShowShade, isTimeInShow, getActualShowStart, normalizeAnnouncements, getAllRequiredMp3Urls, getActiveMp3ForSlot, formatExportTimeAmPm } from "./lib/utils";
 import {
   initAuth,
   googleSignIn,
@@ -1872,29 +1872,30 @@ export default function App() {
         folderName: "Show - Export - [Date] at [Time] - [Duration]",
         textFilename: "Show - Plan - [Date] at [Time] - [Duration].txt",
         playlistFilename: "Show - Playlist - [Date] at [Time] - [Duration].m3u",
-        firstTrackFilename: "Break 01 at 12-00 - Hourly Announcement.mp3"
+        firstTrackFilename: "Show 01 Break at 12-00 AM - Hourly Announcement.mp3"
       };
     }
     const parsedDate = new Date(prerecordDate);
     const year = parsedDate.getFullYear();
     const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
     const day = String(parsedDate.getDate()).padStart(2, '0');
-    const hours = String(parsedDate.getHours()).padStart(2, '0');
-    const minutes = String(parsedDate.getMinutes()).padStart(2, '0');
+    const hours = parsedDate.getHours();
+    const minutes = parsedDate.getMinutes();
 
     const monthShorts = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
     const monthShort = monthShorts[parsedDate.getMonth()] || 'JUN';
 
     const dateStr = `${year}-${month}(${monthShort})-${day}`;
-    const timeStr = `${hours}-${minutes}`;
+    const timeStr = formatExportTimeAmPm(hours, minutes);
 
     const h = Math.floor(prerecordLengthMinutes / 60);
     const m = prerecordLengthMinutes % 60;
     const durationStr = m === 0 ? `${h} Hrs` : `${h} Hrs ${m} Min`;
 
-    const fPrefix = (exportFolderPrefixInput && exportFolderPrefixInput.trim()) || 'Show';
-    const tPrefix = (exportTextPrefixInput && exportTextPrefixInput.trim()) || 'Show';
-    const pPrefix = (exportPlaylistPrefixInput && exportPlaylistPrefixInput.trim()) || 'Show';
+    const fPrefix = (exportFolderPrefixInput && exportFolderPrefixInput.trim()) || (selectedPlaylistShow?.nameShort || selectedPlaylistShow?.name || 'Show');
+    const tPrefix = (exportTextPrefixInput && exportTextPrefixInput.trim()) || (selectedPlaylistShow?.nameShort || selectedPlaylistShow?.name || 'Show');
+    const pPrefix = (exportPlaylistPrefixInput && exportPlaylistPrefixInput.trim()) || (selectedPlaylistShow?.nameShort || selectedPlaylistShow?.name || 'Show');
+    const showPrefix = (selectedPlaylistShow?.nameShort || selectedPlaylistShow?.name || fPrefix || 'Show').trim();
 
     const folderName = `${fPrefix} - Export - ${dateStr} at ${timeStr} - ${durationStr}`;
     const textFilename = `${tPrefix} - Plan - ${dateStr} at ${timeStr} - ${durationStr}.txt`;
@@ -1903,8 +1904,8 @@ export default function App() {
     const activeSpecials = announcements.filter(s => s.enabled);
     const firstScheduleName = activeSpecials.length > 0 ? activeSpecials[0].name : "Hourly Announcement";
     const safeScheduleName = firstScheduleName.replace(/[\/\\?%*:|"<>]/g, ' ').trim();
-    const safeSlotTime = "12-00";
-    const firstTrackFilename = `Break 01 at ${safeSlotTime} - ${safeScheduleName}.mp3`;
+    const safeSlotTime = formatExportTimeAmPm(hours, 0);
+    const firstTrackFilename = `${showPrefix} 01 Break at ${safeSlotTime} - ${safeScheduleName}.mp3`;
 
     return {
       folderName,
