@@ -1815,8 +1815,13 @@ export default function PlayerTab({
     // 2. Add Played Tracks and Played Announcement Breaks sorted by playedAt timestamp
     const playedItems: PlaylistTimelineEntry[] = [];
 
-    // 2.a. Played Music Tracks
-    const playedTracks = (playMode === 'Export') ? [] : playlistTracks.filter(t => !!playedPlaylistTracks[t.id] || !!playedPlaylistTracks[t.fileName]);
+    // 2.a. Played Music Tracks (announcements are excluded here so they render exclusively as unified scheduled break cards)
+    const playedTracks = (playMode === 'Export') ? [] : playlistTracks.filter(t => {
+      if (t.isAnnouncement) return false;
+      const playedInfo = playedPlaylistTracks[t.id] || playedPlaylistTracks[t.fileName];
+      if (playedInfo?.isAnnouncement) return false;
+      return !!playedInfo;
+    });
     for (const track of playedTracks) {
       const exactCachedDurationStr = mp3DurationCache.get(track.streamUrl) || availableFilesCache.get(track.fileName)?.duration;
       let trackDur = track.durationSeconds || 180;
@@ -1949,8 +1954,8 @@ export default function PlayerTab({
 
     // 4. Calculate default track insertion indices for upcoming breaks, and interleave with active unplayed tracks
     const activeUnplayedTracks = (playMode === 'Export')
-      ? playlistTracks.filter(t => !cancelledTrackIds.includes(t.id) && !cancelledTrackIds.includes(t.fileName))
-      : playlistTracks.filter(t => !playedPlaylistTracks[t.id] && !playedPlaylistTracks[t.fileName] && !cancelledTrackIds.includes(t.id) && !cancelledTrackIds.includes(t.fileName));
+      ? playlistTracks.filter(t => !t.isAnnouncement && !cancelledTrackIds.includes(t.id) && !cancelledTrackIds.includes(t.fileName))
+      : playlistTracks.filter(t => !t.isAnnouncement && !playedPlaylistTracks[t.id] && !playedPlaylistTracks[t.fileName] && !cancelledTrackIds.includes(t.id) && !cancelledTrackIds.includes(t.fileName));
 
     const getTrackDurationSec = (track: any): number => {
       const exactCachedDurationStr = mp3DurationCache.get(track.streamUrl) || availableFilesCache.get(track.fileName)?.duration;
@@ -2691,10 +2696,10 @@ export default function PlayerTab({
         };
         onLog(logEntry);
 
-        if (playMode === 'Playlist' && activeShow) {
+        if ((playMode === 'Playlist' || playMode === 'Prerecord') && activeShow) {
           const durRes = resolveTrackDuration({ streamUrl: targetMp3Url, fileName: targetMp3Url }, undefined, audio.duration);
           const updatedPlayed = {
-            ...playedPlaylistTracks,
+            ...playedPlaylistTracksRef.current,
             [s.id]: {
               id: s.id,
               playedAt,

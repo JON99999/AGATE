@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { Announcement, LogEntry, Show } from '../types';
-import { Mp3ID3Metadata, parseID3Bytes, normalizeAnnouncements, generateBackupFilename } from './utils';
+import { Mp3ID3Metadata, parseID3Bytes, extractAudioMetadataBytes, normalizeAnnouncements, generateBackupFilename, isAudioFile, isScriptFile, classifyMediaAsset, AUDIO_EXTENSIONS, SCRIPT_EXTENSIONS } from './utils';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase App & Auth
@@ -244,6 +244,7 @@ export const availableFilesCache = new Map<string, { path: string; size: string;
 const pendingFetches = new Map<string, Promise<string>>();
 
 export const extractWaveformForUrl = async (url: string, sourceUrlOrBlob?: string | Blob): Promise<number[]> => {
+  if (!url || !isAudioFile(url)) return [];
   if (mp3WaveformCache.has(url)) return mp3WaveformCache.get(url)!;
   if (typeof window === 'undefined') return [];
 
@@ -305,6 +306,7 @@ export const extractWaveformForUrl = async (url: string, sourceUrlOrBlob?: strin
 };
 
 export const calculateDurationForUrl = (url: string, sourceUrl: string) => {
+  if (!url || !isAudioFile(url)) return;
   if (mp3DurationCache.has(url)) return;
   
   if (typeof window === 'undefined') return;
@@ -364,6 +366,7 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
   }
 
   const isDriveUrl = resolvedUrl.includes('googleapis.com') || resolvedUrl.includes('drive.google.com');
+  const isAudio = isAudioFile(resolvedUrl) || isAudioFile(url);
   
   const headers: HeadersInit = {};
   if (isDriveUrl) {
@@ -386,40 +389,45 @@ export const cacheMP3 = async (url: string, token: string): Promise<string> => {
       rawBlobCache.set(resolvedUrl, blob);
       rawBlobCache.set(url, blob);
 
-      // Calculate duration for the newly cached audio file
-      calculateDurationForUrl(url, blobUrl);
-      calculateDurationForUrl(resolvedUrl, blobUrl);
+      // Execute audio processing routines only for authentic audio assets
+      if (isAudio) {
+        // Calculate duration for the newly cached audio file
+        calculateDurationForUrl(url, blobUrl);
+        calculateDurationForUrl(resolvedUrl, blobUrl);
 
-      // Extract audio waveform peaks as part of caching process
-      try {
-        await extractWaveformForUrl(url, blob);
-        await extractWaveformForUrl(resolvedUrl, blob);
-      } catch (e) {
-        console.warn('Waveform analysis failed during caching', e);
-      }
-
-      // Parse ID3 metadata directly from the downloaded blob in RAM
-      try {
-        const arrayBuf = await blob.arrayBuffer();
-        const meta = parseID3Bytes(new Uint8Array(arrayBuf));
-        if (meta && (meta.title || meta.artist || meta.albumArtist || meta.album)) {
-          mp3MetadataCache.set(resolvedUrl, meta);
-          mp3MetadataCache.set(url, meta);
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('mp3-metadata-loaded', { 
-              detail: { url, resolvedUrl, meta } 
-            }));
-          }
+        // Extract audio waveform peaks as part of caching process
+        try {
+          await extractWaveformForUrl(url, blob);
+          await extractWaveformForUrl(resolvedUrl, blob);
+        } catch (e) {
+          console.warn('Waveform analysis failed during caching', e);
         }
-      } catch (e) {
-        // ID3 parse fail on blob
+
+        // Parse audio metadata directly from the downloaded blob in RAM
+        try {
+          const arrayBuf = await blob.arrayBuffer();
+          const meta = extractAudioMetadataBytes(new Uint8Array(arrayBuf), resolvedUrl);
+          if (meta && (meta.title || meta.artist || meta.albumArtist || meta.album)) {
+            mp3MetadataCache.set(resolvedUrl, meta);
+            mp3MetadataCache.set(url, meta);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('mp3-metadata-loaded', { 
+                detail: { url, resolvedUrl, meta } 
+              }));
+            }
+          }
+        } catch (e) {
+          // Metadata parse fail on blob
+        }
       }
 
       return blobUrl;
     } catch (err) {
       console.error(`Error caching MP3 (${url}):`, err);
       if (!isDriveUrl) {
-        calculateDurationForUrl(url, resolvedUrl);
+        if (isAudio) {
+          calculateDurationForUrl(url, resolvedUrl);
+        }
         return resolvedUrl;
       }
       throw err;
@@ -948,7 +956,17 @@ export const saveCalendarToDrive = async (schedules: Announcement[]): Promise<vo
       }
     } catch (e) {}
     const normalizedSchedules = normalizeAnnouncements(schedules);
-    await uploadFileContent(fileId, JSON.stringify({ AnnouncementsBackupCounter: counter, data: normalizedSchedules }, null, 2));
+    const envelope = {
+      _meta: {
+        schemaVersion: 1,
+        minAppVersion: "0.16.0",
+        lastModifiedBy: "0.16.3",
+        lastModifiedAt: new Date().toISOString()
+      },
+      AnnouncementsBackupCounter: counter + 1,
+      data: normalizedSchedules
+    };
+    await uploadFileContent(fileId, JSON.stringify(envelope, null, 2));
   } catch (err) {
     console.error('Error saving schedules to Google Drive:', err);
     throw err;
@@ -1000,7 +1018,17 @@ export const saveShowsToDrive = async (shows: Show[]): Promise<void> => {
       }
     } catch (e) {}
     counter += 1;
-    await uploadFileContent(fileId, JSON.stringify({ ShowsBackupCounter: counter, data: shows }, null, 2));
+    const envelope = {
+      _meta: {
+        schemaVersion: 1,
+        minAppVersion: "0.16.0",
+        lastModifiedBy: "0.16.3",
+        lastModifiedAt: new Date().toISOString()
+      },
+      ShowsBackupCounter: counter,
+      data: shows
+    };
+    await uploadFileContent(fileId, JSON.stringify(envelope, null, 2));
   } catch (err) {
     console.error('Error saving shows to Google Drive:', err);
     throw err;
@@ -1858,10 +1886,7 @@ export const loadPlaylistTracksFromDrive = async (
 
         // Loose files in directory not referenced in M3U
         const m3uFileNames = new Set(tracks.map(t => t.fileName.toLowerCase()));
-        const looseFiles = files.filter(f => {
-          const ext = f.name.toLowerCase().split('.').pop();
-          return ext && audioExtensions.includes(ext) && !m3uFileNames.has(f.name.toLowerCase());
-        });
+        const looseFiles = files.filter(f => isAudioFile(f.name) && !m3uFileNames.has(f.name.toLowerCase()));
         looseFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
         looseFiles.forEach(f => {
@@ -1881,10 +1906,7 @@ export const loadPlaylistTracksFromDrive = async (
     }
 
     if (tracks.length === 0) {
-      const audioFiles = files.filter(f => {
-        const ext = f.name.toLowerCase().split('.').pop();
-        return ext && audioExtensions.includes(ext);
-      });
+      const audioFiles = files.filter(f => isAudioFile(f.name));
 
       audioFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
@@ -1966,10 +1988,7 @@ export const checkPlaylistShowFilesOnDrive = async (
         } catch (e) {}
       }
 
-      const audioFiles = files.filter(f => {
-        const ext = f.name.toLowerCase().split('.').pop();
-        return ext && ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'].includes(ext);
-      });
+      const audioFiles = files.filter(f => isAudioFile(f.name));
       return { fileCount: audioFiles.length, folderCount: audioFiles.length > 0 ? 1 : 0 };
     };
 

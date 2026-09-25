@@ -10,12 +10,13 @@ export async function selectFolder(defaultPath?: string): Promise<{
   cancelled?: boolean;
   error?: string;
 }> {
-  if (typeof window !== 'undefined' && window.electronAPI) {
-    if (typeof window.electronAPI.selectFolder === 'function') {
-      return await window.electronAPI.selectFolder(defaultPath);
+  if (typeof window !== 'undefined' && (window as any).electronAPI) {
+    const api = (window as any).electronAPI;
+    if (typeof api.selectFolder === 'function') {
+      return await api.selectFolder(defaultPath);
     }
-    if (typeof window.electronAPI.browseFolder === 'function') {
-      return await window.electronAPI.browseFolder(defaultPath);
+    if (typeof api.browseFolder === 'function') {
+      return await api.browseFolder(defaultPath);
     }
   }
 

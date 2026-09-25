@@ -112,6 +112,11 @@ export interface DiscoveredFolderItem {
   fileCount: number;
   isRoot: boolean;
   hasM3u: boolean;
+  itemType?: 'folder' | 'playlist';
+  playlistFileName?: string;
+  missingCount?: number;
+  totalTracks?: number;
+  depth?: number;
 }
 
 export interface DiscoverFoldersResponse {
@@ -120,6 +125,8 @@ export interface DiscoverFoldersResponse {
   totalFiles: number;
   folderCount: number;
   folders: DiscoveredFolderItem[];
+  defaultFolderName?: string;
+  defaultFolderPath?: string;
   error?: string;
 }
 

@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Globe, Key, FileCode, CheckCircle, AlertCircle, RefreshCw, LogOut, Copy, ExternalLink, ShieldCheck, HelpCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { verifyGoogleDriveDetails } from '../lib/driveService';
+import { verifyGoogleDriveDetails, getSavedSettings } from '../lib/driveService';
 import DriveAuthHelpModal from './DriveAuthHelpModal';
 
 interface GoogleAuthSectionProps {
@@ -141,7 +141,6 @@ export function GoogleAuthSection({
             if (success) {
               setDriveValidationError(null);
               // Save updated state variables
-              const { getSavedSettings } = await import('../lib/driveService');
               const currentSettings = getSavedSettings();
               await fetchDataForMode(currentSettings);
             } else {
@@ -216,7 +215,6 @@ export function GoogleAuthSection({
       setToken(cleanToken);
 
       // Verify token and drive folder access with detailed diagnostics
-      const { getSavedSettings } = await import('../lib/driveService');
       const currentSettings = { ...getSavedSettings(), ...(draftDriveFolders || {}) };
 
       const driveResult = await verifyGoogleDriveDetails(currentSettings, cleanToken);

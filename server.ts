@@ -2,14 +2,24 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { fileURLToPath } from 'url';
 import NodeID3 from 'node-id3';
-import { Announcement, LogEntry, Show } from './src/types';
+import { Announcement, LogEntry, Show, DiscoveredFolderItem } from './src/types';
+
+// Cross-runtime directory resolution for Node ESM (dev) and bundled CommonJS (desktop / production)
+const _appFilename = typeof __filename !== 'undefined'
+  ? __filename
+  : (typeof import.meta !== 'undefined' && import.meta?.url ? fileURLToPath(import.meta.url) : '');
+
+const _appDirname = typeof __dirname !== 'undefined'
+  ? __dirname
+  : (_appFilename ? path.dirname(_appFilename) : process.cwd());
 
 const isMac = process.platform === 'darwin';
 
 // Detect safe persistent directory for packaged desktop apps
 const isExplicitPortable = !!process.env.PORTABLE_EXECUTABLE_DIR;
-const isExtractedPortable = !isMac && !process.defaultApp && path.basename(process.execPath).toLowerCase().includes('portable');
+const isExtractedPortable = !isMac && !(process as any).defaultApp && path.basename(process.execPath).toLowerCase().includes('portable');
 const IS_PORTABLE = isExplicitPortable || isExtractedPortable;
 
 if (IS_PORTABLE && !process.env.PORTABLE_EXECUTABLE_DIR) {
@@ -643,6 +653,57 @@ async function startServer() {
 </html>`);
   });
 
+  // API - Get application mode / flavor and icon url
+  app.get('/api/app-flavor', (req, res) => {
+    let mode = 'Admin';
+    try {
+      const configPath = path.join(_appDirname, 'dist', 'app-config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (config.mode) mode = config.mode;
+      } else if (process.env.VITE_APP_MODE) {
+        mode = process.env.VITE_APP_MODE;
+      }
+    } catch (_) {}
+    const modeKey = mode.toLowerCase();
+    
+    // Check if local bundled icon exists in dist (packaged desktop app) or local workspace
+    const distIconPath = path.join(_appDirname, 'dist', 'app-icon.png');
+    const localAssetIconPath = path.join(_appDirname, 'src', 'assets', 'images', modeKey, 'icon.png');
+    let iconUrl = '';
+    if (fs.existsSync(distIconPath) || fs.existsSync(localAssetIconPath)) {
+      iconUrl = '/api/app-flavor/icon';
+    } else {
+      // In web preview / cloud environments without local sync, supply the branch reference
+      iconUrl = `https://raw.githubusercontent.com/JON99999/AGATE/assets/src/assets/images/${modeKey}/icon.png`;
+    }
+    res.json({ mode, modeKey, iconUrl });
+  });
+
+  app.get('/api/app-flavor/icon', (req, res) => {
+    let mode = 'Admin';
+    try {
+      const configPath = path.join(_appDirname, 'dist', 'app-config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        if (config.mode) mode = config.mode;
+      } else if (process.env.VITE_APP_MODE) {
+        mode = process.env.VITE_APP_MODE;
+      }
+    } catch (_) {}
+    const modeKey = mode.toLowerCase();
+    const distIconPath = path.join(_appDirname, 'dist', 'app-icon.png');
+    const localAssetIconPath = path.join(_appDirname, 'src', 'assets', 'images', modeKey, 'icon.png');
+
+    if (fs.existsSync(distIconPath)) {
+      return res.sendFile(distIconPath);
+    }
+    if (fs.existsSync(localAssetIconPath)) {
+      return res.sendFile(localAssetIconPath);
+    }
+    res.status(404).send('Icon not bundled');
+  });
+
   // API - Sync settings from frontend
   app.get('/api/settings', (req, res) => {
     res.json(currentSettings);
@@ -1026,7 +1087,8 @@ async function startServer() {
         return res.json([]);
       }
       const files = fs.readdirSync(targetDir);
-      const allowedExtensions = ['.mp3', '.txt', '.pdf', '.png', '.jpg', '.jpeg'];
+      // Strictly approved audio and script extensions
+      const allowedExtensions = ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.txt', '.pdf', '.png', '.jpg', '.jpeg', '.webp', '.md'];
       const mp3List = files
         .filter(f => {
           const ext = path.extname(f).toLowerCase();
@@ -1036,7 +1098,7 @@ async function startServer() {
           const fullPath = path.join(targetDir, f);
           const stats = fs.statSync(fullPath);
           const ext = path.extname(f).toLowerCase();
-          const isScript = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].includes(ext);
+          const isScript = ['.txt', '.pdf', '.png', '.jpg', '.jpeg', '.webp', '.md'].includes(ext);
           return {
             name: f,
             size: `${(stats.size / (1024 * 1024)).toFixed(1)} MB`,
@@ -1321,6 +1383,13 @@ async function startServer() {
       }
       const data = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(data || '[]');
+      if (req.query.withEnvelope === 'true') {
+        return res.json({
+          _meta: parsed?._meta || null,
+          AnnouncementsBackupCounter: parsed?.AnnouncementsBackupCounter || 0,
+          data: Array.isArray(parsed?.data) ? parsed.data : (Array.isArray(parsed) ? parsed : [])
+        });
+      }
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         return res.json(Array.isArray(parsed.data) ? parsed.data : []);
       }
@@ -1337,7 +1406,8 @@ async function startServer() {
       if (!filePath) {
         return res.status(400).json({ success: false, error: 'Calendar directory is not configured' });
       }
-      const schedules: Announcement[] = req.body;
+      const rawPayload = req.body;
+      const schedules: Announcement[] = Array.isArray(rawPayload) ? rawPayload : (Array.isArray(rawPayload?.data) ? rawPayload.data : []);
       let counter = 0;
       if (fs.existsSync(filePath)) {
         const data = fs.readFileSync(filePath, 'utf-8');
@@ -1349,7 +1419,16 @@ async function startServer() {
         } catch (pe) {}
       }
       counter += 1; // Increment on every backup / save operation
-      const updatedObj = { AnnouncementsBackupCounter: counter, data: schedules };
+      const updatedObj = {
+        _meta: {
+          schemaVersion: 1,
+          minAppVersion: "0.16.0",
+          lastModifiedBy: "0.16.3",
+          lastModifiedAt: new Date().toISOString()
+        },
+        AnnouncementsBackupCounter: counter,
+        data: schedules
+      };
       atomicWriteFileSync(filePath, JSON.stringify(updatedObj, null, 2));
 
       // Backup copy for schedules
@@ -1362,7 +1441,7 @@ async function startServer() {
         console.error('Schedules backup copy failed:', e);
       }
 
-      res.json({ success: true });
+      res.json({ success: true, _meta: updatedObj._meta });
     } catch (e: any) {
       console.error('Failed to save schedules:', e);
       res.status(500).json({
@@ -1383,6 +1462,13 @@ async function startServer() {
       }
       const data = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(data || '[]');
+      if (req.query.withEnvelope === 'true') {
+        return res.json({
+          _meta: parsed?._meta || null,
+          ShowsBackupCounter: parsed?.ShowsBackupCounter || 0,
+          data: Array.isArray(parsed?.data) ? parsed.data : (Array.isArray(parsed) ? parsed : [])
+        });
+      }
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         return res.json(Array.isArray(parsed.data) ? parsed.data : []);
       }
@@ -1399,7 +1485,8 @@ async function startServer() {
       if (!filePath) {
         return res.status(400).json({ success: false, error: 'Calendar directory is not configured for shows' });
       }
-      const shows: Show[] = req.body;
+      const rawPayload = req.body;
+      const shows: Show[] = Array.isArray(rawPayload) ? rawPayload : (Array.isArray(rawPayload?.data) ? rawPayload.data : []);
       let counter = 0;
       if (fs.existsSync(filePath)) {
         const data = fs.readFileSync(filePath, 'utf-8');
@@ -1411,7 +1498,16 @@ async function startServer() {
         } catch (pe) {}
       }
       counter += 1;
-      const updatedObj = { ShowsBackupCounter: counter, data: shows };
+      const updatedObj = {
+        _meta: {
+          schemaVersion: 1,
+          minAppVersion: "0.16.0",
+          lastModifiedBy: "0.16.3",
+          lastModifiedAt: new Date().toISOString()
+        },
+        ShowsBackupCounter: counter,
+        data: shows
+      };
       atomicWriteFileSync(filePath, JSON.stringify(updatedObj, null, 2));
 
       // Backup copy for shows
@@ -1424,7 +1520,7 @@ async function startServer() {
         console.error('Shows backup copy failed:', e);
       }
 
-      res.json({ success: true });
+      res.json({ success: true, _meta: updatedObj._meta });
     } catch (e: any) {
       console.error('Failed to save shows:', e);
       res.status(500).json({
@@ -1433,6 +1529,67 @@ async function startServer() {
         code: e?.code || 'WRITE_FAILED',
         filePath: getShowsFilePath()
       });
+    }
+  });
+
+  // API - Compatibility Inspection and Pre-Upgrade Backup Snapshot
+  app.get('/api/compatibility/inspect', (req, res) => {
+    try {
+      const calPath = getCalendarFilePath();
+      const showsPath = getShowsFilePath();
+      let announcementsMeta: any = null;
+      let showsMeta: any = null;
+
+      if (calPath && fs.existsSync(calPath)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(calPath, 'utf-8') || '{}');
+          announcementsMeta = parsed._meta || { schemaVersion: 0, minAppVersion: '0.15.0', lastModifiedBy: '0.15.0' };
+        } catch (_) {}
+      }
+
+      if (showsPath && fs.existsSync(showsPath)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(showsPath, 'utf-8') || '{}');
+          showsMeta = parsed._meta || { schemaVersion: 0, minAppVersion: '0.15.0', lastModifiedBy: '0.15.0' };
+        } catch (_) {}
+      }
+
+      const activeMeta = announcementsMeta || showsMeta || { schemaVersion: 1, minAppVersion: '0.16.0', lastModifiedBy: '0.16.3' };
+      res.json({ success: true, meta: activeMeta, announcementsMeta, showsMeta });
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+
+  app.post('/api/compatibility/pre-upgrade-backup', (req, res) => {
+    try {
+      const calPath = getCalendarFilePath();
+      const showsPath = getShowsFilePath();
+      const settingsDir = getAmpSettingsDir(currentSettings);
+      const backupsDir = path.join(settingsDir, 'backups');
+      if (!fs.existsSync(backupsDir)) {
+        fs.mkdirSync(backupsDir, { recursive: true });
+      }
+
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/[:.]/g, '-');
+      const backupsCreated: string[] = [];
+
+      if (calPath && fs.existsSync(calPath)) {
+        const backupTarget = path.join(backupsDir, `announcements.backup-pre-upgrade-${timestamp}.json`);
+        fs.copyFileSync(calPath, backupTarget);
+        backupsCreated.push(backupTarget);
+      }
+
+      if (showsPath && fs.existsSync(showsPath)) {
+        const backupTarget = path.join(backupsDir, `shows.backup-pre-upgrade-${timestamp}.json`);
+        fs.copyFileSync(showsPath, backupTarget);
+        backupsCreated.push(backupTarget);
+      }
+
+      res.json({ success: true, backupsCreated });
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e.message });
     }
   });
 
@@ -1773,53 +1930,154 @@ async function startServer() {
     return null;
   }
 
-  // Helper for pure JS reading of MP3 ID3 metadata on server side (non-blocking with timeout)
-  async function getMp3ServerMetadata(filePath: string): Promise<{ title?: string; artist?: string; albumArtist?: string; album?: string } | null> {
+  // Helper for reading audio metadata using standard music-metadata with fallback
+  async function getMp3ServerMetadata(filePath: string): Promise<{ title?: string; artist?: string; albumArtist?: string; album?: string; durationSeconds?: number } | null> {
+    const lower = filePath.toLowerCase();
+    // Strict governance: ONLY approved safe formats
+    const isApprovedAudio = lower.endsWith('.mp3') || lower.endsWith('.wav') || lower.endsWith('.flac') || lower.endsWith('.ogg') || lower.endsWith('.m4a') || lower.endsWith('.aac');
+    if (!isApprovedAudio) return null;
+
     return withTimeout(
       (async () => {
-        let handle: fs.promises.FileHandle | null = null;
         try {
           if (!fs.existsSync(filePath)) return null;
-          const stats = await fs.promises.stat(filePath);
-          handle = await fs.promises.open(filePath, 'r');
-          
-          // Read first 64KB for ID3v2
-          const buffer = Buffer.alloc(65536);
-          const { bytesRead } = await handle.read(buffer, 0, 65536, 0);
-          let v2Meta: { title?: string; artist?: string; albumArtist?: string; album?: string } | null = null;
-          if (bytesRead > 0) {
-            v2Meta = parseID3Buffer(new Uint8Array(buffer.subarray(0, bytesRead)));
+
+          // 1. Standard music-metadata extraction
+          try {
+            const mm = await import('music-metadata');
+            const parsed = await mm.parseFile(filePath, { skipCovers: true, duration: true });
+            if (parsed && parsed.common) {
+              const title = parsed.common.title?.trim();
+              const artist = parsed.common.artist?.trim();
+              const albumArtist = (parsed.common.albumartist || parsed.common.artist)?.trim();
+              const album = parsed.common.album?.trim();
+              const durationSeconds = parsed.format?.duration ? Math.round(parsed.format.duration) : undefined;
+
+              if (title || artist || album) {
+                return {
+                  title: title || undefined,
+                  artist: artist || undefined,
+                  albumArtist: albumArtist || artist || undefined,
+                  album: album || undefined,
+                  durationSeconds
+                };
+              }
+            }
+          } catch (_) {
+            // Fallback to fast byte parser if music-metadata encounters parser exception
           }
 
-          // Check ID3v1 trailing tag if file is at least 128 bytes
-          let v1Meta: { title?: string; artist?: string; albumArtist?: string; album?: string } | null = null;
-          if (stats.size >= 128) {
-            const tailBuf = Buffer.alloc(128);
-            await handle.read(tailBuf, 0, 128, stats.size - 128);
-            v1Meta = parseID3v1Buffer(new Uint8Array(tailBuf));
+          // 2. Binary buffer fallback scanner
+          let handle: fs.promises.FileHandle | null = null;
+          try {
+            const stats = await fs.promises.stat(filePath);
+            handle = await fs.promises.open(filePath, 'r');
+            
+            // Read first 64KB
+            const buffer = Buffer.alloc(65536);
+            const { bytesRead } = await handle.read(buffer, 0, 65536, 0);
+            let meta: { title?: string; artist?: string; albumArtist?: string; album?: string } | null = null;
+            if (bytesRead > 0) {
+              const rawBytes = new Uint8Array(buffer.subarray(0, bytesRead));
+              // 1. Try ID3v2
+              meta = parseID3Buffer(rawBytes);
+
+              // 2. Try RIFF INFO for WAV
+              if (!meta && lower.endsWith('.wav') && bytesRead >= 12) {
+                if (rawBytes[0] === 0x52 && rawBytes[1] === 0x49 && rawBytes[2] === 0x46 && rawBytes[3] === 0x46) {
+                  let off = 12;
+                  while (off + 8 <= bytesRead) {
+                    const chunkId = String.fromCharCode(rawBytes[off], rawBytes[off+1], rawBytes[off+2], rawBytes[off+3]);
+                    const chunkSize = rawBytes[off+4] | (rawBytes[off+5] << 8) | (rawBytes[off+6] << 16) | (rawBytes[off+7] << 24);
+                    off += 8;
+                    if (chunkSize <= 0 || off + chunkSize > bytesRead) break;
+                    if (chunkId === 'LIST' && chunkSize >= 4) {
+                      const listType = String.fromCharCode(rawBytes[off], rawBytes[off+1], rawBytes[off+2], rawBytes[off+3]);
+                      if (listType === 'INFO') {
+                        let subOff = off + 4;
+                        const subLimit = Math.min(bytesRead, off + chunkSize);
+                        const wavMeta: { title?: string; artist?: string; albumArtist?: string; album?: string } = {};
+                        while (subOff + 8 <= subLimit) {
+                          const subId = String.fromCharCode(rawBytes[subOff], rawBytes[subOff+1], rawBytes[subOff+2], rawBytes[subOff+3]);
+                          const subSize = rawBytes[subOff+4] | (rawBytes[subOff+5] << 8) | (rawBytes[subOff+6] << 16) | (rawBytes[subOff+7] << 24);
+                          subOff += 8;
+                          if (subSize <= 0 || subOff + subSize > subLimit) break;
+                          const text = Buffer.from(rawBytes.subarray(subOff, subOff + subSize)).toString('utf-8').replace(/\0.*$/, '').trim();
+                          if (subId === 'INAM') wavMeta.title = text;
+                          if (subId === 'IART') wavMeta.artist = text;
+                          if (subId === 'IPRD') wavMeta.album = text;
+                          subOff += subSize + (subSize % 2);
+                        }
+                        if (wavMeta.title || wavMeta.artist || wavMeta.album) {
+                          if (!wavMeta.albumArtist && wavMeta.artist) wavMeta.albumArtist = wavMeta.artist;
+                          meta = wavMeta;
+                          break;
+                        }
+                      }
+                    }
+                    off += chunkSize + (chunkSize % 2);
+                  }
+                }
+              }
+
+              // 3. Try Vorbis Comments for FLAC / OGG
+              if (!meta && (lower.endsWith('.flac') || lower.endsWith('.ogg'))) {
+                for (let i = 0; i < bytesRead - 8; i++) {
+                  if (
+                    (rawBytes[i] === 0x66 && rawBytes[i+1] === 0x4c && rawBytes[i+2] === 0x61 && rawBytes[i+3] === 0x43) ||
+                    (rawBytes[i] === 0x03 && rawBytes[i+1] === 0x76 && rawBytes[i+2] === 0x6f && rawBytes[i+3] === 0x72) ||
+                    (rawBytes[i] === 0x4f && rawBytes[i+1] === 0x70 && rawBytes[i+2] === 0x75 && rawBytes[i+3] === 0x73)
+                  ) {
+                    const slice = Buffer.from(rawBytes.subarray(i, bytesRead)).toString('utf-8', 0, Math.min(4096, bytesRead - i));
+                    const flacMeta: { title?: string; artist?: string; albumArtist?: string; album?: string } = {};
+                    const titleMatch = slice.match(/TITLE=([^\x00-\x1f\x80-\xff\r\n]+)/i);
+                    const artistMatch = slice.match(/ARTIST=([^\x00-\x1f\x80-\xff\r\n]+)/i);
+                    const albumMatch = slice.match(/ALBUM=([^\x00-\x1f\x80-\xff\r\n]+)/i);
+                    const aaMatch = slice.match(/ALBUMARTIST=([^\x00-\x1f\x80-\xff\r\n]+)/i);
+                    if (titleMatch) flacMeta.title = titleMatch[1].trim();
+                    if (artistMatch) flacMeta.artist = artistMatch[1].trim();
+                    if (albumMatch) flacMeta.album = albumMatch[1].trim();
+                    if (aaMatch) flacMeta.albumArtist = aaMatch[1].trim();
+                    if (flacMeta.title || flacMeta.artist || flacMeta.album) {
+                      if (!flacMeta.albumArtist && flacMeta.artist) flacMeta.albumArtist = flacMeta.artist;
+                      meta = flacMeta;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+
+            // Check ID3v1 trailing tag if file is at least 128 bytes and no tag found yet
+            if (!meta && stats.size >= 128) {
+              const tailBuf = Buffer.alloc(128);
+              await handle.read(tailBuf, 0, 128, stats.size - 128);
+              meta = parseID3v1Buffer(new Uint8Array(tailBuf));
+            }
+
+            await handle.close();
+            handle = null;
+
+            if (meta) {
+              return {
+                title: meta.title,
+                artist: meta.artist,
+                albumArtist: meta.albumArtist || meta.artist,
+                album: meta.album
+              };
+            }
+
+            return null;
+          } finally {
+            if (handle) {
+              try { await handle.close(); } catch (_) {}
+            }
           }
-
-          await handle.close();
-          handle = null;
-
-          if (v2Meta || v1Meta) {
-            return {
-              title: v2Meta?.title || v1Meta?.title,
-              artist: v2Meta?.artist || v1Meta?.artist,
-              albumArtist: v2Meta?.albumArtist || v1Meta?.albumArtist || v1Meta?.artist,
-              album: v2Meta?.album || v1Meta?.album
-            };
-          }
-
-          return null;
         } catch (e) {
-          if (handle) {
-            try { await handle.close(); } catch (_) {}
-          }
           return null;
         }
       })(),
-      1500,
+      2500,
       null
     );
   }
@@ -1888,7 +2146,8 @@ async function startServer() {
         }
 
         const isRecursive = options?.recursive === true;
-        const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.aiff', '.aif'];
+        // Strictly approved audio formats only
+        const audioExtensions = ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac'];
 
         async function scan(currentDir: string, relPrefix: string = '', depth: number = 0) {
           if (isRecursive && depth > 4) return;
@@ -1948,7 +2207,8 @@ async function startServer() {
     }
 
     const isRecursive = options?.recursive === true;
-    const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.aiff', '.aif'];
+    // Strictly approved audio formats only
+    const audioExtensions = ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac'];
 
     function scan(currentDir: string, relPrefix: string = '') {
       if (!fs.existsSync(currentDir)) return;
@@ -1983,7 +2243,7 @@ async function startServer() {
       (async () => {
         const content = await fs.promises.readFile(m3uPath, 'utf8');
         const lines = content.split(/\r?\n/);
-        const result: Array<{ fileName: string; title: string; durationSeconds: number }> = [];
+        const result: Array<{ fileName: string; title: string; durationSeconds: number; fullPath?: string; exists?: boolean }> = [];
 
         let pendingExtInfDuration: number | null = null;
         let pendingExtInfTitle: string | null = null;
@@ -2010,13 +2270,18 @@ async function startServer() {
             const fileName = path.basename(rawFileName);
 
             let fullPath = path.isAbsolute(rawFileName) ? rawFileName : path.join(m3uDir, rawFileName);
-            if (!fs.existsSync(fullPath)) {
-              fullPath = path.join(folderPath, fileName);
+            let exists = fs.existsSync(fullPath);
+            if (!exists) {
+              const directInFolder = path.join(folderPath, fileName);
+              if (fs.existsSync(directInFolder)) {
+                fullPath = directInFolder;
+                exists = true;
+              }
             }
 
             let durationSeconds = pendingExtInfDuration;
             if (!durationSeconds || durationSeconds <= 0) {
-              if (fs.existsSync(fullPath)) {
+              if (exists) {
                 durationSeconds = await getMp3DurationSecondsAsync(fullPath);
               } else {
                 durationSeconds = 180;
@@ -2025,9 +2290,11 @@ async function startServer() {
 
             const title = pendingExtInfTitle || fileName.replace(/\.[^/.]+$/, '');
             result.push({
-              fileName,
+              fileName: exists ? path.basename(fullPath) : fileName,
               title,
-              durationSeconds
+              durationSeconds,
+              fullPath: exists ? fullPath : undefined,
+              exists
             });
 
             pendingExtInfDuration = null;
@@ -2045,7 +2312,7 @@ async function startServer() {
   function parseM3uFile(m3uPath: string, folderPath: string) {
     const content = fs.readFileSync(m3uPath, 'utf8');
     const lines = content.split(/\r?\n/);
-    const result: Array<{ fileName: string; title: string; durationSeconds: number }> = [];
+    const result: Array<{ fileName: string; title: string; durationSeconds: number; fullPath?: string; exists?: boolean }> = [];
 
     let pendingExtInfDuration: number | null = null;
     let pendingExtInfTitle: string | null = null;
@@ -2072,13 +2339,18 @@ async function startServer() {
         const fileName = path.basename(rawFileName);
 
         let fullPath = path.isAbsolute(rawFileName) ? rawFileName : path.join(m3uDir, rawFileName);
-        if (!fs.existsSync(fullPath)) {
-          fullPath = path.join(folderPath, fileName);
+        let exists = fs.existsSync(fullPath);
+        if (!exists) {
+          const directInFolder = path.join(folderPath, fileName);
+          if (fs.existsSync(directInFolder)) {
+            fullPath = directInFolder;
+            exists = true;
+          }
         }
 
         let durationSeconds = pendingExtInfDuration;
         if (!durationSeconds || durationSeconds <= 0) {
-          if (fs.existsSync(fullPath)) {
+          if (exists) {
             durationSeconds = getMp3DurationSeconds(fullPath);
           } else {
             durationSeconds = 180;
@@ -2087,9 +2359,11 @@ async function startServer() {
 
         const title = pendingExtInfTitle || fileName.replace(/\.[^/.]+$/, '');
         result.push({
-          fileName,
+          fileName: exists ? path.basename(fullPath) : fileName,
           title,
-          durationSeconds
+          durationSeconds,
+          fullPath: exists ? fullPath : undefined,
+          exists
         });
 
         pendingExtInfDuration = null;
@@ -2301,92 +2575,210 @@ async function startServer() {
     };
   }
 
-  // GET /api/shows/discover-folders - Inspect folder and subfolders (depth = 1) for audio & playlist files
+  // GET /api/shows/discover-folders - Inspect folder, subfolders, and playlists for audio & playlist files
   app.get('/api/shows/discover-folders', async (req, res) => {
     try {
       const folderType = (req.query.folderType as string) || 'Playlists';
       const showName = (req.query.showName as string) || '';
       const showNameShort = (req.query.showNameShort as string) || '';
       const showId = (req.query.showId as string) || '';
-
-      const searchKey = showNameShort || showName || showId;
-      if (!searchKey) {
-        return res.status(400).json({ error: 'showName, showNameShort, or showId is required' });
-      }
+      const customPath = (req.query.customPath as string) || '';
 
       const isEvergreen = folderType && folderType.toLowerCase().startsWith('evergreen');
-      const primaryDir = isEvergreen
+      const defaultDir = isEvergreen
         ? getAmpMediaEvergreensDir(currentSettings)
         : getAmpMediaShowsDir(currentSettings);
+      const defaultFolderName = isEvergreen ? 'media_evergreens' : 'media_shows';
 
-      let showFolderPath = primaryDir ? findShowPlaylistFolder(primaryDir, showNameShort, showName) : null;
+      let targetRootPath: string | null = null;
+      let defaultFolderPath: string | undefined = undefined;
 
-      if (!showFolderPath || !fs.existsSync(showFolderPath)) {
+      if (customPath && fs.existsSync(customPath)) {
+        targetRootPath = customPath;
+      } else {
+        const searchKey = showNameShort || showName || showId;
+        if (!searchKey) {
+          return res.status(400).json({ error: 'showName, showNameShort, showId, or customPath is required' });
+        }
+        targetRootPath = defaultDir ? findShowPlaylistFolder(defaultDir, showNameShort, showName) : null;
+        defaultFolderPath = targetRootPath || (defaultDir ? path.join(defaultDir, showNameShort || showName || 'Show') : undefined);
+      }
+
+      if (!targetRootPath || !fs.existsSync(targetRootPath)) {
         return res.json({
           success: true,
           hasMultipleFolders: false,
           totalFiles: 0,
           folderCount: 0,
-          folders: []
+          folders: [],
+          defaultFolderName,
+          defaultFolderPath
         });
       }
 
-      const folders: Array<{
-        id: string;
-        name: string;
-        relPath: string;
-        fileCount: number;
-        isRoot: boolean;
-        hasM3u: boolean;
-      }> = [];
+      const folders: DiscoveredFolderItem[] = [];
 
-      // 1. Scan Top-Level Root directly (depth = 0, no subdirectories)
-      const rootScan = await getAllAudioAndPlaylistFilesAsync(showFolderPath, { recursive: false });
-      const rootFileCount = rootScan.audioFiles.length + rootScan.m3uFiles.length;
-      const rootHasM3u = rootScan.m3uFiles.length > 0;
+      // Helper to scan a directory level
+      const inspectDirectory = async (dirPath: string, relPrefix: string = '', depth: number = 0, isRoot: boolean = false) => {
+        if (depth > 6) return; // Prevent excessive recursion
+        if (!fs.existsSync(dirPath)) return;
 
-      if (rootFileCount > 0) {
-        folders.push({
-          id: 'root',
-          name: 'Top Level (Root)',
-          relPath: '.',
-          fileCount: rootFileCount,
-          isRoot: true,
-          hasM3u: rootHasM3u
-        });
-      }
+        const scan = await getAllAudioAndPlaylistFilesAsync(dirPath, { recursive: false });
+        const { m3uFiles, audioFiles } = scan;
+        const totalFolderFiles = audioFiles.length + m3uFiles.length;
 
-      // 2. Scan immediate subdirectories only (depth = 1)
-      const rootEntries = await fs.promises.readdir(showFolderPath, { withFileTypes: true });
-      for (const entry of rootEntries) {
-        if (entry.isDirectory()) {
-          const subPath = path.join(showFolderPath, entry.name);
-          const subScan = await getAllAudioAndPlaylistFilesAsync(subPath, { recursive: false });
-          const subFileCount = subScan.audioFiles.length + subScan.m3uFiles.length;
-          const subHasM3u = subScan.m3uFiles.length > 0;
+        // Process M3U playlists in this directory
+        const playlistInfoList: Array<{
+          m3uPath: string;
+          fileName: string;
+          totalTracks: number;
+          missingCount: number;
+          referencedFileNames: Set<string>;
+        }> = [];
 
-          // Filter out empty subdirectories completely!
-          if (subFileCount > 0) {
+        for (const m3u of m3uFiles) {
+          const m3uFileName = path.basename(m3u);
+          const tracks = await parseM3uFileAsync(m3u, dirPath);
+          let missingCount = 0;
+          const referencedNames = new Set<string>();
+
+          for (const t of tracks) {
+            referencedNames.add(t.fileName.toLowerCase());
+            if (t.exists === false) {
+              missingCount++;
+            }
+          }
+
+          playlistInfoList.push({
+            m3uPath: m3u,
+            fileName: m3uFileName,
+            totalTracks: tracks.length,
+            missingCount,
+            referencedFileNames: referencedNames
+          });
+        }
+
+        const folderDisplayName = isRoot ? 'Top Level (Root)' : path.basename(dirPath);
+        const relPath = relPrefix || '.';
+
+        if (playlistInfoList.length === 1 && audioFiles.length > 0) {
+          const singleM3u = playlistInfoList[0];
+          // Check if all audio files in the folder are referenced by this playlist
+          const allAudioRepresented = audioFiles.every(a => singleM3u.referencedFileNames.has(a.name.toLowerCase()));
+          if (allAudioRepresented) {
+            // Rule 3.2.1: Only display the playlist/folder as a single item
             folders.push({
-              id: `sub-${entry.name}`,
-              name: entry.name,
-              relPath: entry.name,
-              fileCount: subFileCount,
+              id: isRoot ? 'root' : `folder-${relPath}`,
+              name: folderDisplayName,
+              relPath: relPath,
+              fileCount: singleM3u.totalTracks,
+              isRoot: isRoot,
+              hasM3u: true,
+              itemType: 'playlist',
+              playlistFileName: singleM3u.fileName,
+              missingCount: singleM3u.missingCount,
+              totalTracks: singleM3u.totalTracks,
+              depth
+            });
+          } else {
+            // Rule 3.2.2: Folder contains additional audio not in playlist, list folder and playlist
+            folders.push({
+              id: isRoot ? 'root' : `folder-${relPath}`,
+              name: folderDisplayName,
+              relPath: relPath,
+              fileCount: totalFolderFiles,
+              isRoot: isRoot,
+              hasM3u: true,
+              itemType: 'folder',
+              depth
+            });
+
+            folders.push({
+              id: `pl-${relPath}-${singleM3u.fileName}`,
+              name: singleM3u.fileName,
+              relPath: relPath,
+              fileCount: singleM3u.totalTracks,
               isRoot: false,
-              hasM3u: subHasM3u
+              hasM3u: true,
+              itemType: 'playlist',
+              playlistFileName: singleM3u.fileName,
+              missingCount: singleM3u.missingCount,
+              totalTracks: singleM3u.totalTracks,
+              depth: depth + 1
             });
           }
-        }
-      }
+        } else if (playlistInfoList.length > 1) {
+          // Rule 3: Multiple playlists in a single folder level -> list folder and each playlist
+          if (totalFolderFiles > 0) {
+            folders.push({
+              id: isRoot ? 'root' : `folder-${relPath}`,
+              name: folderDisplayName,
+              relPath: relPath,
+              fileCount: totalFolderFiles,
+              isRoot: isRoot,
+              hasM3u: true,
+              itemType: 'folder',
+              depth
+            });
+          }
 
-      const totalFiles = folders.reduce((sum, f) => sum + f.fileCount, 0);
+          for (const pl of playlistInfoList) {
+            folders.push({
+              id: `pl-${relPath}-${pl.fileName}`,
+              name: pl.fileName,
+              relPath: relPath,
+              fileCount: pl.totalTracks,
+              isRoot: false,
+              hasM3u: true,
+              itemType: 'playlist',
+              playlistFileName: pl.fileName,
+              missingCount: pl.missingCount,
+              totalTracks: pl.totalTracks,
+              depth: depth + 1
+            });
+          }
+        } else if (totalFolderFiles > 0) {
+          // No playlists, but audio files exist
+          folders.push({
+            id: isRoot ? 'root' : `folder-${relPath}`,
+            name: folderDisplayName,
+            relPath: relPath,
+            fileCount: totalFolderFiles,
+            isRoot: isRoot,
+            hasM3u: false,
+            itemType: 'folder',
+            depth
+          });
+        }
+
+        // Traverse subdirectories recursively
+        try {
+          const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+          // Sort subdirectories naturally
+          const subdirs = entries
+            .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+          for (const sub of subdirs) {
+            const subDirPath = path.join(dirPath, sub.name);
+            const subRelPath = relPrefix ? `${relPrefix}/${sub.name}` : sub.name;
+            await inspectDirectory(subDirPath, subRelPath, depth + 1, false);
+          }
+        } catch (_) {}
+      };
+
+      await inspectDirectory(targetRootPath, '', 0, true);
+
+      const totalFiles = folders.reduce((sum, f) => sum + (f.totalTracks || f.fileCount || 0), 0);
 
       res.json({
         success: true,
         hasMultipleFolders: folders.length > 1,
         totalFiles,
         folderCount: folders.length,
-        folders
+        folders,
+        defaultFolderName,
+        defaultFolderPath
       });
     } catch (err: any) {
       console.error('Error in /api/shows/discover-folders:', err);
@@ -2585,9 +2977,19 @@ async function startServer() {
 
         const folders: Array<{ fileCount: number }> = [];
 
+        const countAudioTracksInScan = async (scan: { m3uFiles: string[]; audioFiles: Array<{ relPath: string; fullPath: string; name: string }> }, folderDir: string): Promise<number> => {
+          if (scan.m3uFiles.length > 0) {
+            try {
+              const tracks = await parseM3uFileAsync(scan.m3uFiles[0], folderDir);
+              if (tracks.length > 0) return tracks.length;
+            } catch (_) {}
+          }
+          return scan.audioFiles.length;
+        };
+
         // 1. Root level
         const rootScan = await getAllAudioAndPlaylistFilesAsync(showFolderPath, { recursive: false });
-        const rootCount = rootScan.audioFiles.length + rootScan.m3uFiles.length;
+        const rootCount = await countAudioTracksInScan(rootScan, showFolderPath);
         if (rootCount > 0) {
           folders.push({ fileCount: rootCount });
         }
@@ -2598,7 +3000,7 @@ async function startServer() {
           if (entry.isDirectory()) {
             const subPath = path.join(showFolderPath, entry.name);
             const subScan = await getAllAudioAndPlaylistFilesAsync(subPath, { recursive: false });
-            const subCount = subScan.audioFiles.length + subScan.m3uFiles.length;
+            const subCount = await countAudioTracksInScan(subScan, subPath);
             if (subCount > 0) {
               folders.push({ fileCount: subCount });
             }
@@ -3821,8 +4223,8 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = fs.existsSync(path.join(__dirname, 'index.html'))
-      ? __dirname
+    const distPath = fs.existsSync(path.join(_appDirname, 'index.html'))
+      ? _appDirname
       : path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {

@@ -232,11 +232,6 @@
   }
 }
 
-@media (max-width: 380px) {
-  .hide-app-name {
-    display: none !important;
-  }
-}
 @media (max-width: 300px) {
   .live-refresh-container {
     flex-direction: column !important;

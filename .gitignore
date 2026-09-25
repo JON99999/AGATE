@@ -5,3 +5,12 @@ coverage/
 *.log
 .env*
 !.env.example
+amp_settings.json
+bun.lock
+
+# AI Studio Agent Prompts & Guidelines (Local Only)
+AGENTS.md
+AGENTS_PHILOSOPHY.md
+
+# Development Archives & Internal Docs (Local Only)
+dev/

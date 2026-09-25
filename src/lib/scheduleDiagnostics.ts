@@ -6,7 +6,8 @@ import {
   getMP3Status,
   formatDuration,
   validateTimeGatedMp3s,
-  formatTime12
+  formatTime12,
+  classifyMediaAsset
 } from './utils';
 import { driveFileNameCache, availableFilesCache, mp3DurationCache } from './driveService';
 
@@ -467,7 +468,7 @@ export function evaluateScheduleDiagnostics({
           }
 
           const status = getMP3Status(entry.mp3Url);
-          const entryIsScript = entry.assetType === 'script' || (entry.mp3Url.toLowerCase().endsWith('.txt') || entry.mp3Url.toLowerCase().endsWith('.pdf'));
+          const entryIsScript = classifyMediaAsset(entry.mp3Url, entry.assetType) === 'script';
 
           if (!status.exists) {
             addIssue({

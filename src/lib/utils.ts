@@ -7,6 +7,128 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * ============================================================================
+ * STRICT FILE EXTENSION GOVERNANCE MANDATE
+ * ============================================================================
+ * CRITICAL ARCHITECTURAL CONSTRAINT:
+ * The lists below define the EXCLUSIVE, TESTED, and APPROVED file formats
+ * compatible with the Electron/Chromium runtime, playback, and metadata pipelines.
+ * 
+ * 1. APPROVED AUDIO: .mp3, .wav, .flac, .ogg, .m4a, .aac
+ * 2. APPROVED SCRIPT/DOC/IMG: .txt, .pdf, .png, .jpg, .jpeg, .webp, .md
+ * 3. EXCLUDED / PROHIBITED:
+ *    - .aiff, .aif, .wma, .alac (Incompatible Chromium codecs / unreliable engines)
+ *    - .docx, .doc, .rtf (Binary / rich text formats without native renderers)
+ * 
+ * DIRECTIVE FOR ALL AGENTS:
+ * ONLY explicitly listed approved values below must be used. All unlisted
+ * values MUST be rejected. UNDER NO CIRCUMSTANCES should any agent add, expand,
+ * or alter this list without direct, explicit confirmation from the developer.
+ * ============================================================================
+ */
+
+// Universal media asset classification constants (Approved Safe Formats)
+export const AUDIO_EXTENSIONS = [
+  '.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac'
+] as const;
+
+export const SCRIPT_EXTENSIONS = [
+  '.txt', '.pdf', '.png', '.jpg', '.jpeg', '.webp', '.md'
+] as const;
+
+export const IMAGE_EXTENSIONS = [
+  '.png', '.jpg', '.jpeg', '.webp'
+] as const;
+
+export const DOCUMENT_EXTENSIONS = [
+  '.txt', '.pdf', '.md'
+] as const;
+
+export const EXCLUDED_EXTENSIONS = [
+  '.aiff', '.aif', '.wma', '.alac', '.docx', '.doc', '.rtf'
+] as const;
+
+/**
+ * Extracts a clean base filename from any path, URL, or stream query string.
+ */
+export function getCleanFilename(urlOrPath: string | undefined | null): string {
+  if (!urlOrPath) return '';
+  let cleanName = urlOrPath;
+  if (cleanName.includes('/api/media/stream') || cleanName.includes('/api/shows/playlist/stream-file')) {
+    const parts = cleanName.split(/(?:file|path)=/);
+    if (parts.length > 1) {
+      cleanName = decodeURIComponent(parts[1].split('&')[0]);
+    }
+  }
+  return cleanName.split('?')[0].split('/').pop() || cleanName;
+}
+
+/**
+ * Returns lowercase file extension including the leading dot, e.g. '.mp3' or '.pdf'
+ */
+export function getFileExtension(filenameOrUrl: string | undefined | null): string {
+  if (!filenameOrUrl) return '';
+  const clean = getCleanFilename(filenameOrUrl).toLowerCase();
+  const lastDot = clean.lastIndexOf('.');
+  return lastDot !== -1 ? clean.substring(lastDot) : '';
+}
+
+/**
+ * Checks if a file path or URL represents an audio media asset.
+ */
+export function isAudioFile(filenameOrUrl: string | undefined | null): boolean {
+  if (!filenameOrUrl) return false;
+  const ext = getFileExtension(filenameOrUrl);
+  return (AUDIO_EXTENSIONS as readonly string[]).includes(ext);
+}
+
+/**
+ * Checks if a file path or URL represents a script/document or visual text asset.
+ */
+export function isScriptFile(filenameOrUrl: string | undefined | null): boolean {
+  if (!filenameOrUrl) return false;
+  const ext = getFileExtension(filenameOrUrl);
+  return (SCRIPT_EXTENSIONS as readonly string[]).includes(ext);
+}
+
+/**
+ * Checks if a file path or URL represents an image asset.
+ */
+export function isImageFile(filenameOrUrl: string | undefined | null): boolean {
+  if (!filenameOrUrl) return false;
+  const ext = getFileExtension(filenameOrUrl);
+  return (IMAGE_EXTENSIONS as readonly string[]).includes(ext);
+}
+
+/**
+ * Checks if a file path or URL represents a text/document script asset.
+ */
+export function isDocumentFile(filenameOrUrl: string | undefined | null): boolean {
+  if (!filenameOrUrl) return false;
+  const ext = getFileExtension(filenameOrUrl);
+  return (DOCUMENT_EXTENSIONS as readonly string[]).includes(ext);
+}
+
+/**
+ * Universal media classifier: determines whether an item is 'audio' or 'script'
+ * based on explicit flag, file extension, or fallback rules.
+ */
+export function classifyMediaAsset(
+  filenameOrUrl: string | undefined | null,
+  explicitType?: 'audio' | 'script'
+): 'audio' | 'script' {
+  if (explicitType === 'script' || explicitType === 'audio') {
+    // If the extension definitively contradicts a default, extension takes precedence
+    if (isAudioFile(filenameOrUrl)) return 'audio';
+    if (isScriptFile(filenameOrUrl)) return 'script';
+    return explicitType;
+  }
+  if (isAudioFile(filenameOrUrl)) return 'audio';
+  if (isScriptFile(filenameOrUrl)) return 'script';
+  return 'audio';
+}
+
 export const getMP3Status = (url: string | undefined) => {
   if (!url) return { exists: false, valid: false, filename: 'None selected' };
 
@@ -69,9 +191,8 @@ export const getMP3Status = (url: string | undefined) => {
   }
   
   const exists = driveFileNameCache.has(url) || driveFileNameCache.has(baseName) || isExternalWeb || isLocal;
-  const lower = cleanUrl.toLowerCase();
-  const isAudio = lower.endsWith('.mp3');
-  const isScript = lower.endsWith('.txt') || lower.endsWith('.pdf') || lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg');
+  const isAudio = isAudioFile(cleanUrl) || isAudioFile(filename);
+  const isScript = isScriptFile(cleanUrl) || isScriptFile(filename);
   const valid = isAudio || isScript || isDrive || isLocal || isExternalWeb || url.includes('alt=media') || url.includes('id=');
   
   return { exists, valid, filename };
@@ -142,6 +263,9 @@ export function parseID3v1Bytes(bytes: Uint8Array): Mp3ID3Metadata | null {
 // Pure-JS ID3v2 & ID3v1 metadata parser
 
 export async function readMp3ID3Metadata(url: string, authToken?: string): Promise<Mp3ID3Metadata | null> {
+  if (!url || !isAudioFile(url)) {
+    return null;
+  }
   try {
     // 1. Check if metadata is already cached in RAM
     if (mp3MetadataCache.has(url)) {
@@ -167,12 +291,12 @@ export async function readMp3ID3Metadata(url: string, authToken?: string): Promi
       }
     }
 
-    // 3. If raw blob is already cached in RAM, parse it instantly with pure-JS ID3 parser
+    // 3. If raw blob is already cached in RAM, parse it instantly with pure-JS metadata parser
     const cachedBlob = rawBlobCache.get(url);
     if (cachedBlob) {
       try {
         const arrayBuf = await cachedBlob.arrayBuffer();
-        const meta = parseID3Bytes(new Uint8Array(arrayBuf));
+        const meta = extractAudioMetadataBytes(new Uint8Array(arrayBuf), url);
         if (meta && (meta.title || meta.artist || meta.albumArtist || meta.album)) {
           mp3MetadataCache.set(url, meta);
           return meta;
@@ -201,7 +325,7 @@ export async function readMp3ID3Metadata(url: string, authToken?: string): Promi
         const blob = await response.blob();
         rawBlobCache.set(url, blob);
         const arrayBuf = await blob.arrayBuffer();
-        const meta = parseID3Bytes(new Uint8Array(arrayBuf));
+        const meta = extractAudioMetadataBytes(new Uint8Array(arrayBuf), url);
         if (meta && (meta.title || meta.artist || meta.albumArtist || meta.album)) {
           mp3MetadataCache.set(url, meta);
           return meta;
@@ -226,11 +350,11 @@ export async function readMp3ID3Metadata(url: string, authToken?: string): Promi
       buffer = await fallbackResponse.arrayBuffer();
     }
     const bytes = new Uint8Array(buffer);
-    const id3v2Meta = parseID3Bytes(bytes);
+    const audioMeta = extractAudioMetadataBytes(bytes, url);
 
-    if (id3v2Meta && id3v2Meta.title && id3v2Meta.artist) {
-      mp3MetadataCache.set(url, id3v2Meta);
-      return id3v2Meta;
+    if (audioMeta && audioMeta.title && audioMeta.artist) {
+      mp3MetadataCache.set(url, audioMeta);
+      return audioMeta;
     }
 
     // Try fetching last 128 bytes for ID3v1 fallback if ID3v2 is incomplete or missing
@@ -245,10 +369,10 @@ export async function readMp3ID3Metadata(url: string, authToken?: string): Promi
         const v1Meta = parseID3v1Bytes(new Uint8Array(v1Buffer));
         if (v1Meta) {
           const combined: Mp3ID3Metadata = {
-            title: id3v2Meta?.title || v1Meta.title,
-            artist: id3v2Meta?.artist || v1Meta.artist,
-            albumArtist: id3v2Meta?.albumArtist || v1Meta.albumArtist || v1Meta.artist,
-            album: id3v2Meta?.album || v1Meta.album
+            title: audioMeta?.title || v1Meta.title,
+            artist: audioMeta?.artist || v1Meta.artist,
+            albumArtist: audioMeta?.albumArtist || v1Meta.albumArtist || v1Meta.artist,
+            album: audioMeta?.album || v1Meta.album
           };
           mp3MetadataCache.set(url, combined);
           return combined;
@@ -256,14 +380,306 @@ export async function readMp3ID3Metadata(url: string, authToken?: string): Promi
       }
     } catch (e) {}
 
-    if (id3v2Meta) {
-      mp3MetadataCache.set(url, id3v2Meta);
+    if (audioMeta) {
+      mp3MetadataCache.set(url, audioMeta);
     }
-    return id3v2Meta;
+    return audioMeta;
   } catch (err) {
     console.warn("Failed to fetch MP3 metadata:", err);
     return null;
   }
+}
+
+export function parseRiffInfoBytes(bytes: Uint8Array): Mp3ID3Metadata | null {
+  if (bytes.length < 12) return null;
+  // Check 'RIFF' ... 'WAVE'
+  if (
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45
+  ) {
+    let offset = 12;
+    const meta: Mp3ID3Metadata = {};
+    const decoder = new TextDecoder('utf-8');
+
+    while (offset + 8 <= bytes.length) {
+      const chunkId = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
+      const chunkSize = bytes[offset + 4] | (bytes[offset + 5] << 8) | (bytes[offset + 6] << 16) | (bytes[offset + 7] << 24);
+      offset += 8;
+
+      if (chunkSize <= 0 || offset + chunkSize > bytes.length + 1) break;
+
+      // Check embedded ID3 chunk in WAV
+      if (chunkId.toLowerCase() === 'id3 ' || chunkId.toLowerCase() === 'id3') {
+        const id3Res = parseID3Bytes(bytes.subarray(offset, offset + chunkSize));
+        if (id3Res) return id3Res;
+      }
+
+      // Check LIST INFO chunk
+      if (chunkId === 'LIST' && chunkSize >= 4) {
+        const listType = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
+        if (listType === 'INFO') {
+          let subOffset = offset + 4;
+          const listLimit = offset + chunkSize;
+
+          while (subOffset + 8 <= listLimit) {
+            const subId = String.fromCharCode(bytes[subOffset], bytes[subOffset + 1], bytes[subOffset + 2], bytes[subOffset + 3]);
+            const subSize = bytes[subOffset + 4] | (bytes[subOffset + 5] << 8) | (bytes[subOffset + 6] << 16) | (bytes[subOffset + 7] << 24);
+            subOffset += 8;
+            if (subSize <= 0 || subOffset + subSize > listLimit) break;
+
+            const textBytes = bytes.subarray(subOffset, subOffset + subSize);
+            let text = decoder.decode(textBytes).replace(/\0.*$/, '').trim();
+
+            if (subId === 'INAM') meta.title = text; // Track Title
+            if (subId === 'IART') meta.artist = text; // Artist
+            if (subId === 'IPRD') meta.album = text;  // Product/Album
+            if (subId === 'IGNR' && !meta.albumArtist) meta.albumArtist = meta.artist;
+
+            subOffset += subSize + (subSize % 2); // Word aligned
+          }
+        }
+      }
+
+      offset += chunkSize + (chunkSize % 2); // Word aligned
+    }
+
+    if (meta.title || meta.artist || meta.album) {
+      if (!meta.albumArtist && meta.artist) meta.albumArtist = meta.artist;
+      return meta;
+    }
+  }
+  return null;
+}
+
+export function parseVorbisCommentBytes(bytes: Uint8Array, offset = 0): Mp3ID3Metadata | null {
+  try {
+    if (offset + 4 > bytes.length) return null;
+    const readUint32LE = (pos: number) => {
+      return (bytes[pos] | (bytes[pos + 1] << 8) | (bytes[pos + 2] << 16) | (bytes[pos + 3] << 24)) >>> 0;
+    };
+
+    let cur = offset;
+    const vendorLen = readUint32LE(cur);
+    cur += 4 + vendorLen;
+    if (cur + 4 > bytes.length) return null;
+
+    const userCommentCount = readUint32LE(cur);
+    cur += 4;
+
+    const meta: Mp3ID3Metadata = {};
+    const decoder = new TextDecoder('utf-8');
+
+    for (let i = 0; i < userCommentCount && cur + 4 <= bytes.length; i++) {
+      const commentLen = readUint32LE(cur);
+      cur += 4;
+      if (cur + commentLen > bytes.length) break;
+
+      const commentStr = decoder.decode(bytes.subarray(cur, cur + commentLen));
+      cur += commentLen;
+
+      const eqIdx = commentStr.indexOf('=');
+      if (eqIdx !== -1) {
+        const key = commentStr.substring(0, eqIdx).toUpperCase();
+        const val = commentStr.substring(eqIdx + 1).trim();
+
+        if (key === 'TITLE' && !meta.title) meta.title = val;
+        if (key === 'ARTIST' && !meta.artist) meta.artist = val;
+        if ((key === 'ALBUMARTIST' || key === 'ALBUM_ARTIST') && !meta.albumArtist) meta.albumArtist = val;
+        if (key === 'ALBUM' && !meta.album) meta.album = val;
+      }
+    }
+
+    if (meta.title || meta.artist || meta.albumArtist || meta.album) {
+      if (!meta.albumArtist && meta.artist) meta.albumArtist = meta.artist;
+      return meta;
+    }
+  } catch (e) {}
+  return null;
+}
+
+export function parseFlacMetadataBytes(bytes: Uint8Array): Mp3ID3Metadata | null {
+  if (bytes.length < 8) return null;
+  // If FLAC has prepended ID3v2 header, try parsing it first
+  if (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) {
+    const id3 = parseID3Bytes(bytes);
+    if (id3 && (id3.title || id3.artist)) return id3;
+  }
+
+  let offset = 0;
+  // Search for 'fLaC' signature
+  while (offset + 4 <= bytes.length && offset < 1024) {
+    if (bytes[offset] === 0x66 && bytes[offset + 1] === 0x4c && bytes[offset + 2] === 0x61 && bytes[offset + 3] === 0x43) {
+      offset += 4;
+      break;
+    }
+    offset++;
+  }
+
+  if (offset + 4 > bytes.length) return null;
+
+  let isLast = false;
+  while (!isLast && offset + 4 <= bytes.length) {
+    const header = bytes[offset];
+    isLast = (header & 0x80) !== 0;
+    const blockType = header & 0x7f;
+    const blockSize = ((bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]) >>> 0;
+    offset += 4;
+
+    if (offset + blockSize > bytes.length) break;
+
+    // Block type 4 is VORBIS_COMMENT
+    if (blockType === 4) {
+      return parseVorbisCommentBytes(bytes, offset);
+    }
+
+    offset += blockSize;
+  }
+
+  return null;
+}
+
+export function parseOggVorbisBytes(bytes: Uint8Array): Mp3ID3Metadata | null {
+  if (bytes.length < 32) return null;
+  // Check 'OggS'
+  if (bytes[0] !== 0x4f || bytes[1] === 0x67 || bytes[2] !== 0x67 || bytes[3] !== 0x53) {
+    // Scan up to first 128 bytes for OggS if prepended
+    let found = -1;
+    for (let i = 0; i < Math.min(bytes.length - 4, 128); i++) {
+      if (bytes[i] === 0x4f && bytes[i + 1] === 0x67 && bytes[i + 2] === 0x67 && bytes[i + 3] === 0x53) {
+        found = i;
+        break;
+      }
+    }
+    if (found === -1) return null;
+  }
+
+  // Search for \x03vorbis comment header packet signature
+  for (let i = 0; i < bytes.length - 7; i++) {
+    if (
+      bytes[i] === 0x03 &&
+      bytes[i + 1] === 0x76 && // 'v'
+      bytes[i + 2] === 0x6f && // 'o'
+      bytes[i + 3] === 0x72 && // 'r'
+      bytes[i + 4] === 0x62 && // 'b'
+      bytes[i + 5] === 0x69 && // 'i'
+      bytes[i + 6] === 0x73    // 's'
+    ) {
+      return parseVorbisCommentBytes(bytes, i + 7);
+    }
+    // Opus comment header signature ('OpusTags')
+    if (
+      bytes[i] === 0x4f && bytes[i + 1] === 0x70 && bytes[i + 2] === 0x75 && bytes[i + 3] === 0x73 &&
+      bytes[i + 4] === 0x54 && bytes[i + 5] === 0x61 && bytes[i + 6] === 0x67 && bytes[i + 7] === 0x73
+    ) {
+      return parseVorbisCommentBytes(bytes, i + 8);
+    }
+  }
+
+  return null;
+}
+
+export function parseMp4MetadataBytes(bytes: Uint8Array): Mp3ID3Metadata | null {
+  if (bytes.length < 16) return null;
+  const readUint32BE = (pos: number) => {
+    return ((bytes[pos] << 24) | (bytes[pos + 1] << 16) | (bytes[pos + 2] << 8) | bytes[pos + 3]) >>> 0;
+  };
+
+  const decoder = new TextDecoder('utf-8');
+  const meta: Mp3ID3Metadata = {};
+
+  const parseBox = (start: number, end: number) => {
+    let cur = start;
+    while (cur + 8 <= end) {
+      const size = readUint32BE(cur);
+      const name = String.fromCharCode(bytes[cur + 4], bytes[cur + 5], bytes[cur + 6], bytes[cur + 7]);
+      const boxEnd = size === 1 ? end : (size > 0 ? Math.min(cur + size, end) : end);
+      if (boxEnd <= cur) break;
+
+      if (name === 'moov' || name === 'udta' || name === 'meta' || name === 'ilst') {
+        const headerOffset = (name === 'meta') ? 12 : 8; // meta box has 4-byte version/flags
+        parseBox(cur + headerOffset, boxEnd);
+      } else if (name === '©nam' || name === 'titl') {
+        const text = extractMp4DataString(cur + 8, boxEnd);
+        if (text && !meta.title) meta.title = text;
+      } else if (name === '©ART' || name === 'perf') {
+        const text = extractMp4DataString(cur + 8, boxEnd);
+        if (text && !meta.artist) meta.artist = text;
+      } else if (name === 'aART') {
+        const text = extractMp4DataString(cur + 8, boxEnd);
+        if (text && !meta.albumArtist) meta.albumArtist = text;
+      } else if (name === '©alb') {
+        const text = extractMp4DataString(cur + 8, boxEnd);
+        if (text && !meta.album) meta.album = text;
+      }
+
+      cur = boxEnd;
+    }
+  };
+
+  const extractMp4DataString = (boxStart: number, boxEnd: number): string => {
+    let p = boxStart;
+    while (p + 16 <= boxEnd) {
+      const subSize = readUint32BE(p);
+      const subName = String.fromCharCode(bytes[p + 4], bytes[p + 5], bytes[p + 6], bytes[p + 7]);
+      if (subName === 'data' && subSize >= 16) {
+        // data box format: 4-byte size, 4-byte 'data', 4-byte flags/type, 4-byte locale, then payload
+        const dataBytes = bytes.subarray(p + 16, p + subSize);
+        return decoder.decode(dataBytes).replace(/\0.*$/, '').trim();
+      }
+      p += (subSize > 0 ? subSize : 8);
+    }
+    return '';
+  };
+
+  try {
+    parseBox(0, bytes.length);
+  } catch (e) {}
+
+  if (meta.title || meta.artist || meta.albumArtist || meta.album) {
+    if (!meta.albumArtist && meta.artist) meta.albumArtist = meta.artist;
+    return meta;
+  }
+  return null;
+}
+
+/**
+ * Universal audio metadata parser supporting MP3 (ID3v1/ID3v2), WAV (RIFF INFO/ID3),
+ * FLAC (Vorbis Comments), OGG (Vorbis Comments), and M4A/AAC (MP4 Atoms).
+ */
+export function extractAudioMetadataBytes(bytes: Uint8Array, filenameOrUrl?: string): Mp3ID3Metadata | null {
+  if (!bytes || bytes.length < 10) return null;
+
+  // 1. Try ID3 parser (MP3, WAV with ID3 chunk, or prepended ID3)
+  const id3 = parseID3Bytes(bytes);
+  if (id3 && (id3.title || id3.artist || id3.album)) {
+    return id3;
+  }
+
+  // 2. Try RIFF INFO parser (WAV)
+  const riff = parseRiffInfoBytes(bytes);
+  if (riff && (riff.title || riff.artist || riff.album)) {
+    return riff;
+  }
+
+  // 3. Try FLAC Vorbis Comment parser
+  const flac = parseFlacMetadataBytes(bytes);
+  if (flac && (flac.title || flac.artist || flac.album)) {
+    return flac;
+  }
+
+  // 4. Try OGG Vorbis / Opus Comment parser
+  const ogg = parseOggVorbisBytes(bytes);
+  if (ogg && (ogg.title || ogg.artist || ogg.album)) {
+    return ogg;
+  }
+
+  // 5. Try MP4 Atom Box parser (M4A)
+  const mp4 = parseMp4MetadataBytes(bytes);
+  if (mp4 && (mp4.title || mp4.artist || mp4.album)) {
+    return mp4;
+  }
+
+  return id3;
 }
 
 export function parseID3Bytes(bytes: Uint8Array): Mp3ID3Metadata | null {
@@ -794,30 +1210,18 @@ export function getActualShowStart(
 }
 
 export function getGatedAssetType(
-  item?: TimeGatedMp3 | null
+  item?: Partial<TimeGatedMp3> | null
 ): 'audio' | 'script' {
-  const url = (item?.mp3Url || '').toLowerCase();
-  if (
-    url.endsWith('.txt') ||
-    url.endsWith('.pdf') ||
-    url.endsWith('.png') ||
-    url.endsWith('.jpg') ||
-    url.endsWith('.jpeg')
-  ) {
-    return 'script';
-  }
-  if (
-    url.endsWith('.mp3') ||
-    url.endsWith('.wav') ||
-    url.endsWith('.m4a') ||
-    url.endsWith('.aac') ||
-    url.endsWith('.flac') ||
-    url.endsWith('.ogg')
-  ) {
-    return 'audio';
-  }
-  if (item?.assetType) return item.assetType;
-  return 'audio';
+  return classifyMediaAsset(item?.mp3Url, item?.assetType);
+}
+
+export function getAnnouncementAssetType(
+  announcement?: Partial<Announcement> | null,
+  slotTime?: Date | string | number
+): 'audio' | 'script' {
+  if (!announcement) return 'audio';
+  const activeMp3 = getActiveMp3ForSlot(announcement as Announcement, slotTime);
+  return getGatedAssetType(activeMp3);
 }
 
 export function normalizeAnnouncement(item: Announcement): Announcement {

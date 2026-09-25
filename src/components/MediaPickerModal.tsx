@@ -1,6 +1,6 @@
 import React from 'react';
 import { FolderOpen, Search, RefreshCw, XCircle, FileText, Square, Play, AlertCircle } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, isAudioFile, isScriptFile, isImageFile, isDocumentFile, getFileExtension } from '../lib/utils';
 
 export interface MediaPickerFile {
   name: string;
@@ -100,7 +100,8 @@ export const MediaPickerModal: React.FC<MediaPickerModalProps> = ({
           <div className="space-y-1 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
             {filteredFiles.length > 0 ? filteredFiles.map((file, i) => {
               const dispDuration = pickerDurations[file.name] || file.duration || '';
-              const isMp3 = file.name.toLowerCase().endsWith('.mp3');
+              const isAudio = isAudioFile(file.name);
+              const ext = getFileExtension(file.name);
               return (
                 <div 
                   key={i}
@@ -130,7 +131,7 @@ export const MediaPickerModal: React.FC<MediaPickerModalProps> = ({
                       </span>
                       
                       {/* Audio metadata duration logic */}
-                      {isMp3 && dispDuration && (
+                      {isAudio && dispDuration && (
                         <span className="text-xs font-mono font-bold text-slate-400 whitespace-nowrap ml-1">
                           ({dispDuration})
                         </span>
@@ -138,7 +139,7 @@ export const MediaPickerModal: React.FC<MediaPickerModalProps> = ({
                     </div>
 
                     {/* Display ID3 Metadata and subtitles if cached */}
-                    {isMp3 && (() => {
+                    {isAudio && (() => {
                       const meta = metadataCache[file.name];
                       if (meta && (meta.title || meta.artist || meta.album)) {
                         const parts = [meta.title, meta.artist, meta.album].filter(Boolean);
@@ -151,17 +152,20 @@ export const MediaPickerModal: React.FC<MediaPickerModalProps> = ({
                       return null;
                     })()}
 
-                    {!isMp3 && (
+                    {!isAudio && (
                       <span className="text-xs font-black text-blue-600 uppercase bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded inline-block mt-0.5 font-sans self-start">
-                        {file.name.toLowerCase().endsWith('.txt') ? "Plain Text Script" :
-                         file.name.toLowerCase().endsWith('.pdf') ? "PDF Document" : "Image Asset"}
+                        {ext === '.txt' ? "Plain Text Script" :
+                         ext === '.pdf' ? "PDF Document" :
+                         ext === '.docx' || ext === '.doc' ? "Word Document" :
+                         ext === '.md' ? "Markdown Script" :
+                         isImageFile(file.name) ? "Image Asset" : "Script File"}
                       </span>
                     )}
                   </div>
 
                   {/* Right: Preview button */}
                   <div className="shrink-0 flex items-center">
-                    {!isMp3 ? (
+                    {!isAudio ? (
                       <button
                         type="button"
                         onClick={(e) => {

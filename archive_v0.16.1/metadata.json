@@ -1,6 +1,0 @@
-{
-  "name": "AMP - Announcement Media Player",
-  "description": "AMP - Announcement Media Player - An app designed for Radio Stations to schedule, play, read, and log announcements and drops.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

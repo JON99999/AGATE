@@ -8,30 +8,10 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LogEntry } from '../types';
-import { cn, getMP3Status } from '../lib/utils';
+import { cn, getMP3Status, classifyMediaAsset } from '../lib/utils';
 
 export const getLogAssetType = (log: LogEntry): 'audio' | 'script' => {
-  if (log.assetType) return log.assetType;
-  
-  const fileName = log.mp3Name ? log.mp3Name.toLowerCase() : '';
-  
-  if (
-    fileName.endsWith('.txt') || 
-    fileName.endsWith('.md') || 
-    fileName.endsWith('.pdf') || 
-    fileName.endsWith('.docx') || 
-    fileName.endsWith('.doc')
-  ) {
-    return 'script';
-  }
-  
-  if (fileName && !fileName.endsWith('.mp3') && !fileName.endsWith('.wav') && !fileName.endsWith('.m4a') && !fileName.endsWith('.ogg')) {
-    if (fileName === 'script' || fileName === 'script file' || fileName.includes('read') || fileName.includes('script')) {
-      return 'script';
-    }
-  }
-  
-  return 'audio';
+  return classifyMediaAsset(log.mp3Name, log.assetType);
 };
 
 interface LogTabProps {

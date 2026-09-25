@@ -50,6 +50,10 @@ import { PlaylistSelectModal } from "./components/PlaylistSelectModal";
 import { PrerecordModal } from "./components/PrerecordModal";
 import { LocationsModal } from "./components/LocationsModal";
 import { ExportModal } from "./components/ExportModal";
+import { DataUpgradeRequiredModal } from "./components/DataUpgradeRequiredModal";
+import { NewerVersionDetectedModal } from "./components/NewerVersionDetectedModal";
+import { ReadOnlyCompatibilityBanner } from "./components/ReadOnlyCompatibilityBanner";
+import { assessDataCompatibility, CompatibilityReport } from "./lib/compatibility";
 import { getInitialTheme, applyTheme, ThemeId } from "./lib/theme";
 import { cn, extractFolderId, getSortedShows, getShowShade, isTimeInShow, getActualShowStart, normalizeAnnouncements, getAllRequiredMp3Urls, getActiveMp3ForSlot, formatExportTimeAmPm } from "./lib/utils";
 import {
@@ -170,6 +174,24 @@ export default function App() {
   const [calendarSubTab, setCalendarSubTab] = useState<"calendar" | "list" | "shows">(
     "calendar",
   );
+
+  const [appFlavorIconUrl, setAppFlavorIconUrl] = useState<string | null>(null);
+  const [appFlavorIconError, setAppFlavorIconError] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/app-flavor')
+      .then(res => res.json())
+      .then(data => {
+        if (data?.iconUrl) {
+          setAppFlavorIconUrl(data.iconUrl);
+        }
+      })
+      .catch(() => {
+        // Fallback gracefully
+        const modeKey = (appModeEnv || 'Admin').toLowerCase();
+        setAppFlavorIconUrl(`https://raw.githubusercontent.com/JON99999/AGATE/assets/src/assets/images/${modeKey}/icon.png`);
+      });
+  }, [appModeEnv]);
 
   const {
     startupStatus,
@@ -623,6 +645,38 @@ export default function App() {
   const [prerecordSelectorMode, setPrerecordSelectorMode] = useState<"show-list" | "manual">("show-list");
   const [showFilterText, setShowFilterText] = useState("");
   const dateSelectRef = useRef<HTMLSelectElement>(null);
+
+  // Schema Version Compatibility State
+  const [compatibilityReport, setCompatibilityReport] = useState<CompatibilityReport | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showNewerVersionModal, setShowNewerVersionModal] = useState(false);
+  const isReadOnlyCompatibility = compatibilityReport?.status === 'NEWER_VERSION_DETECTED' || (!isAdminApp && compatibilityReport?.status === 'OLDER_VERSION_DETECTED');
+
+  const handleConfirmUpgrade = async () => {
+    try {
+      await fetch("/api/compatibility/pre-upgrade-backup", { method: "POST" });
+      await saveAnnouncements(announcements);
+      await saveShows(shows);
+      setShowUpgradeModal(false);
+      setCompatibilityReport({
+        status: 'COMPATIBLE',
+        schemaVersion: 1,
+        minAppVersion: '0.16.0',
+        lastModifiedBy: '0.16.3'
+      });
+    } catch (e) {
+      console.error("Failed to upgrade data schema:", e);
+    }
+  };
+
+  const handleCancelOrChangeFolder = () => {
+    setShowUpgradeModal(false);
+    setShowLocationsModal(true);
+  };
+
+  const handleAcknowledgeNewerVersion = () => {
+    setShowNewerVersionModal(false);
+  };
 
   const isPre = playMode === "Prerecord";
 
@@ -1213,6 +1267,23 @@ export default function App() {
               }
             })
             .catch((e) => console.error("Verify folders check failed:", e));
+
+          fetch("/api/compatibility/inspect")
+            .then((r) => r.json())
+            .then((resData) => {
+              if (resData && resData.success && resData.meta) {
+                const report = assessDataCompatibility(resData.meta);
+                setCompatibilityReport(report);
+                if (report.status === 'OLDER_VERSION_DETECTED') {
+                  if (isAdminApp) {
+                    setShowUpgradeModal(true);
+                  }
+                } else if (report.status === 'NEWER_VERSION_DETECTED') {
+                  setShowNewerVersionModal(true);
+                }
+              }
+            })
+            .catch((e) => console.error("Compatibility inspect check failed:", e));
         } catch (e) {
           console.error("Local mode fetch details failed:", e);
           setIsDriveValidated(false);
@@ -2728,20 +2799,29 @@ export default function App() {
       {/* Top Header - Branding & Nav */}
       <header className="bg-[#0F172A] px-3 py-2 shrink-0 z-20">
         <div className="flex items-center justify-between gap-3 w-full mx-auto">
-          <div className="flex items-center gap-2 text-white">
-            <div
-              className={cn(
-                "w-6 h-6 rounded flex items-center justify-center",
-                playMode === "Live"
-                  ? "bg-purple-600"
-                  : playMode === "Prerecord"
-                    ? "bg-emerald-600"
-                    : "bg-blue-600",
-              )}
-            >
-              <Clock className="w-4 h-4" />
-            </div>
-            <span className="font-bold text-xs tracking-tight hide-app-name">
+          <div className="flex items-center gap-2 text-white shrink-0 min-w-max">
+            {appFlavorIconUrl && !appFlavorIconError ? (
+              <img
+                src={appFlavorIconUrl}
+                alt="AMP Logo"
+                onError={() => setAppFlavorIconError(true)}
+                className="w-6 h-6 object-contain shrink-0 select-none pointer-events-none"
+              />
+            ) : (
+              <div
+                className={cn(
+                  "w-6 h-6 rounded flex items-center justify-center shrink-0",
+                  playMode === "Live"
+                    ? "bg-purple-600"
+                    : playMode === "Prerecord"
+                      ? "bg-emerald-600"
+                      : "bg-blue-600",
+                )}
+              >
+                <Clock className="w-4 h-4" />
+              </div>
+            )}
+            <span className="font-bold text-xs tracking-tight shrink-0 select-none">
               AMP
             </span>
           </div>
@@ -2812,6 +2892,9 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* Read-Only Compatibility Mode Banner */}
+      <ReadOnlyCompatibilityBanner isVisible={isReadOnlyCompatibility} />
 
       {/* Control Strip - Time & Refresh (Collapsed) */}
       {activeTab === "player" && (
@@ -3781,6 +3864,19 @@ export default function App() {
         getDynamicNames={getDynamicNames}
         prerecordDate={prerecordDate}
         prerecordLengthMinutes={prerecordLengthMinutes}
+      />
+
+      {/* Schema Version Compatibility Modals */}
+      <DataUpgradeRequiredModal
+        isOpen={showUpgradeModal}
+        onConfirmUpgrade={handleConfirmUpgrade}
+        onCancelOrChangeFolder={handleCancelOrChangeFolder}
+        schemaVersion={compatibilityReport?.schemaVersion || 0}
+      />
+      <NewerVersionDetectedModal
+        isOpen={showNewerVersionModal}
+        minVersion={compatibilityReport?.minAppVersion || "0.16.0"}
+        onAcknowledge={handleAcknowledgeNewerVersion}
       />
 
       {/* Performance & CPU Overrides Configuration Modal */}

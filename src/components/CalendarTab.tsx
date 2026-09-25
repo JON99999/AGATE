@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Plus, Trash2, Save, FileText, Calendar, Clock, CheckCircle, AlertCircle, AlertTriangle, ShieldAlert, Copy, Check, XCircle, X, FolderOpen, Music, Search, Play, Square, ChevronUp, ChevronDown, RefreshCw, Eye, User, BookOpen, ArrowRight, Edit3, ListChecks, CheckSquare } from 'lucide-react';
 import { Announcement, AnnouncementType, AnnouncementMetadata, Show, TimeGatedMp3, ScheduleIssue } from '../types';
-import { cn, getMP3Status, formatDuration, getFilenameFromUrlOrPath, isTimeInShow, getSortedShows, getShowShade, readMp3ID3Metadata, parseID3Bytes, normalizeAnnouncement, normalizeAnnouncements, formatToDatetimeLocal, getCurrentDatetimeLocal, getDatePart, getTimePart, sortMp3sByStartDate, findFirstGapOrEnd, validateTimeGatedMp3s, getActiveMp3ForSlot, getGatedAssetType, isContiguousMidnightTransition, computeBackfilledEndTime, getNextGapAutoFillStart, formatTime12, formatDatetime12, formatHour12, formatHourShort12 } from '../lib/utils';
+import { cn, getMP3Status, formatDuration, getFilenameFromUrlOrPath, isTimeInShow, getSortedShows, getShowShade, readMp3ID3Metadata, parseID3Bytes, normalizeAnnouncement, normalizeAnnouncements, formatToDatetimeLocal, getCurrentDatetimeLocal, getDatePart, getTimePart, sortMp3sByStartDate, findFirstGapOrEnd, validateTimeGatedMp3s, getActiveMp3ForSlot, getGatedAssetType, isContiguousMidnightTransition, computeBackfilledEndTime, getNextGapAutoFillStart, formatTime12, formatDatetime12, formatHour12, formatHourShort12, isAudioFile, isScriptFile, classifyMediaAsset, AUDIO_EXTENSIONS, SCRIPT_EXTENSIONS } from '../lib/utils';
 import { evaluateScheduleDiagnostics } from '../lib/scheduleDiagnostics';
 import { getPlayableUrl, DRIVE_FOLDERS, getSavedSettings, verifyEvergreensOnDrive, checkEvergreenFolderOnDrive, applyEvergreenChangeOnDrive, availableFilesCache, driveFileNameCache, loadCalendarFromDrive, loadShowsFromDrive } from '../lib/driveService';
 import LiveReadPopout from './LiveReadPopout';
@@ -739,7 +739,7 @@ export default function CalendarTab({ announcements, onSave, isAdmin, onAdminTog
     const allFileNames = Array.from(new Set([...soundLibrary.map(f => f.name), ...tgFiles]));
     
     allFileNames.forEach(filename => {
-      if (filename && filename.toLowerCase().endsWith('.mp3') && !pickerDurations[filename]) {
+      if (filename && isAudioFile(filename) && !pickerDurations[filename]) {
         try {
           const playableUrl = getPlayableUrl(filename);
           if (playableUrl) {
@@ -1065,16 +1065,13 @@ export default function CalendarTab({ announcements, onSave, isAdmin, onAdminTog
     const nameLower = f.name.toLowerCase();
     
     // Filter by unified allowed types
-    const allowed = ['.mp3', '.txt', '.pdf', '.png', '.jpg', '.jpeg'];
-    if (!allowed.some(ext => nameLower.endsWith(ext))) return false;
+    if (!isAudioFile(nameLower) && !isScriptFile(nameLower)) return false;
     
     return nameLower.includes(searchQuery.toLowerCase());
   });
 
   const handleSelectFileFromPicker = (file: { name: string; duration?: string | number; path?: string; size?: string }) => {
-    const nameLower = file.name.toLowerCase();
-    const isScriptExt = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].some(ext => nameLower.endsWith(ext));
-    const inferredAssetType = isScriptExt ? 'script' : 'audio';
+    const inferredAssetType = classifyMediaAsset(file.name);
     const fileDuration = pickerDurations[file.name] || file.duration;
 
     // Cache file immediately
@@ -1375,10 +1372,7 @@ export default function CalendarTab({ announcements, onSave, isAdmin, onAdminTog
 
     const sortedMp3s = validation.sorted.map(m => {
       const sanitizedUrl = getFilenameFromUrlOrPath(m.mp3Url || '');
-      const urlLower = sanitizedUrl.toLowerCase();
-      const isScriptExt = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].some(ext => urlLower.endsWith(ext));
-      const isAudioExt = ['.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'].some(ext => urlLower.endsWith(ext));
-      const derivedAssetType: 'audio' | 'script' = isScriptExt ? 'script' : (isAudioExt ? 'audio' : (m.assetType || 'audio'));
+      const derivedAssetType: 'audio' | 'script' = classifyMediaAsset(sanitizedUrl, m.assetType);
 
       return {
         ...m,
@@ -4541,9 +4535,8 @@ export default function CalendarTab({ announcements, onSave, isAdmin, onAdminTog
                             const hasMissingFile = validation.missingFileIds?.has(item.id) || !item.mp3Url || item.mp3Url.trim() === '';
                             const status = getMP3Status(item.mp3Url);
                             const url = (item.mp3Url || '').toLowerCase();
-                            const isItemMp3 = url.endsWith('.mp3');
-                            const isItemScriptExt = ['.txt', '.pdf', '.png', '.jpg', '.jpeg'].some(ext => url.endsWith(ext));
-                            const isItemAudio = !isItemScriptExt && (isItemMp3 || status.valid);
+                            const isItemAudio = isAudioFile(url);
+                            const isItemScriptExt = isScriptFile(url);
                             const isItemExpired = Boolean(item.endDate && item.endDate.trim() && formatToDatetimeLocal(item.endDate) < nowIso);
 
                             const startGapWarning = hasStartGap 
@@ -4893,7 +4886,7 @@ export default function CalendarTab({ announcements, onSave, isAdmin, onAdminTog
 
                                     {/* Backup Audio File for Live Read / Script */}
                                     {(() => {
-                                      const showBackup = (formData.assetType === 'script' && !isItemMp3) || isItemScriptExt;
+                                      const showBackup = (formData.assetType === 'script' && !isItemAudio) || isItemScriptExt;
                                       if (!showBackup) return null;
 
                                       return (

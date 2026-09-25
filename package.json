@@ -1,7 +1,7 @@
 {
   "name": "amp",
   "private": true,
-  "version": "0.16.2",
+  "version": "0.16.3",
   "description": "AMP - Announcement Media Player - An app designed for Radio Stations to schedule, play, read, and log announcements and drops.",
   "author": "AMP",
   "repository": {
@@ -18,7 +18,7 @@
     "lint": "tsc --noEmit",
     "start": "node dist/server.cjs",
     "desktop": "npm run build && electron .",
-    "dist": "node build-apps.cjs"
+    "dist": "node scripts/build-apps.cjs"
   },
   "build": {
     "appId": "com.amp.scheduler",
@@ -70,6 +70,7 @@
   },
   "dependencies": {
     "express": "^4.21.2",
+    "music-metadata": "^11.16.1",
     "node-id3": "^0.2.9",
     "xlsx": "^0.18.5"
   },

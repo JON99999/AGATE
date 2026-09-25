@@ -577,9 +577,113 @@ export default function LiveReadPopout({
     }
   };
 
+  const isMarkdown = extension === '.md';
   const isText = extension === '.txt' || !extension;
-  const isImage = ['.png', '.jpg', '.jpeg'].includes(extension);
+  const isImage = ['.png', '.jpg', '.jpeg', '.webp'].includes(extension);
   const isPdf = extension === '.pdf';
+
+  // Announcer-friendly lightweight markdown parser
+  const renderMarkdownContent = (content: string) => {
+    if (!content) {
+      return <p className="text-slate-400 italic font-medium text-center py-20">Script content is empty.</p>;
+    }
+
+    const lines = content.split(/\r?\n/);
+    const elements: React.ReactNode[] = [];
+    let currentList: React.ReactNode[] = [];
+
+    const parseInline = (text: string): React.ReactNode[] => {
+      // Split by bold (**text**), italic (*text*), code (`code`)
+      const parts: React.ReactNode[] = [];
+      const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+      let lastIndex = 0;
+      let match: RegExpExecArray | null;
+
+      while ((match = regex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          parts.push(text.substring(lastIndex, match.index));
+        }
+        const token = match[0];
+        if (token.startsWith('**') && token.endsWith('**')) {
+          parts.push(<strong key={match.index} className="font-black text-slate-900 dark:text-white">{token.slice(2, -2)}</strong>);
+        } else if (token.startsWith('*') && token.endsWith('*')) {
+          parts.push(<em key={match.index} className="italic text-slate-700 dark:text-slate-300">{token.slice(1, -1)}</em>);
+        } else if (token.startsWith('`') && token.endsWith('`')) {
+          parts.push(<code key={match.index} className="font-mono bg-slate-200 dark:bg-slate-700 px-1 rounded text-[0.9em]">{token.slice(1, -1)}</code>);
+        }
+        lastIndex = match.index + token.length;
+      }
+
+      if (lastIndex < text.length) {
+        parts.push(text.substring(lastIndex));
+      }
+      return parts.length > 0 ? parts : [text];
+    };
+
+    const flushList = (keyPrefix: number) => {
+      if (currentList.length > 0) {
+        elements.push(
+          <ul key={`ul-${keyPrefix}`} className="list-disc list-inside space-y-1 my-2 ml-2">
+            {currentList}
+          </ul>
+        );
+        currentList = [];
+      }
+    };
+
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith('### ')) {
+        flushList(idx);
+        elements.push(
+          <h3 key={idx} className="font-bold text-slate-800 dark:text-slate-200 mt-4 mb-1" style={{ fontSize: `${zoomLevel * 1.15}px` }}>
+            {parseInline(trimmed.substring(4))}
+          </h3>
+        );
+      } else if (trimmed.startsWith('## ')) {
+        flushList(idx);
+        elements.push(
+          <h2 key={idx} className="font-bold text-slate-800 dark:text-slate-100 mt-5 mb-2" style={{ fontSize: `${zoomLevel * 1.3}px` }}>
+            {parseInline(trimmed.substring(3))}
+          </h2>
+        );
+      } else if (trimmed.startsWith('# ')) {
+        flushList(idx);
+        elements.push(
+          <h1 key={idx} className="font-black text-slate-900 dark:text-white pb-1 border-b border-slate-200 dark:border-slate-700 mt-3 mb-3" style={{ fontSize: `${zoomLevel * 1.5}px` }}>
+            {parseInline(trimmed.substring(2))}
+          </h1>
+        );
+      } else if (trimmed.startsWith('> ')) {
+        flushList(idx);
+        elements.push(
+          <blockquote key={idx} className="border-l-4 border-blue-500 pl-4 py-1 italic bg-blue-50/50 dark:bg-blue-950/30 rounded-r my-2">
+            {parseInline(trimmed.substring(2))}
+          </blockquote>
+        );
+      } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+        currentList.push(
+          <li key={idx} className="leading-relaxed">
+            {parseInline(trimmed.substring(2))}
+          </li>
+        );
+      } else if (trimmed === '') {
+        flushList(idx);
+        elements.push(<div key={idx} className="h-3" />);
+      } else {
+        flushList(idx);
+        elements.push(
+          <p key={idx} className="leading-relaxed mb-2">
+            {parseInline(line)}
+          </p>
+        );
+      }
+    });
+
+    flushList(lines.length);
+    return elements;
+  };
 
   const hasBeenLogged = !!loggedTime;
   const isTimeChangedFromLogged = hasBeenLogged && logTimeText !== initialFormattedLoggedTime;
@@ -630,19 +734,19 @@ export default function LiveReadPopout({
             <span>{currentTimeText}</span>
           </div>
 
-          {/* Zoom Level buttons (for Text scripts, Images, and PDFs) */}
-          {(isText || isImage || isPdf) && (
+          {/* Zoom Level buttons (for Text scripts, Markdown, Images, and PDFs) */}
+          {(isText || isMarkdown || isImage || isPdf) && (
             <div className="flex items-center bg-slate-950 border border-slate-800 rounded overflow-hidden">
               <button 
                 type="button"
                 onClick={handleZoomOut}
                 disabled={
-                  isText ? zoomLevel <= 14 :
+                  (isText || isMarkdown) ? zoomLevel <= 14 :
                   isImage ? imageZoom <= 25 :
                   pdfZoom <= 50
                 }
                 className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer"
-                title={isText ? "Zoom Text Out" : isImage ? "Zoom Image Out" : "Zoom PDF Out"}
+                title={(isText || isMarkdown) ? "Zoom Text Out" : isImage ? "Zoom Image Out" : "Zoom PDF Out"}
               >
                 <ZoomOut className="w-4 h-4" />
               </button>
@@ -650,18 +754,18 @@ export default function LiveReadPopout({
                 className="px-2 text-xs font-mono font-black text-slate-400 border-x border-slate-800 select-none min-w-[3.5rem] text-center"
                 title="Current Zoom Level"
               >
-                {isText ? `${zoomLevel}px` : isImage ? `${imageZoom}%` : `${pdfZoom}%`}
+                {(isText || isMarkdown) ? `${zoomLevel}px` : isImage ? `${imageZoom}%` : `${pdfZoom}%`}
               </div>
               <button 
                 type="button"
                 onClick={handleZoomIn}
                 disabled={
-                  isText ? zoomLevel >= 40 :
+                  (isText || isMarkdown) ? zoomLevel >= 40 :
                   isImage ? imageZoom >= 400 :
                   pdfZoom >= 300
                 }
                 className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white transition-colors disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer"
-                title={isText ? "Zoom Text In" : isImage ? "Zoom Image In" : "Zoom PDF In"}
+                title={(isText || isMarkdown) ? "Zoom Text In" : isImage ? "Zoom Image In" : "Zoom PDF In"}
               >
                 <ZoomIn className="w-4 h-4" />
               </button>
@@ -699,6 +803,16 @@ export default function LiveReadPopout({
           </div>
         ) : (
           <div className="w-full h-full flex flex-col justify-start">
+            {/* Markdown Display */}
+            {isMarkdown && (
+              <div 
+                className="flex-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 overflow-y-auto font-sans leading-relaxed select-text cursor-text text-slate-800 dark:text-slate-100 shadow-inner"
+                style={{ fontSize: `${zoomLevel}px`, lineHeight: 1.6 }}
+              >
+                {renderMarkdownContent(fileContent)}
+              </div>
+            )}
+
             {/* Plain Text Display */}
             {isText && (
               <div 

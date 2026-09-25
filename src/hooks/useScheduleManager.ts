@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, Dispatch, SetStateAction } from 'react';
 import { Announcement, Show, LogEntry } from '../types';
-import { normalizeAnnouncements, isTimeInShow, getActualShowStart } from '../lib/utils';
+import { normalizeAnnouncements, isTimeInShow, getActualShowStart, classifyMediaAsset } from '../lib/utils';
 import {
   getSavedSettings,
   getAccessToken,
@@ -286,9 +286,9 @@ export function useScheduleManager({
       }
     }
 
-    const resolvedAssetType = entry.assetType || (entry.status === 'backup play' ? 'audio' : (
-      (entry.mp3Name && (entry.mp3Name.endsWith('.txt') || entry.mp3Name.endsWith('.pdf') || entry.mp3Name.endsWith('.png') || entry.mp3Name.endsWith('.jpg') || entry.mp3Name.endsWith('.jpeg'))) ? 'script' : 'audio'
-    ));
+    const resolvedAssetType = entry.status === 'backup play' 
+      ? 'audio' 
+      : classifyMediaAsset(entry.mp3Name, entry.assetType);
 
     const enrichedEntry: LogEntry = {
       ...entry,
